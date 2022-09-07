@@ -354,9 +354,8 @@ pub fn module_section<'a>(mod_name: &str, section_name: &str) -> Option<&'a [u8]
 
     for _ in 0..nt_hdr.FileHeader.NumberOfSections {
         let section = unsafe { &*section_ptr };
-        let name = unsafe { std::slice::from_raw_parts(section.Name.as_ptr(), 8) };
 
-        if name == section_name_buf {
+        if section.Name[..] == section_name_buf {
             return Some(span(
                 m.as_ptr() as usize + section.VirtualAddress as usize,
                 unsafe { section.Misc.VirtualSize } as usize,
