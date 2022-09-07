@@ -1,4 +1,4 @@
-use std::{mem::size_of, slice, num::ParseIntError};
+use std::{mem::size_of, num::ParseIntError, slice};
 use windows::Win32::System::{
     LibraryLoader::GetModuleHandleA,
     ProcessStatus::{K32GetModuleInformation, MODULEINFO},
@@ -282,7 +282,7 @@ pub fn module(name: &str) -> Option<usize> {
     }
 }
 
-pub fn module_span<'a>(name: &str) -> Option<&'a [u8]> {
+pub fn module_span(name: &str) -> Option<&[u8]> {
     match unsafe { GetModuleHandleA(name) } {
         Ok(m) => {
             let mut info = MODULEINFO::default();
@@ -319,6 +319,7 @@ mod test {
         assert_eq!(mem.as_ptr(), str.as_ptr());
         assert_eq!(mem.len(), str.len());
     }
+
     #[test]
     fn mem_span_from() {
         let str = "Hello, world!";
@@ -327,6 +328,7 @@ mod test {
         assert_eq!(mem.as_ptr(), str.as_ptr());
         assert_eq!(mem.len(), str.len());
     }
+
     #[test]
     fn mem_abs() {
         use std::ptr::addr_of;
