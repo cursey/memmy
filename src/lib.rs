@@ -1,7 +1,11 @@
-use std::{mem::size_of, num::ParseIntError, slice};
+use std::{ffi::CString, mem::size_of, num::ParseIntError, slice};
+use windows::core::*;
+use windows::Win32::System::Diagnostics::Debug::{IMAGE_NT_HEADERS64, IMAGE_SECTION_HEADER};
+use windows::Win32::System::SystemServices::{IMAGE_DOS_SIGNATURE, IMAGE_NT_SIGNATURE};
 use windows::Win32::System::{
     LibraryLoader::GetModuleHandleA,
     ProcessStatus::{K32GetModuleInformation, MODULEINFO},
+    SystemServices::IMAGE_DOS_HEADER,
     Threading::GetCurrentProcess,
 };
 
@@ -57,7 +61,7 @@ pub fn xrefs(mem: &[u8], address: usize) -> Vec<usize> {
 pub struct Pattern(Vec<Option<u8>>);
 
 impl Pattern {
-    pub fn new(pat: &str) -> Result<Self, ParseIntError> {
+    pub fn new(pat: &str) -> std::result::Result<Self, ParseIntError> {
         let mut mask = Vec::new();
 
         for b in pat.split_ascii_whitespace() {
@@ -276,14 +280,22 @@ pub fn write_u64(address: usize, value: u64) {
 }
 
 pub fn module(name: &str) -> Option<usize> {
-    match unsafe { GetModuleHandleA(name) } {
+    let name = match CString::new(name) {
+        Ok(n) => n,
+        Err(_) => return None,
+    };
+    match unsafe { GetModuleHandleA(PCSTR::from_raw(name.to_bytes().as_ptr())) } {
         Ok(m) => Some(m.0 as usize),
         Err(_) => None,
     }
 }
 
 pub fn module_span(name: &str) -> Option<&[u8]> {
-    match unsafe { GetModuleHandleA(name) } {
+    let name = match CString::new(name) {
+        Ok(n) => n,
+        Err(_) => return None,
+    };
+    match unsafe { GetModuleHandleA(PCSTR::from_raw(name.to_bytes().as_ptr())) } {
         Ok(m) => {
             let mut info = MODULEINFO::default();
 
@@ -305,6 +317,56 @@ pub fn module_span(name: &str) -> Option<&[u8]> {
         }
         Err(_) => None,
     }
+}
+
+pub fn module_section<'a>(mod_name: &str, section_name: &str) -> Option<&'a [u8]> {
+    let m = match module_span(mod_name) {
+        Some(m) => m,
+        None => return None,
+    };
+
+    let mut section_name_buf = vec![];
+
+    for b in section_name.bytes() {
+        section_name_buf.push(b);
+    }
+
+    for _ in 0..8 - section_name_buf.len() {
+        section_name_buf.push(0);
+    }
+
+    let dos_hdr = unsafe { &*(m.as_ptr() as *const IMAGE_DOS_HEADER) };
+
+    if dos_hdr.e_magic != IMAGE_DOS_SIGNATURE {
+        return None;
+    }
+
+    let nt_hdr_ptr = unsafe { m.as_ptr().add(dos_hdr.e_lfanew as usize) };
+    let nt_hdr =
+        unsafe { &*(m.as_ptr().add(dos_hdr.e_lfanew as usize) as *const IMAGE_NT_HEADERS64) };
+
+    if nt_hdr.Signature != IMAGE_NT_SIGNATURE {
+        return None;
+    }
+
+    let mut section_ptr =
+        unsafe { nt_hdr_ptr.add(size_of::<IMAGE_NT_HEADERS64>()) as *const IMAGE_SECTION_HEADER };
+
+    for _ in 0..nt_hdr.FileHeader.NumberOfSections {
+        let section = unsafe { &*section_ptr };
+        let name = unsafe { std::slice::from_raw_parts(section.Name.as_ptr(), 8) };
+
+        if name == section_name_buf {
+            return Some(span(
+                m.as_ptr() as usize + section.VirtualAddress as usize,
+                unsafe { section.Misc.VirtualSize } as usize,
+            ));
+        }
+
+        section_ptr = unsafe { section_ptr.add(1) };
+    }
+
+    None
 }
 
 #[cfg(test)]
@@ -448,6 +510,19 @@ mod test {
     fn mem_module_span() {
         assert!(module_span("kernel32.dll").is_some());
         assert!(module_span("nonexistent.dll").is_none());
+    }
+
+    #[test]
+    fn mem_module_section() {
+        assert!(module_section("kernel32.dll", ".text").is_some());
+        assert!(module_section("kernel32.dll", ".asdf").is_none());
+        assert!(module_section("nonexistent.dll", ".text").is_none());
+
+        let m = module_span("kernel32.dll").unwrap();
+        let section = module_section("kernel32.dll", ".text").unwrap();
+
+        assert!(section.as_ptr() as usize >= m.as_ptr() as usize);
+        assert!(section.as_ptr() as usize + section.len() <= m.as_ptr() as usize + m.len());
     }
 
     #[test]
