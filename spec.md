@@ -8,12 +8,12 @@ The primary user interface is a single executable with subcommands:
 
 ```txt
 memmy procs
-memmy mods  -p 1234
-memmy addr  -p 1234 'client.dll+0x4242->0x123->0x4'
-memmy peek  -p 1234 'client.dll+0x4242->0x123->0x4' u32
-memmy poke  -p 1234 'client.dll+0x4242->0x123->0x4' u32 1337
-memmy scan  -p 1234 --range client.dll u32 1337
-memmy pscan -p 1234 --range client.dll '48 8B ?? ?? 89'
+memmy mods  --pid 1234
+memmy addr  --pid 1234 --expr '<client.dll>+0x4242->0x123->0x4'
+memmy peek  --pid 1234 --expr '<client.dll>+0x4242->0x123->0x4' --type u32
+memmy poke  --pid 1234 --expr '<client.dll>+0x4242->0x123->0x4' --type u32 --value 1337
+memmy scan  --pid 1234 --range '<client.dll>' --type u32 --value 1337
+memmy pscan --pid 1234 --range '<client.dll>' --pattern '48 8B ?? ?? 89'
 ```
 
 The implementation is split into:
@@ -48,6 +48,9 @@ The code follows this style:
 ### 2.1 Types
 
 Types use `PascalCase`.
+
+Structs are public and transparent by default. Use opaque structs only when
+there is a concrete reason to hide representation.
 
 Project-specific types are prefixed with `Memmy_`. File names and private C
 symbols in the core library use the lowercase `memmy_` prefix where a prefix is
@@ -121,7 +124,8 @@ Memmy_Process_Open
 Memmy_Process_Close
 Memmy_Process_Read
 Memmy_Process_Write
-Memmy_ModuleList_Find
+Memmy_ModuleList_FindByName
+Memmy_ModuleList_FindByAddress
 Memmy_AddressExpr_Parse
 Memmy_AddressExpr_Resolve
 Memmy_Pattern_Parse
@@ -274,17 +278,76 @@ memmy/
     zydis/
 
   test/
+    test_memmy_backend.h
+    test_memmy_backend.c
     test_address_expr.c
     test_pattern.c
     test_scan.c
-    test_fake_backend.c
 ```
 
 ---
 
 ## 4. Core Concepts
 
-### 4.1 Remote Addresses
+### 4.1 Context
+
+Platform-touching APIs dispatch through the calling thread's current
+`Memmy_Context`.
+
+```c
+typedef struct Memmy_Context
+{
+    Memmy_Backend *backend;
+} Memmy_Context;
+```
+
+Required functions:
+
+```c
+Memmy_Context *Memmy_Context_Get(void);
+void Memmy_Context_Set(Memmy_Context *ctx);
+
+Memmy_Status Memmy_Context_InitDefault(Arena *arena,
+                                       Memmy_Context *ctx,
+                                       Memmy_Error *error);
+```
+
+`Memmy_Context_Get` returns the current thread-local context. `Memmy_Context_Set`
+sets the current context for the calling thread only.
+
+There is no implicit lazy context allocation. CLI and test entry points must
+initialize and set a context before calling APIs that require platform access.
+Calling a platform-touching API without a current context or without
+`ctx->backend` is `Memmy_Status_InvalidArgument`.
+
+`Memmy_Context_InitDefault` initializes `ctx` with the native backend for the
+current host platform.
+
+`Memmy_Process_Open` stores the selected backend pointer in the arena-owned
+process wrapper. Once a process is open, process operations dispatch through the
+backend stored in that process rather than the current thread-local context.
+
+Example CLI setup:
+
+```c
+Memmy_Context ctx = {0};
+Memmy_Context_InitDefault(arena, &ctx, &error);
+Memmy_Context_Set(&ctx);
+```
+
+Example test setup:
+
+```c
+Test_MemmyBackend *test_backend = Test_MemmyBackend_Create(arena);
+
+Memmy_Context ctx = {0};
+ctx.backend = Test_MemmyBackend_AsBackend(test_backend);
+Memmy_Context_Set(&ctx);
+```
+
+---
+
+### 4.2 Remote Addresses
 
 Remote process addresses are represented as integers, not local pointers.
 
@@ -311,17 +374,36 @@ Platform backends are responsible for casting `Memmy_Addr` to the required OS-sp
 
 ---
 
-### 4.2 Process Handle
+### 4.3 Process Handle
 
-The public process type is opaque.
+The process type is public API surface.
 
 ```c
 typedef struct Memmy_Process Memmy_Process;
+struct Memmy_Process
+{
+    Memmy_Backend *backend;
+    U32 pid;
+    Memmy_PointerWidth pointer_width;
+    void *backend_data;
+};
 ```
 
-Platform-specific state is hidden behind this type.
+`Memmy_Process` objects are allocated from a caller-provided arena. Closing a
+process releases platform resources attached to the wrapper, but does not free
+the wrapper memory; that memory lives until the arena is reset or destroyed.
 
-Example Windows implementation:
+`backend`, `pid`, and `pointer_width` are common process metadata. Callers may
+read these fields. Callers should not mutate `backend` or `backend_data`.
+
+`backend_data` is backend-private state and must not be interpreted outside the
+owning backend. Backend-specific payloads are allocated from the caller-provided
+arena.
+
+`Memmy_Process_Open` sets `backend` from the current thread-local
+`Memmy_Context`. Process-bound operations dispatch through `process->backend`.
+
+Example Windows backend payload:
 
 ```c
 typedef struct Win32_Process
@@ -334,7 +416,7 @@ typedef struct Win32_Process
 
 ---
 
-### 4.3 Pointer Width
+### 4.4 Pointer Width
 
 The target process pointer width is explicit.
 
@@ -352,7 +434,7 @@ Pointer reads in address expression resolution use the target process pointer wi
 
 ---
 
-### 4.4 Endianness
+### 4.5 Endianness
 
 Initial support assumes little-endian targets.
 
@@ -381,12 +463,15 @@ enum
 
     Memmy_Status_InvalidArgument,
     Memmy_Status_NotFound,
+    Memmy_Status_Ambiguous,
     Memmy_Status_AccessDenied,
     Memmy_Status_PartialRead,
     Memmy_Status_PartialWrite,
     Memmy_Status_Unreadable,
     Memmy_Status_Unwritable,
     Memmy_Status_ParseError,
+    Memmy_Status_Overflow,
+    Memmy_Status_InvalidEncoding,
     Memmy_Status_Unsupported,
     Memmy_Status_PlatformError,
     Memmy_Status_OutOfMemory,
@@ -398,7 +483,14 @@ typedef struct Memmy_Error
 {
     Memmy_Status status;
     U32 os_code;
+
     String8 message;
+
+    String8 input;
+    U64 byte_offset;
+    U64 byte_count;
+
+    String8 context;
 } Memmy_Error;
 ```
 
@@ -418,7 +510,68 @@ Guidelines:
 * `Memmy_Status_Ok` means the operation fully succeeded.
 * `Memmy_Status_PartialRead` means at least one byte was read, but less than requested.
 * `Memmy_Status_Unreadable` means the address range could not be read.
+* `Memmy_Status_Ambiguous` means a name matched multiple possible targets.
+* `Memmy_Status_Overflow` means integer parsing, constant folding, address arithmetic, or range sizing overflowed or underflowed.
+* `Memmy_Status_InvalidEncoding` means bytes could not be decoded or encoded using the requested string encoding.
 * `Memmy_Status_PlatformError` means an OS-specific failure occurred and `os_code` should be set.
+
+`message` is a human-readable diagnostic. It may be static or arena-owned.
+
+`context` identifies the subsystem that produced the error. Required initial
+contexts:
+
+```txt
+address_expr
+range_expr
+type
+value
+pattern
+backend
+cli
+```
+
+`input`, `byte_offset`, and `byte_count` are used for parser and CLI argument
+errors. `byte_offset` is a byte offset into `input`. `byte_count` is the length
+of the relevant span. If no span is available, `byte_offset` is `STRING8_NPOS`
+and `byte_count` is `0`.
+
+Text CLI errors should include source context when an input span is available:
+
+```txt
+error: invalid address expression at byte 12: expected offset
+  <client.dll>+
+              ^
+```
+
+JSON errors use a stable object:
+
+```json
+{
+  "ok": false,
+  "error": {
+    "status": "parse_error",
+    "message": "expected offset",
+    "context": "address_expr",
+    "input": "<client.dll>+",
+    "byte_offset": 12,
+    "byte_count": 1,
+    "os_code": 0
+  }
+}
+```
+
+Exit codes:
+
+```txt
+0  success
+1  general failure
+2  invalid command line, parse error, or value encoding error
+3  target not found or ambiguous target
+4  access denied
+5  partial read or partial write
+6  unsupported operation
+7  platform error
+```
 
 ---
 
@@ -447,10 +600,14 @@ Windows, Linux, or macOS SDK headers directly. They interact with platform
 functionality through `Memmy_Backend` and use `Os_*`, `Fs_*`, or `Process_*`
 for local host operations.
 
-Platform-specific state is private to the backend implementation. Public code
-uses opaque `Memmy_Process` handles, `Memmy_Backend`, and integer
-`Memmy_Addr` values. Casts between `Memmy_Addr` and native pointer types happen
-only inside platform backend code.
+Backend-specific state is private to the backend implementation and hangs off
+`Memmy_Process.backend_data`. Public code uses the common `Memmy_Process`
+fields, `Memmy_Backend`, and integer `Memmy_Addr` values. Casts between
+`Memmy_Addr` and native pointer types happen only inside platform backend code.
+
+Platform-touching top-level APIs use the current thread-local `Memmy_Context`.
+Process operations use the backend pointer stored in the `Memmy_Process` by
+`Memmy_Process_Open`.
 
 ```c
 typedef struct Memmy_Backend Memmy_Backend;
@@ -465,7 +622,8 @@ typedef struct Memmy_Backend
                                  Memmy_ProcessList *out,
                                  Memmy_Error *error);
 
-    Memmy_Status (*open_process)(U32 pid,
+    Memmy_Status (*open_process)(Arena *arena,
+                               U32 pid,
                                Memmy_ProcessAccess access,
                                Memmy_Process **out,
                                Memmy_Error *error);
@@ -513,7 +671,9 @@ enum
 };
 ```
 
-The CLI should produce clear errors when a command requires an unsupported capability.
+The CLI should produce clear errors when a command requires an unsupported
+capability. `Memmy_BackendCap_Protect` is reserved for future memory protection
+changes and is not required by initial `poke`.
 
 ---
 
@@ -524,6 +684,7 @@ The CLI should produce clear errors when a command requires an unsupported capab
 ```c
 typedef struct Memmy_ProcessInfo
 {
+    ListLink link;
     U32 pid;
     String8 name;
     String8 path;
@@ -532,18 +693,22 @@ typedef struct Memmy_ProcessInfo
 ```
 
 ```c
-typedef struct Memmy_ProcessNode
-{
-    struct Memmy_ProcessNode *next;
-    Memmy_ProcessInfo info;
-} Memmy_ProcessNode;
-
 typedef struct Memmy_ProcessList
 {
-    Memmy_ProcessNode *first;
-    Memmy_ProcessNode *last;
-    U64 count;
+    List list; // Memmy_ProcessInfo
 } Memmy_ProcessList;
+```
+
+Lists are zero-initializable and own no memory. List elements are
+arena-allocated and embed their own `ListLink`. A given element can be in only
+one list through a given link. Use `List_ForEach` and `List_ForEachReverse` for
+iteration:
+
+```c
+List_ForEach(Memmy_ProcessInfo, process_info, &processes->list, link)
+{
+    /* ... */
+}
 ```
 
 ### 7.2 Process Access
@@ -565,13 +730,21 @@ Memmy_Status Memmy_ListProcesses(Arena *arena,
                              Memmy_ProcessList *out,
                              Memmy_Error *error);
 
-Memmy_Status Memmy_Process_Open(U32 pid,
+Memmy_ProcessInfo *Memmy_ProcessList_Push(Arena *arena,
+                                          Memmy_ProcessList *list);
+
+Memmy_Status Memmy_Process_Open(Arena *arena,
+                            U32 pid,
                             Memmy_ProcessAccess access,
                             Memmy_Process **out,
                             Memmy_Error *error);
 
 void Memmy_Process_Close(Memmy_Process *process);
 ```
+
+`Memmy_Process_Close` releases OS/backend resources only. It does not free the
+`Memmy_Process` wrapper. Implementations should clear native handles after
+closing so repeated close attempts are harmless where practical.
 
 ---
 
@@ -582,6 +755,7 @@ void Memmy_Process_Close(Memmy_Process *process);
 ```c
 typedef struct Memmy_Module
 {
+    ListLink link;
     String8 name;
     String8 path;
     Memmy_Addr base;
@@ -590,17 +764,9 @@ typedef struct Memmy_Module
 ```
 
 ```c
-typedef struct Memmy_ModuleNode
-{
-    struct Memmy_ModuleNode *next;
-    Memmy_Module module;
-} Memmy_ModuleNode;
-
 typedef struct Memmy_ModuleList
 {
-    Memmy_ModuleNode *first;
-    Memmy_ModuleNode *last;
-    U64 count;
+    List list; // Memmy_Module
 } Memmy_ModuleList;
 ```
 
@@ -612,14 +778,33 @@ Memmy_Status Memmy_Process_ListModules(Arena *arena,
                                    Memmy_ModuleList *out,
                                    Memmy_Error *error);
 
-Memmy_Module *Memmy_ModuleList_FindByName(Memmy_ModuleList *modules,
-                                      String8 name);
+Memmy_Module *Memmy_ModuleList_Push(Arena *arena,
+                                    Memmy_ModuleList *list);
 
-Memmy_Module *Memmy_ModuleList_FindByAddress(Memmy_ModuleList *modules,
-                                         Memmy_Addr addr);
+Memmy_Status Memmy_ModuleList_FindByName(Memmy_ModuleList *modules,
+                                         String8 name,
+                                         Memmy_Module **out,
+                                         Memmy_Error *error);
+
+Memmy_Status Memmy_ModuleList_FindByAddress(Memmy_ModuleList *modules,
+                                            Memmy_Addr addr,
+                                            Memmy_Module **out,
+                                            Memmy_Error *error);
 ```
 
-Module name lookup is case-insensitive on Windows. Linux and macOS behavior should be defined by the backend, but the CLI should generally try to be forgiving.
+Module names in address and range expressions are matched against
+`Memmy_Module.name`, not full module paths. The initial version does not support
+path-qualified module disambiguation.
+
+Module name lookup is case-insensitive on Windows and case-sensitive on Linux
+and macOS. If no module matches, lookup returns `Memmy_Status_NotFound`. If
+multiple modules match, lookup returns `Memmy_Status_Ambiguous` rather than
+choosing arbitrarily.
+
+Address lookup returns the module whose half-open range `[base, base + size)`
+contains the address. If no module contains the address, it returns
+`Memmy_Status_NotFound`. If multiple modules contain the address, it returns
+`Memmy_Status_Ambiguous`.
 
 ---
 
@@ -652,6 +837,7 @@ enum
 ```c
 typedef struct Memmy_Region
 {
+    ListLink link;
     Memmy_Addr base;
     Memmy_Size size;
     Memmy_RegionAccess access;
@@ -660,19 +846,15 @@ typedef struct Memmy_Region
 ```
 
 ```c
-typedef struct Memmy_RegionNode
-{
-    struct Memmy_RegionNode *next;
-    Memmy_Region region;
-} Memmy_RegionNode;
-
 typedef struct Memmy_RegionList
 {
-    Memmy_RegionNode *first;
-    Memmy_RegionNode *last;
-    U64 count;
+    List list; // Memmy_Region
 } Memmy_RegionList;
 ```
+
+Regions are half-open ranges `[base, base + size)`. Backends must not emit
+zero-sized regions. Backend region lists should be sorted by `base` ascending
+and non-overlapping for the initial version.
 
 ### 9.2 Required Functions
 
@@ -682,10 +864,30 @@ Memmy_Status Memmy_Process_ListRegions(Arena *arena,
                                    Memmy_RegionList *out,
                                    Memmy_Error *error);
 
+Memmy_Region *Memmy_RegionList_Push(Arena *arena,
+                                    Memmy_RegionList *list);
+
+Memmy_Status Memmy_RegionList_FindByAddress(Memmy_RegionList *regions,
+                                            Memmy_Addr addr,
+                                            Memmy_Region **out,
+                                            Memmy_Error *error);
+
 B32 Memmy_Region_IsReadable(Memmy_Region *region);
 B32 Memmy_Region_IsWritable(Memmy_Region *region);
 B32 Memmy_Region_IsExecutable(Memmy_Region *region);
 ```
+
+`Memmy_RegionList_FindByAddress` returns the region containing `addr`. If no
+region contains the address, it returns `Memmy_Status_NotFound`. If multiple
+regions contain the address, it returns `Memmy_Status_Ambiguous`, though valid
+backend output should avoid overlap.
+
+`Memmy_Region_IsReadable`, `Memmy_Region_IsWritable`, and
+`Memmy_Region_IsExecutable` return false for guard, free, or reserved regions
+even if platform access bits are unusual.
+
+Scanners consider only committed readable regions by default. Scan flags further
+filter those candidate regions.
 
 ---
 
@@ -713,6 +915,21 @@ Memmy_Status Memmy_Process_Write(Memmy_Process *process,
                              Memmy_Error *error);
 ```
 
+The initial version does not change remote memory protection.
+`Memmy_Process_Write` attempts a direct backend write and reports the result. It
+does not temporarily make pages writable.
+
+If the backend or OS can identify a write failure as protection-related, return
+`Memmy_Status_Unwritable`. If the process handle lacks required rights, return
+`Memmy_Status_AccessDenied`. Other native failures use
+`Memmy_Status_PlatformError`.
+
+The CLI `poke` command does not require region enumeration in the initial
+version. It may report writability from region data if that data is already
+available, but it should not require `ListRegions` just to perform a write.
+`poke --dry-run` reads the old value and reports the planned write without
+changing memory.
+
 ### 10.3 Pointer Read
 
 Pointer reads are used by the address expression resolver.
@@ -739,10 +956,10 @@ Examples:
 
 ```txt
 0x10000abcd
-client.dll+0x4242
 <client.dll>+0x4242
 0x100001234->0x123
-client.dll+0x4242->0x123->0x4
+<client.dll>+0x4242->0x123->0x4
+<client.dll>+0x4242->(8 * 0x30)->(-0x4)
 ```
 
 ### 11.1 Semantics
@@ -756,7 +973,7 @@ A plain address resolves directly:
 A module expression resolves relative to module base:
 
 ```txt
-client.dll+0x4242
+<client.dll>+0x4242
 ```
 
 means:
@@ -780,7 +997,7 @@ ReadPtr(addr) + offset
 Therefore:
 
 ```txt
-client.dll+0x4242->0x123->0x4
+<client.dll>+0x4242->0x123->0x4
 ```
 
 means:
@@ -791,10 +1008,26 @@ addr = ReadPtr(addr) + 0x123
 addr = ReadPtr(addr) + 0x4
 ```
 
+Offsets may be parenthesized constant expressions. Constant expressions use
+standard arithmetic precedence: parentheses, unary `+`/`-`, `*`/`/`/`%`, then
+`+`/`-`, with binary operators associating left-to-right.
+
+```txt
+<client.dll>+0x4242->(8 * 0x30)->(-0x4)
+```
+
+means:
+
+```txt
+addr = module_base("client.dll") + 0x4242
+addr = ReadPtr(addr) + 0x180
+addr = ReadPtr(addr) - 0x4
+```
+
 A bare dereference is also valid:
 
 ```txt
-client.dll+0x4242->
+<client.dll>+0x4242->
 ```
 
 meaning:
@@ -806,30 +1039,65 @@ addr = ReadPtr(module_base("client.dll") + 0x4242)
 ### 11.2 Grammar
 
 ```txt
-address_expr  := base step*
+address_expr  := base address_op*
 
 base          := integer
                | module
 
-module        := ident
-               | '<' module_name '>'
+module        := '<' module_name '>'
 
-step          := add
+address_op    := add
                | sub
                | deref
-               | deref_add
+               | deref_offset
 
-add           := '+' integer
-sub           := '-' integer
+add           := '+' offset
+sub           := '-' offset
 deref         := '->'
-deref_add     := '->' integer
+deref_offset  := '->' offset
+
+offset        := integer
+               | '(' const_expr ')'
+
+const_expr    := sum
+sum           := product (('+' | '-') product)*
+product       := unary (('*' | '/' | '%') unary)*
+unary         := ('+' | '-') unary
+               | integer
+               | '(' const_expr ')'
 
 integer       := hex_integer
                | decimal_integer
 
-hex_integer   := '0x' [0-9a-fA-F]+
+hex_integer   := ('0x' | '0X') [0-9a-fA-F]+
 decimal_integer := [0-9]+
 ```
+
+Module names are always bracketed. `module_name` must be non-empty and must not
+contain `>`. Leading or trailing whitespace inside the brackets is invalid.
+
+Whitespace is allowed inside parenthesized constant expressions. Whitespace is
+not otherwise allowed in address expressions for the initial version.
+
+Integers are unsigned tokens. Negative offsets are expressed only through
+parenthesized constant expressions:
+
+```txt
+<client.dll>->(-0x4)
+```
+
+The following forms are invalid:
+
+```txt
+client.dll+0x4242
+<client.dll>->-0x4
+<client.dll>->+0x4
+<client.dll>+(foo)
+```
+
+Integer literal overflow, constant-expression overflow, division by zero, and
+modulo by zero are parse-time failures. Arithmetic overflow or underflow while
+resolving an address is a resolve-time `Memmy_Status_Overflow`.
 
 ### 11.3 Parsed Representation
 
@@ -849,7 +1117,7 @@ enum
     Memmy_AddressExprOpKind_Add,
     Memmy_AddressExprOpKind_Sub,
     Memmy_AddressExprOpKind_Deref,
-    Memmy_AddressExprOpKind_DerefAdd,
+    Memmy_AddressExprOpKind_DerefOffset,
 };
 ```
 
@@ -857,7 +1125,7 @@ enum
 typedef struct Memmy_AddressExprOp
 {
     Memmy_AddressExprOpKind kind;
-    U64 value;
+    I64 value;
 } Memmy_AddressExprOp;
 ```
 
@@ -887,7 +1155,7 @@ enum
     Memmy_AddressTraceStepKind_Add,
     Memmy_AddressTraceStepKind_Sub,
     Memmy_AddressTraceStepKind_Deref,
-    Memmy_AddressTraceStepKind_DerefAdd,
+    Memmy_AddressTraceStepKind_DerefOffset,
 };
 ```
 
@@ -897,8 +1165,9 @@ typedef struct Memmy_AddressTraceStep
     Memmy_AddressTraceStepKind kind;
     String8 text;
     Memmy_Addr input_addr;
+    Memmy_Addr read_addr;
     Memmy_Addr output_addr;
-    U64 value;
+    I64 value;
 } Memmy_AddressTraceStep;
 ```
 
@@ -929,6 +1198,43 @@ Memmy_Status Memmy_AddressExpr_Resolve(Arena *arena,
 ```
 
 If `trace` is null, no trace is produced.
+
+Trace records are resolver events, not parser events. Parenthesized constant
+expressions are folded before resolution; trace steps keep the original
+operation text in `text` and the folded value in `value`.
+
+For non-dereference steps, `read_addr` is `0`.
+
+For `Memmy_AddressTraceStepKind_Deref`:
+
+```txt
+input_addr   address where the pointer was read
+read_addr    pointer value read from input_addr
+value        0
+output_addr  read_addr
+```
+
+For `Memmy_AddressTraceStepKind_DerefOffset`:
+
+```txt
+input_addr   address where the pointer was read
+read_addr    pointer value read from input_addr
+value        folded signed offset
+output_addr  read_addr + value
+```
+
+Example trace for:
+
+```txt
+<client.dll>+0x4242->(8 * 0x30)->(-0x4)
+```
+
+```txt
+ModuleBase   text="<client.dll>"       output=module_base("client.dll")
+Add          text="+0x4242"            input=module_base, value=0x4242, output=module_base+0x4242
+DerefOffset  text="->(8 * 0x30)"       input=addr, read=ReadPtr(addr), value=0x180, output=read+0x180
+DerefOffset  text="->(-0x4)"           input=addr, read=ReadPtr(addr), value=-4, output=read-0x4
+```
 
 ---
 
@@ -999,6 +1305,102 @@ U64 Memmy_Type_Size(Memmy_Type type,
                   Memmy_PointerWidth pointer_width);
 ```
 
+### 12.1 Value Parsing and Encoding
+
+Scalar types are:
+
+```txt
+u8 u16 u32 u64
+i8 i16 i32 i64
+f32 f64
+ptr
+```
+
+Integer values accept decimal and hexadecimal forms with an optional leading
+sign:
+
+```txt
+123
+-123
+0x7b
+-0x7b
+```
+
+Integer values must fit exactly in the selected type. Overflow or underflow is
+`Memmy_Status_Overflow`.
+
+`ptr` values use the same integer syntax and are encoded using the target
+process pointer width. A `ptr` value that does not fit the target pointer width
+is `Memmy_Status_Overflow`.
+
+Floating-point values accept decimal forms:
+
+```txt
+1
+1.5
+-1.5
+1e-3
+```
+
+Hex floats, `nan`, and `inf` are not required for the first implementation.
+
+Initial encoding is little-endian for all scalar values.
+
+Payload types are:
+
+```txt
+bytes
+str
+wstr
+```
+
+`bytes` values use strict hexadecimal byte syntax:
+
+```txt
+90 90 90
+DE AD BE EF
+```
+
+Wildcards are not allowed in `bytes` values. Wildcards are only accepted by
+pattern scans through `Memmy_Pattern`.
+
+`str` values are UTF-8. `wstr` values are UTF-16LE. String values are encoded
+without a trailing NUL in the first implementation.
+
+String values do not process escape sequences in the first implementation. The
+argument text is encoded exactly as received from the command line after shell
+quoting has been handled. For embedded NULs, control bytes, or byte-exact
+payloads, use `--type bytes`.
+
+`peek --type bytes`, `peek --type str`, and `peek --type wstr` require
+`--count`. For `bytes` and `str`, `--count` is a byte count. For `wstr`,
+`--count` is a UTF-16 code-unit count.
+
+`scan --type bytes`, `scan --type str`, and `scan --type wstr` perform exact
+byte-sequence scans after encoding the value. String scans are case-sensitive
+and do not include an implicit trailing NUL.
+
+`peek --type str` validates UTF-8. `peek --type wstr` validates UTF-16LE.
+Invalid remote string data returns `Memmy_Status_InvalidEncoding`. Embedded NULs
+are allowed and are treated as data, not terminators.
+
+Text output escapes control and non-printable characters for decoded strings.
+JSON output uses standard JSON string escaping. For `bytes`, `str`, and `wstr`,
+JSON includes raw bytes as `hex`; for valid strings it also includes decoded
+`value`:
+
+```json
+{
+  "type": "str",
+  "value": "hello\u0000world",
+  "hex": "68 65 6c 6c 6f 00 77 6f 72 6c 64"
+}
+```
+
+`poke --type str` and `poke --type wstr` encode local command-line text. If the
+CLI cannot convert the command-line argument into the requested encoding, it
+returns `Memmy_Status_InvalidEncoding`.
+
 ---
 
 ## 13. Pattern Scanning
@@ -1057,8 +1459,15 @@ typedef struct Memmy_Pattern
 ### 13.3 Required Functions
 
 ```c
+typedef U32 Memmy_PatternParseFlags;
+enum
+{
+    Memmy_PatternParseFlag_AllowWildcards = 1u << 0,
+};
+
 Memmy_Status Memmy_Pattern_Parse(Arena *arena,
                              String8 text,
+                             Memmy_PatternParseFlags flags,
                              Memmy_Pattern *out,
                              Memmy_Error *error);
 
@@ -1069,6 +1478,11 @@ B32 Memmy_Pattern_Match(Memmy_Pattern *pattern,
 ```
 
 Initial implementation may use a simple linear matcher.
+
+`Memmy_Pattern_Parse` is the shared parser for byte patterns and exact byte
+values. `pscan --pattern` passes `Memmy_PatternParseFlag_AllowWildcards`.
+`scan --type bytes --value` and `poke --type bytes --value` pass `0`, so `?`
+and `??` are rejected for exact byte values.
 
 Future optimizations may include:
 
@@ -1098,16 +1512,23 @@ enum
 ```c
 typedef struct Memmy_Range
 {
+    ListLink link;
     Memmy_Addr base;
     Memmy_Size size;
 } Memmy_Range;
 ```
 
 ```c
+typedef struct Memmy_RangeList
+{
+    List list; // Memmy_Range
+} Memmy_RangeList;
+```
+
+```c
 typedef struct Memmy_ScanOptions
 {
-    Memmy_Range *ranges;
-    U64 range_count;
+    Memmy_RangeList ranges;
 
     Memmy_ScanFlags flags;
 
@@ -1116,28 +1537,35 @@ typedef struct Memmy_ScanOptions
 } Memmy_ScanOptions;
 ```
 
+```c
+Memmy_Range *Memmy_RangeList_Push(Arena *arena,
+                                  Memmy_RangeList *list);
+```
+
+If `options->ranges.list` is empty, scans consider all candidate readable
+regions after flag filtering. If it is non-empty, scans consider only the
+specified ranges.
+
 ### 14.2 Scan Result
 
 ```c
 typedef struct Memmy_ScanResult
 {
+    ListLink link;
     Memmy_Addr addr;
 } Memmy_ScanResult;
 ```
 
 ```c
-typedef struct Memmy_ScanResultNode
-{
-    struct Memmy_ScanResultNode *next;
-    Memmy_ScanResult result;
-} Memmy_ScanResultNode;
-
 typedef struct Memmy_ScanResultList
 {
-    Memmy_ScanResultNode *first;
-    Memmy_ScanResultNode *last;
-    U64 count;
+    List list; // Memmy_ScanResult
 } Memmy_ScanResultList;
+```
+
+```c
+Memmy_ScanResult *Memmy_ScanResultList_Push(Arena *arena,
+                                            Memmy_ScanResultList *list);
 ```
 
 ### 14.3 Value Scan
@@ -1227,13 +1655,70 @@ pscan   Pattern scan process memory.
 
 `--pid` and `--name` are mutually exclusive.
 
-If `--name` matches multiple processes, the command must fail with an ambiguity error and list matching PIDs.
+If `--name` matches multiple processes, the command must fail with
+`Memmy_Status_Ambiguous` and list matching PIDs.
 
-### 15.2 Command: `procs`
+Options are single-use unless explicitly documented as repeatable. Repeating a
+single-use option is `Memmy_Status_InvalidArgument`.
+
+`--json` and `--jsonl` are mutually exclusive. `--quiet` and `--verbose` are
+mutually exclusive.
+
+Command-specific inputs are named options. Commands do not accept positional
+arguments in the initial version.
+
+Common command options:
+
+```txt
+-e, --expr <addr-expr>      Address expression.
+-t, --type <type>           Value type.
+--value <value>             Value text.
+--pattern <pattern>         Byte pattern text.
+--range <range-expr>        Scan range expression.
+--count <count>             Explicit byte or character count.
+--filter <text>             Command-specific name filter.
+```
+
+`--filter` is single-use in the initial version.
+
+`--range` is single-use for `scan` and `pscan`. If no `--range` is provided,
+scan commands use all candidate readable regions after flag filtering.
+
+Scan access filters combine as an intersection. For example, `--readable
+--writable` scans only regions that are both readable and writable.
+
+### 15.2 Command Requirements
+
+The CLI checks backend capabilities before opening a process when possible, and
+requests the minimal process access needed for the command. Unsupported backend
+capabilities produce `Memmy_Status_Unsupported`. OS access failures produce
+`Memmy_Status_AccessDenied` when they can be identified.
+
+Initial command requirements:
+
+```txt
+Command  Required backend capabilities                 Process access
+procs    ListProcs                                     none
+mods     ListModules                                   Query
+addr     Read, ListModules                             Read | Query
+peek     Read, ListModules                             Read | Query
+poke     Read, Write, ListModules                      Read | Write | Query
+poke-dry-run
+         Read, ListModules                             Read | Query
+scan     Read, ListRegions, ListModules                Read | Query
+pscan    Read, ListRegions, ListModules                Read | Query
+```
+
+`poke-dry-run` means `poke` with `--dry-run`. `addr` requires `Read` because
+address expressions may include pointer dereferences. `scan` and `pscan`
+require `ListModules` in the initial version so module ranges and
+module-relative output are consistently available.
+
+### 15.3 Command: `procs`
 
 ```txt
 memmy procs
-memmy procs <filter>
+memmy procs --filter chrome
 memmy procs --json
 ```
 
@@ -1258,12 +1743,12 @@ JSON output:
 ]
 ```
 
-### 15.3 Command: `mods`
+### 15.4 Command: `mods`
 
 ```txt
-memmy mods -p 1234
-memmy mods -p 1234 kernel32
-memmy mods -p 1234 --json
+memmy mods --pid 1234
+memmy mods --pid 1234 --filter kernel32
+memmy mods --pid 1234 --json
 ```
 
 Text output:
@@ -1287,22 +1772,20 @@ JSON output:
 ]
 ```
 
-### 15.4 Command: `addr`
+### 15.5 Command: `addr`
 
 ```txt
-memmy addr -p 1234 'client.dll+0x4242->0x123->0x4'
-memmy addr -p 1234 'client.dll+0x4242->0x123->0x4' --json
+memmy addr --pid 1234 --expr '<client.dll>+0x4242->0x123->0x4'
+memmy addr --pid 1234 --expr '<client.dll>+0x4242->0x123->0x4' --json
 ```
 
 Text output:
 
 ```txt
-client.dll base: 0x00007ff800000000
+<client.dll>    = 0x00007ff800000000
 + 0x4242        = 0x00007ff800004242
-deref           = 0x000001d812340000
-+ 0x123         = 0x000001d812340123
-deref           = 0x000001d856780000
-+ 0x4           = 0x000001d856780004
+->0x123         read 0x000001d812340000, result 0x000001d812340123
+->0x4           read 0x000001d856780000, result 0x000001d856780004
 
 resolved: 0x000001d856780004
 ```
@@ -1311,33 +1794,56 @@ JSON output:
 
 ```json
 {
-  "address_expr": "client.dll+0x4242->0x123->0x4",
+  "address_expr": "<client.dll>+0x4242->0x123->0x4",
   "resolved_address": "0x000001d856780004",
   "trace": [
     {
       "kind": "module_base",
-      "text": "client.dll",
+      "text": "<client.dll>",
       "output_address": "0x00007ff800000000"
+    },
+    {
+      "kind": "add",
+      "text": "+0x4242",
+      "input_address": "0x00007ff800000000",
+      "output_address": "0x00007ff800004242",
+      "value": 16962
+    },
+    {
+      "kind": "deref_offset",
+      "text": "->0x123",
+      "input_address": "0x00007ff800004242",
+      "read_address": "0x000001d812340000",
+      "output_address": "0x000001d812340123",
+      "value": 291
+    },
+    {
+      "kind": "deref_offset",
+      "text": "->0x4",
+      "input_address": "0x000001d812340123",
+      "read_address": "0x000001d856780000",
+      "output_address": "0x000001d856780004",
+      "value": 4
     }
   ]
 }
 ```
 
-### 15.5 Command: `peek`
+### 15.6 Command: `peek`
 
 ```txt
-memmy peek -p 1234 <addr-expr> <type>
-memmy peek -p 1234 <addr-expr> bytes <count>
-memmy peek -p 1234 <addr-expr> str
-memmy peek -p 1234 <addr-expr> wstr
+memmy peek --pid 1234 --expr <addr-expr> --type <type>
+memmy peek --pid 1234 --expr <addr-expr> --type bytes --count <count>
+memmy peek --pid 1234 --expr <addr-expr> --type str --count <count>
+memmy peek --pid 1234 --expr <addr-expr> --type wstr --count <count>
 ```
 
 Examples:
 
 ```txt
-memmy peek -p 1234 'client.dll+0x4242' u32
-memmy peek -p 1234 'client.dll+0x4242' bytes 64
-memmy peek -p 1234 'client.dll+0x4242->0x8' ptr
+memmy peek --pid 1234 --expr '<client.dll>+0x4242' --type u32
+memmy peek --pid 1234 --expr '<client.dll>+0x4242' --type bytes --count 64
+memmy peek --pid 1234 --expr '<client.dll>+0x4242->0x8' --type ptr
 ```
 
 Text output:
@@ -1350,7 +1856,7 @@ JSON output:
 
 ```json
 {
-  "address_expr": "client.dll+0x4242",
+  "address_expr": "<client.dll>+0x4242",
   "resolved_address": "0x000001d856780004",
   "type": "u32",
   "value": 1337,
@@ -1358,19 +1864,20 @@ JSON output:
 }
 ```
 
-### 15.6 Command: `poke`
+### 15.7 Command: `poke`
 
 ```txt
-memmy poke -p 1234 <addr-expr> <type> <value>
-memmy poke -p 1234 <addr-expr> bytes '90 90 90'
-memmy poke -p 1234 <addr-expr> str 'hello'
+memmy poke --pid 1234 --expr <addr-expr> --type <type> --value <value>
+memmy poke --pid 1234 --expr <addr-expr> --type bytes --value '90 90 90'
+memmy poke --pid 1234 --expr <addr-expr> --type str --value 'hello'
+memmy poke --pid 1234 --expr <addr-expr> --type wstr --value 'hello'
 ```
 
 Examples:
 
 ```txt
-memmy poke -p 1234 'client.dll+0x4242' u32 1337
-memmy poke -p 1234 'client.dll+0x4242' bytes '90 90 90'
+memmy poke --pid 1234 --expr '<client.dll>+0x4242' --type u32 --value 1337
+memmy poke --pid 1234 --expr '<client.dll>+0x4242' --type bytes --value '90 90 90'
 ```
 
 Optional safety flag:
@@ -1390,52 +1897,54 @@ would write:
   new:     1337 / 0x00000539
 ```
 
-### 15.7 Command: `scan`
+### 15.8 Command: `scan`
 
 ```txt
-memmy scan -p 1234 <type> <value>
-memmy scan -p 1234 --range <range-expr> <type> <value>
-memmy scan -p 1234 --readable u32 1337
-memmy scan -p 1234 --writable u32 1337
-memmy scan -p 1234 --executable bytes '48 8B'
+memmy scan --pid 1234 --type <type> --value <value>
+memmy scan --pid 1234 --range <range-expr> --type <type> --value <value>
+memmy scan --pid 1234 --readable --type u32 --value 1337
+memmy scan --pid 1234 --writable --type u32 --value 1337
+memmy scan --pid 1234 --executable --type bytes --value '48 8B'
+memmy scan --pid 1234 --type str --value 'player_name'
+memmy scan --pid 1234 --type wstr --value 'player_name'
 ```
 
 Examples:
 
 ```txt
-memmy scan -p 1234 u32 1337
-memmy scan -p 1234 --range client.dll u32 1337
-memmy scan -p 1234 --range 'client.dll+0x1000..+0x5000' u32 1337
+memmy scan --pid 1234 --type u32 --value 1337
+memmy scan --pid 1234 --range '<client.dll>' --type u32 --value 1337
+memmy scan --pid 1234 --range '<client.dll>[0x1000..0x5000]' --type u32 --value 1337
 ```
 
 Text output:
 
 ```txt
 ADDRESS             MODULE+OFFSET
-0x00007ff800004242  client.dll+0x4242
-0x00007ff800007abc  client.dll+0x7abc
+0x00007ff800004242  <client.dll>+0x4242
+0x00007ff800007abc  <client.dll>+0x7abc
 ```
 
 JSONL output:
 
 ```json
-{"address":"0x00007ff800004242","module":"client.dll","offset":"0x4242"}
-{"address":"0x00007ff800007abc","module":"client.dll","offset":"0x7abc"}
+{"address":"0x00007ff800004242","module":"client.dll","offset":"0x4242","expr":"<client.dll>+0x4242"}
+{"address":"0x00007ff800007abc","module":"client.dll","offset":"0x7abc","expr":"<client.dll>+0x7abc"}
 ```
 
-### 15.8 Command: `pscan`
+### 15.9 Command: `pscan`
 
 ```txt
-memmy pscan -p 1234 <pattern>
-memmy pscan -p 1234 --range <range-expr> <pattern>
-memmy pscan -p 1234 --executable <pattern>
+memmy pscan --pid 1234 --pattern <pattern>
+memmy pscan --pid 1234 --range <range-expr> --pattern <pattern>
+memmy pscan --pid 1234 --executable --pattern <pattern>
 ```
 
 Examples:
 
 ```txt
-memmy pscan -p 1234 '48 8B ?? ?? 89'
-memmy pscan -p 1234 --range client.dll '48 8B ?? ?? 89'
+memmy pscan --pid 1234 --pattern '48 8B ?? ?? 89'
+memmy pscan --pid 1234 --range '<client.dll>' --pattern '48 8B ?? ?? 89'
 ```
 
 Output format matches `scan`.
@@ -1449,10 +1958,13 @@ Range expressions are used by `scan` and `pscan`.
 Valid examples:
 
 ```txt
-client.dll
-client.dll+0x1000..+0x5000
+<client.dll>
+<client.dll>[0x1000..0x5000]
+<client.dll>[0x1000:+0x4000]
 0x10000000..0x10010000
-client.dll+0x1000..client.dll+0x5000
+<client.dll>+0x1000..<client.dll>+0x5000
+<client.dll>+0x1000->0x42:+0x5000
+<client.dll>[(8 * 0x30)..(8 * 0x40)]
 ```
 
 Initial required support:
@@ -1460,7 +1972,15 @@ Initial required support:
 ```txt
 module
 address_expr..address_expr
-module+start..+end
+address_expr:+size
+module[start..end]
+module[start:+size]
+```
+
+All ranges are half-open:
+
+```txt
+start..end means [start, end)
 ```
 
 Range type:
@@ -1480,14 +2000,18 @@ Memmy_Status Memmy_RangeExpr_Resolve(Arena *arena,
                                  Memmy_ModuleList *modules,
                                  Memmy_PointerWidth pointer_width,
                                  String8 text,
-                                 Memmy_Range *out,
+                                 Memmy_RangeList *out,
                                  Memmy_Error *error);
 ```
+
+`Memmy_RangeExpr_Resolve` appends resolved ranges to `out`. A single range
+expression currently resolves to one range, but the list output supports future
+range expressions that expand to multiple ranges.
 
 For a module-only range:
 
 ```txt
-client.dll
+<client.dll>
 ```
 
 the range resolves to:
@@ -1495,6 +2019,83 @@ the range resolves to:
 ```txt
 module.base..module.base + module.size
 ```
+
+### 16.1 Grammar
+
+```txt
+range_expr          := module
+                    | module_offset_range
+                    | module_sized_range
+                    | address_range
+                    | address_sized_range
+
+module_offset_range := module '[' const_expr '..' const_expr ']'
+module_sized_range  := module '[' const_expr ':+' const_expr ']'
+address_range       := address_expr '..' address_expr
+address_sized_range := address_expr ':+' size
+size                := integer
+                    | '(' const_expr ')'
+```
+
+Module bracket ranges use module-relative constant offsets only:
+
+```txt
+<client.dll>[0x1000..0x5000]
+```
+
+means:
+
+```txt
+[module_base("client.dll") + 0x1000,
+ module_base("client.dll") + 0x5000)
+```
+
+Module bracket sized ranges use a module-relative start offset and a
+non-negative size:
+
+```txt
+<client.dll>[0x1000:+0x4000]
+```
+
+means:
+
+```txt
+[module_base("client.dll") + 0x1000,
+ module_base("client.dll") + 0x1000 + 0x4000)
+```
+
+Outside module brackets, `..` separates two independently resolved address
+expressions:
+
+```txt
+<client.dll>+0x1000->0x42..0x5000
+```
+
+means:
+
+```txt
+[resolve(<client.dll>+0x1000->0x42), resolve(0x5000))
+```
+
+This is unambiguous, even if the resulting range is probably not useful.
+
+The `:+` form creates a range from a dynamic start address and a non-negative
+constant size:
+
+```txt
+<client.dll>+0x1000->0x42:+0x5000
+<client.dll>+0x1000->0x42:+(8 * 0x100)
+```
+
+means:
+
+```txt
+[resolve(<client.dll>+0x1000->0x42),
+ resolve(<client.dll>+0x1000->0x42) + 0x5000)
+```
+
+Size expressions used with `:+` must evaluate to `>= 0`. Module offset ranges
+must resolve to `end >= start`. Violations are `Memmy_Status_Overflow`.
 
 ---
 
@@ -1521,7 +2122,7 @@ For 32-bit targets:
 When possible, output absolute and module-relative addresses:
 
 ```txt
-0x00007ff800004242  client.dll+0x4242
+0x00007ff800004242  <client.dll>+0x4242
 ```
 
 Function:
@@ -1531,6 +2132,24 @@ String8 Memmy_FormatAddress(Arena *arena,
                           Memmy_ModuleList *modules,
                           Memmy_Addr addr,
                           Memmy_PointerWidth pointer_width);
+```
+
+`Memmy_FormatAddress` returns a copy-paste-valid address expression where
+possible:
+
+```txt
+<client.dll>+0x4242
+```
+
+If no module contains the address, it returns a fixed-width absolute address.
+If the containing module name cannot be represented in bracketed module syntax
+for the initial grammar, such as a name containing `>`, it also falls back to an
+absolute address.
+
+JSON scan results include raw fields and the formatted expression:
+
+```json
+{"address":"0x00007ff800004242","module":"client.dll","offset":"0x4242","expr":"<client.dll>+0x4242"}
 ```
 
 ### 17.3 JSON Rules
@@ -1543,9 +2162,24 @@ JSON output should:
 3. Format sizes as strings when hex is clearer.
 4. Avoid pretty tables.
 5. Avoid human-only prose.
+6. Use the standard error object from the error model for failures.
 ```
 
 Addresses in JSON are strings to avoid integer precision loss in JavaScript consumers.
+
+Successful JSON output is command-shaped, not enveloped. Successful JSONL output
+uses raw result records. JSON and JSONL failures use the standard
+`{"ok":false,"error":...}` object from the error model.
+
+Byte arrays in JSON are lowercase two-digit hexadecimal bytes separated by a
+single space:
+
+```json
+"68 65 6c 6c 6f"
+```
+
+Numeric hex fields keep the `0x` prefix. Byte-array hex does not use `0x`
+prefixes.
 
 ---
 
@@ -1685,7 +2319,20 @@ The CLI should surface permission failures clearly.
 
 The pure core should be testable without touching real processes.
 
-A fake backend should support:
+The test backend is test-only scaffolding and lives in:
+
+```txt
+test/test_memmy_backend.h
+test/test_memmy_backend.c
+```
+
+It implements the same `Memmy_Backend` interface used by real platform
+backends. Tests should exercise core behavior through `Memmy_Backend` where
+practical instead of reaching into platform-specific implementation details.
+Tests install it by assigning `Test_MemmyBackend_AsBackend` to a
+`Memmy_Context` and calling `Memmy_Context_Set`.
+
+The initial test backend may support a single fake process id. It must support:
 
 ```txt
 fixed memory buffer
@@ -1710,20 +2357,32 @@ JSON escaping
 ambiguous process-name handling
 ```
 
-Fake backend type:
+Test backend helpers:
 
 ```c
-typedef struct Memmy_FakeProcess
-{
-    U8 *memory;
-    U64 memory_size;
-    Memmy_Addr base_addr;
+typedef struct Test_MemmyBackend Test_MemmyBackend;
 
-    Memmy_ModuleList modules;
-    Memmy_RegionList regions;
+Test_MemmyBackend *Test_MemmyBackend_Create(Arena *arena);
+Memmy_Backend *Test_MemmyBackend_AsBackend(Test_MemmyBackend *backend);
 
-    Memmy_PointerWidth pointer_width;
-} Memmy_FakeProcess;
+void Test_MemmyBackend_SetMemory(Test_MemmyBackend *backend,
+                                 Memmy_Addr base,
+                                 U8 *bytes,
+                                 U64 size,
+                                 Memmy_PointerWidth pointer_width);
+
+Memmy_Module *Test_MemmyBackend_AddModule(Arena *arena,
+                                          Test_MemmyBackend *backend,
+                                          String8 name,
+                                          Memmy_Addr base,
+                                          Memmy_Size size);
+
+Memmy_Region *Test_MemmyBackend_AddRegion(Arena *arena,
+                                          Test_MemmyBackend *backend,
+                                          Memmy_Addr base,
+                                          Memmy_Size size,
+                                          Memmy_RegionAccess access,
+                                          Memmy_RegionState state);
 ```
 
 ---
@@ -1735,7 +2394,7 @@ typedef struct Memmy_FakeProcess
 ```txt
 memmy --help
 memmy procs
-memmy mods -p <pid>
+memmy mods --pid <pid>
 ```
 
 Includes:
@@ -1751,8 +2410,8 @@ text output
 ### Milestone 2: Memory Read
 
 ```txt
-memmy peek -p <pid> <addr-expr> <type>
-memmy addr -p <pid> <addr-expr>
+memmy peek --pid <pid> --expr <addr-expr> --type <type>
+memmy addr --pid <pid> --expr <addr-expr>
 ```
 
 Includes:
@@ -1768,8 +2427,8 @@ resolve trace
 ### Milestone 3: Memory Write
 
 ```txt
-memmy poke -p <pid> <addr-expr> <type> <value>
-memmy poke --dry-run ...
+memmy poke --pid <pid> --expr <addr-expr> --type <type> --value <value>
+memmy poke --pid <pid> --expr <addr-expr> --type <type> --value <value> --dry-run
 ```
 
 Includes:
@@ -1783,8 +2442,8 @@ write support
 ### Milestone 4: Pattern Scan
 
 ```txt
-memmy pscan -p <pid> <pattern>
-memmy pscan -p <pid> --range <range> <pattern>
+memmy pscan --pid <pid> --pattern <pattern>
+memmy pscan --pid <pid> --range <range> --pattern <pattern>
 ```
 
 Includes:
@@ -1799,8 +2458,8 @@ module-relative result formatting
 ### Milestone 5: Value Scan
 
 ```txt
-memmy scan -p <pid> <type> <value>
-memmy scan -p <pid> --range <range> <type> <value>
+memmy scan --pid <pid> --type <type> --value <value>
+memmy scan --pid <pid> --range <range> --type <type> --value <value>
 ```
 
 Includes:
@@ -1831,7 +2490,7 @@ kernel memory support
 remote machine support
 symbol loading
 PDB/DWARF support
-expression arithmetic beyond simple address expressions
+expression arithmetic outside parenthesized constant offsets
 Cheat Engine-style repeated narrowing scans
 GUI
 scripting language
@@ -1859,6 +2518,6 @@ These may be added later, but they should not complicate the first implementatio
 8. Scans should minimize remote reads.
 9. Help text should teach the address expression language.
 10. Dangerous operations should support dry-run or explain modes.
-11. Core parser/scanner logic should be testable with a fake backend.
+11. Core parser/scanner logic should be testable with Test_MemmyBackend.
 12. Windows comes first, but the API shape must not be Windows-only.
 ```
