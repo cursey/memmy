@@ -122,6 +122,7 @@ System layer, dominant type:
 ```c
 Memmy_Process_Open
 Memmy_Process_Close
+Memmy_Process_IsOpen
 Memmy_Process_Read
 Memmy_Process_Write
 Memmy_ModuleList_FindByName
@@ -157,7 +158,33 @@ Base layer, no dominant type:
 Sort
 ToLower
 AlignPow2
+AddU64Checked
+SubU64Checked
+AddI64ToU64Checked
+AddI64Checked
+SubI64Checked
+MulI64Checked
+DivI64Checked
+ModI64Checked
 ```
+
+Checked arithmetic helpers return `1` when the result is representable and
+written to `out`, and `0` on overflow or underflow. They are declared in
+`base_checked.h`:
+
+```c
+B32 AddU64Checked(U64 a, U64 b, U64 *out);
+B32 SubU64Checked(U64 a, U64 b, U64 *out);
+B32 AddI64ToU64Checked(U64 a, I64 b, U64 *out);
+B32 AddI64Checked(I64 a, I64 b, I64 *out);
+B32 SubI64Checked(I64 a, I64 b, I64 *out);
+B32 MulI64Checked(I64 a, I64 b, I64 *out);
+B32 DivI64Checked(I64 a, I64 b, I64 *out);
+B32 ModI64Checked(I64 a, I64 b, I64 *out);
+```
+
+Overflow-sensitive integer parsing, constant folding, address arithmetic, and
+range sizing should use these helpers rather than unchecked C arithmetic.
 
 ### 2.4 Variables and Fields
 
@@ -207,6 +234,7 @@ memmy/
   base/
     include/
       base_core.h
+      base_checked.h
       base_arena.h
       base_list.h
       base_hashmap.h
@@ -214,6 +242,7 @@ memmy/
       base_string.h
       ...
     src/
+      base_checked.c
       base_arena.c
       base_list.c
       base_hashmap.c
@@ -306,6 +335,8 @@ Required functions:
 ```c
 Memmy_Context *Memmy_Context_Get(void);
 void Memmy_Context_Set(Memmy_Context *ctx);
+Memmy_Context *Memmy_Context_Push(Memmy_Context *ctx);
+void Memmy_Context_Pop(Memmy_Context *old_ctx);
 
 Memmy_Status Memmy_Context_InitDefault(Arena *arena,
                                        Memmy_Context *ctx,
@@ -314,6 +345,9 @@ Memmy_Status Memmy_Context_InitDefault(Arena *arena,
 
 `Memmy_Context_Get` returns the current thread-local context. `Memmy_Context_Set`
 sets the current context for the calling thread only.
+`Memmy_Context_Push` stores the current thread-local context, sets `ctx` as the
+current context, and returns the previous context. `Memmy_Context_Pop` restores
+a context returned by `Memmy_Context_Push`.
 
 There is no implicit lazy context allocation. CLI and test entry points must
 initialize and set a context before calling APIs that require platform access.
@@ -342,7 +376,11 @@ Test_MemmyBackend *test_backend = Test_MemmyBackend_Create(arena);
 
 Memmy_Context ctx = {0};
 ctx.backend = Test_MemmyBackend_AsBackend(test_backend);
-Memmy_Context_Set(&ctx);
+Memmy_Context *old_ctx = Memmy_Context_Push(&ctx);
+
+/* test */
+
+Memmy_Context_Pop(old_ctx);
 ```
 
 ---
@@ -739,12 +777,15 @@ Memmy_Status Memmy_Process_Open(Arena *arena,
                             Memmy_Process **out,
                             Memmy_Error *error);
 
+B32 Memmy_Process_IsOpen(Memmy_Process *process);
+
 void Memmy_Process_Close(Memmy_Process *process);
 ```
 
 `Memmy_Process_Close` releases OS/backend resources only. It does not free the
-`Memmy_Process` wrapper. Implementations should clear native handles after
-closing so repeated close attempts are harmless where practical.
+`Memmy_Process` wrapper. After close, `Memmy_Process_IsOpen(process)` returns
+`0`. Implementations must clear or mark native handle state after closing so
+repeated close attempts are harmless.
 
 ---
 
@@ -1086,6 +1127,11 @@ parenthesized constant expressions:
 <client.dll>->(-0x4)
 ```
 
+Constant expressions used as address offsets must evaluate to a value
+representable as `I64`. For example, `<client.dll>+(0xffffffffffffffff)` is
+invalid even though the literal fits in `U64`, because the resulting signed
+offset does not fit in `I64`.
+
 The following forms are invalid:
 
 ```txt
@@ -1097,7 +1143,27 @@ client.dll+0x4242
 
 Integer literal overflow, constant-expression overflow, division by zero, and
 modulo by zero are parse-time failures. Arithmetic overflow or underflow while
-resolving an address is a resolve-time `Memmy_Status_Overflow`.
+resolving an address is a resolve-time `Memmy_Status_Overflow`. Address
+resolution uses checked arithmetic helpers such as `AddU64Checked`,
+`SubU64Checked`, and `AddI64ToU64Checked` for operations like
+`read_addr + signed_offset`.
+
+Constant expression parsing and evaluation is a shared subsystem used by
+address expressions and range expressions.
+
+```c
+Memmy_Status Memmy_ConstExpr_ParseAndEval(Arena *arena,
+                                          String8 text,
+                                          I64 *out,
+                                          Memmy_Error *error);
+```
+
+`Memmy_ConstExpr_ParseAndEval` evaluates a standalone `const_expr` and returns
+`Memmy_Status_ParseError` for invalid syntax, division by zero, or modulo by
+zero. Integer literal overflow and arithmetic overflow return
+`Memmy_Status_Overflow`. Constant folding uses the signed checked arithmetic
+helpers: `AddI64Checked`, `SubI64Checked`, `MulI64Checked`, `DivI64Checked`,
+and `ModI64Checked`.
 
 ### 11.3 Parsed Representation
 
@@ -1271,7 +1337,7 @@ enum
 typedef struct Memmy_Type
 {
     Memmy_TypeKind kind;
-    U64 size;
+    U64 elem_size;
 } Memmy_Type;
 ```
 
@@ -1300,12 +1366,52 @@ Required functions:
 Memmy_Status Memmy_Type_Parse(String8 text,
                           Memmy_Type *out,
                           Memmy_Error *error);
-
-U64 Memmy_Type_Size(Memmy_Type type,
-                  Memmy_PointerWidth pointer_width);
 ```
 
+`Memmy_Type.elem_size` is the byte size of one value element:
+
+```txt
+u8/i8/bytes/str   1
+u16/i16/wstr      2
+u32/i32/f32       4
+u64/i64/f64       8
+ptr               target pointer width in bytes
+```
+
+Variable-length payload types (`bytes`, `str`, and `wstr`) still have a known
+element size. The total encoded byte length of a concrete value lives on
+`Memmy_Value.size`.
+
 ### 12.1 Value Parsing and Encoding
+
+`Memmy_Value` is the shared arena-owned encoded representation for values
+accepted by `poke` and `scan`.
+
+```c
+typedef struct Memmy_Value
+{
+    Memmy_Type type;
+    U8 *bytes;
+    U64 size;
+} Memmy_Value;
+```
+
+`bytes` points to arena-owned encoded bytes. `size` is the number of encoded
+bytes. `type` is retained for validation, decoding, and output formatting.
+
+Required function:
+
+```c
+Memmy_Status Memmy_Value_Parse(Arena *arena,
+                               String8 text,
+                               Memmy_Type type,
+                               Memmy_PointerWidth pointer_width,
+                               Memmy_Value *out,
+                               Memmy_Error *error);
+```
+
+`poke --type <type> --value <value>` and `scan --type <type> --value <value>`
+both parse their command-line value through `Memmy_Value_Parse`.
 
 Scalar types are:
 
@@ -1481,8 +1587,8 @@ Initial implementation may use a simple linear matcher.
 
 `Memmy_Pattern_Parse` is the shared parser for byte patterns and exact byte
 values. `pscan --pattern` passes `Memmy_PatternParseFlag_AllowWildcards`.
-`scan --type bytes --value` and `poke --type bytes --value` pass `0`, so `?`
-and `??` are rejected for exact byte values.
+`Memmy_Value_Parse` passes `0` when parsing `bytes` values for `scan` and
+`poke`, so `?` and `??` are rejected for exact byte values.
 
 Future optimizations may include:
 
@@ -1575,8 +1681,7 @@ Memmy_Status Memmy_Process_ScanValue(Arena *arena,
                                  Memmy_Process *process,
                                  Memmy_RegionList *regions,
                                  Memmy_ScanOptions *options,
-                                 Memmy_Type type,
-                                 void *value,
+                                 Memmy_Value *value,
                                  Memmy_ScanResultList *out,
                                  Memmy_Error *error);
 ```
@@ -1664,8 +1769,12 @@ single-use option is `Memmy_Status_InvalidArgument`.
 `--json` and `--jsonl` are mutually exclusive. `--quiet` and `--verbose` are
 mutually exclusive.
 
-Command-specific inputs are named options. Commands do not accept positional
-arguments in the initial version.
+Command-specific inputs are named options in the initial version. Named options
+are the canonical form for automation and agent use.
+
+Future versions may add positional shorthand for common human workflows, but
+positional forms must remain aliases for the named-option behavior rather than
+separate command semantics.
 
 Common command options:
 
@@ -1700,19 +1809,25 @@ Initial command requirements:
 Command  Required backend capabilities                 Process access
 procs    ListProcs                                     none
 mods     ListModules                                   Query
-addr     Read, ListModules                             Read | Query
-peek     Read, ListModules                             Read | Query
-poke     Read, Write, ListModules                      Read | Write | Query
+addr     Read; ListModules when expression uses modules
+                                                        Read | Query
+peek     Read; ListModules when expression uses modules
+                                                        Read | Query
+poke     Read, Write; ListModules when expression uses modules
+                                                        Read | Write | Query
 poke-dry-run
-         Read, ListModules                             Read | Query
+         Read; ListModules when expression uses modules Read | Query
 scan     Read, ListRegions, ListModules                Read | Query
 pscan    Read, ListRegions, ListModules                Read | Query
 ```
 
 `poke-dry-run` means `poke` with `--dry-run`. `addr` requires `Read` because
-address expressions may include pointer dereferences. `scan` and `pscan`
-require `ListModules` in the initial version so module ranges and
-module-relative output are consistently available.
+address expressions may include pointer dereferences. Absolute address
+expressions such as `0x000001d856780004` do not require module enumeration.
+Module expressions such as `<client.dll>+0x4242` require `ListModules`.
+Normal `poke` requires `Read` in the initial version so old/new display remains
+available. `scan` and `pscan` require `ListModules` in the initial version so
+module ranges and module-relative output are consistently available.
 
 ### 15.3 Command: `procs`
 
@@ -2037,6 +2152,9 @@ size                := integer
                     | '(' const_expr ')'
 ```
 
+`const_expr` is the shared constant-expression grammar from address
+expressions and is evaluated through `Memmy_ConstExpr_ParseAndEval`.
+
 Module bracket ranges use module-relative constant offsets only:
 
 ```txt
@@ -2077,7 +2195,9 @@ means:
 [resolve(<client.dll>+0x1000->0x42), resolve(0x5000))
 ```
 
-This is unambiguous, even if the resulting range is probably not useful.
+This is unambiguous, but the right endpoint is not relative to the left
+endpoint or to `<client.dll>`. Treat `address_expr..address_expr` as an
+advanced form for ranges with two explicit independently resolved endpoints.
 
 The `:+` form creates a range from a dynamic start address and a non-negative
 constant size:
@@ -2093,6 +2213,9 @@ means:
 [resolve(<client.dll>+0x1000->0x42),
  resolve(<client.dll>+0x1000->0x42) + 0x5000)
 ```
+
+For dynamic-start ranges, prefer `address_expr:+size` over
+`address_expr..address_expr`.
 
 Size expressions used with `:+` must evaluate to `>= 0`. Module offset ranges
 must resolve to `end >= start`. Violations are `Memmy_Status_Overflow`.
@@ -2186,6 +2309,11 @@ prefixes.
 ## 18. Windows Backend
 
 Windows is the first supported backend.
+
+The initial Windows backend is required to fully support same-bitness targets
+and 64-bit hosts inspecting 64-bit or WOW64 32-bit targets. Other
+cross-bitness combinations may return `Memmy_Status_Unsupported` or
+`Memmy_Status_PlatformError` with a clear diagnostic.
 
 ### 18.1 Required APIs
 
@@ -2330,7 +2458,8 @@ It implements the same `Memmy_Backend` interface used by real platform
 backends. Tests should exercise core behavior through `Memmy_Backend` where
 practical instead of reaching into platform-specific implementation details.
 Tests install it by assigning `Test_MemmyBackend_AsBackend` to a
-`Memmy_Context` and calling `Memmy_Context_Set`.
+`Memmy_Context` and calling `Memmy_Context_Push`. Tests should restore the
+previous thread-local context with `Memmy_Context_Pop` before exiting.
 
 The initial test backend may support a single fake process id. It must support:
 
