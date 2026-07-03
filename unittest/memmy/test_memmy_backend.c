@@ -12,12 +12,16 @@ static Memmy_Status Test_MemmyBackend_ListProcesses(Arena *arena, Memmy_ProcessL
     Unused(error);
 
     *out = (Memmy_ProcessList){0};
-    Memmy_ProcessInfo *info = Arena_PushStruct(arena, Memmy_ProcessInfo);
-    info->pid = Test_MemmyBackend_Pid;
-    info->name = String8_Lit("test-process");
-    info->path = String8_Lit("C:\\test\\test-process.exe");
-    info->pointer_width = Memmy_PointerWidth_64;
-    List_PushBack(&out->list, &info->link);
+    Test_MemmyBackend *backend = ContainerOf(Memmy_Context_Get()->backend, Test_MemmyBackend, backend);
+    for (U64 i = 0; i < backend->process_count; i++)
+    {
+        Test_MemmyBackendProcess *src = &backend->processes[i];
+        Memmy_ProcessInfo *info = Memmy_ProcessList_Push(arena, out);
+        info->pid = src->pid;
+        info->name = src->name;
+        info->path = src->path;
+        info->pointer_width = src->pointer_width;
+    }
     return Memmy_Status_Ok;
 }
 
@@ -26,18 +30,28 @@ static Memmy_Status Test_MemmyBackend_OpenProcess(Arena *arena, U32 pid, Memmy_P
 {
     Unused(access);
 
-    if (pid != Test_MemmyBackend_Pid)
+    Test_MemmyBackend *test_backend = ContainerOf(Memmy_Context_Get()->backend, Test_MemmyBackend, backend);
+    Test_MemmyBackendProcess *info = 0;
+    for (U64 i = 0; i < test_backend->process_count; i++)
+    {
+        if (test_backend->processes[i].pid == pid)
+        {
+            info = &test_backend->processes[i];
+            break;
+        }
+    }
+
+    if (info == 0)
     {
         Memmy_Error_Set(error, Memmy_Status_NotFound, String8_Lit("backend"),
                         String8_Lit("test process was not found"));
         return Memmy_Status_NotFound;
     }
 
-    Test_MemmyBackend *test_backend = ContainerOf(Memmy_Context_Get()->backend, Test_MemmyBackend, backend);
     Memmy_Process *process = Arena_PushStruct(arena, Memmy_Process);
     process->backend = &test_backend->backend;
     process->pid = pid;
-    process->pointer_width = test_backend->pointer_width;
+    process->pointer_width = info->pointer_width;
     process->backend_data = test_backend;
     *out = process;
     return Memmy_Status_Ok;
@@ -107,16 +121,22 @@ static Memmy_Status Test_MemmyBackend_Write(Memmy_Process *process, Memmy_Addr a
 static Memmy_Status Test_MemmyBackend_ListModules(Arena *arena, Memmy_Process *process, Memmy_ModuleList *out,
                                                   Memmy_Error *error)
 {
-    Unused(process);
     Unused(error);
 
+    Test_MemmyBackend *backend = (Test_MemmyBackend *)process->backend_data;
     *out = (Memmy_ModuleList){0};
-    Memmy_Module *module = Arena_PushStruct(arena, Memmy_Module);
-    module->name = String8_Lit("test-module.exe");
-    module->path = String8_Lit("C:\\test\\test-module.exe");
-    module->base = 0x10000000;
-    module->size = 0x2000;
-    List_PushBack(&out->list, &module->link);
+    for (U64 i = 0; i < backend->module_count; i++)
+    {
+        Test_MemmyBackendModule *src = &backend->modules[i];
+        if (src->pid == process->pid)
+        {
+            Memmy_Module *module = Memmy_ModuleList_Push(arena, out);
+            module->name = src->name;
+            module->path = src->path;
+            module->base = src->base;
+            module->size = src->size;
+        }
+    }
     return Memmy_Status_Ok;
 }
 
@@ -127,12 +147,18 @@ static Memmy_Status Test_MemmyBackend_ListRegions(Arena *arena, Memmy_Process *p
 
     Test_MemmyBackend *backend = (Test_MemmyBackend *)process->backend_data;
     *out = (Memmy_RegionList){0};
-    Memmy_Region *region = Arena_PushStruct(arena, Memmy_Region);
-    region->base = backend->memory_base;
-    region->size = TEST_MEMMY_BACKEND_MEMORY_SIZE;
-    region->access = Memmy_RegionAccess_Read | Memmy_RegionAccess_Write;
-    region->state = Memmy_RegionState_Committed;
-    List_PushBack(&out->list, &region->link);
+    for (U64 i = 0; i < backend->region_count; i++)
+    {
+        Test_MemmyBackendRegion *src = &backend->regions[i];
+        if (src->pid == process->pid)
+        {
+            Memmy_Region *region = Memmy_RegionList_Push(arena, out);
+            region->base = src->base;
+            region->size = src->size;
+            region->access = src->access;
+            region->state = src->state;
+        }
+    }
     return Memmy_Status_Ok;
 }
 
@@ -152,9 +178,15 @@ void Test_MemmyBackend_Init(Test_MemmyBackend *backend)
                 .list_modules = Test_MemmyBackend_ListModules,
                 .list_regions = Test_MemmyBackend_ListRegions,
             },
-        .pointer_width = Memmy_PointerWidth_64,
         .memory_base = 0x1000,
     };
+
+    Test_MemmyBackend_AddProcess(backend, Test_MemmyBackend_Pid, String8_Lit("test-process"),
+                                 String8_Lit("C:\\test\\test-process.exe"), Memmy_PointerWidth_64);
+    Test_MemmyBackend_AddModule(backend, Test_MemmyBackend_Pid, String8_Lit("test-module.exe"),
+                                String8_Lit("C:\\test\\test-module.exe"), 0x10000000, 0x2000);
+    Test_MemmyBackend_AddRegion(backend, Test_MemmyBackend_Pid, backend->memory_base, TEST_MEMMY_BACKEND_MEMORY_SIZE,
+                                Memmy_RegionAccess_Read | Memmy_RegionAccess_Write, Memmy_RegionState_Committed);
 
     for (U64 i = 0; i < TEST_MEMMY_BACKEND_MEMORY_SIZE; i++)
     {
@@ -165,4 +197,61 @@ void Test_MemmyBackend_Init(Test_MemmyBackend *backend)
 Memmy_Backend *Test_MemmyBackend_AsBackend(Test_MemmyBackend *backend)
 {
     return &backend->backend;
+}
+
+Test_MemmyBackendProcess *Test_MemmyBackend_AddProcess(Test_MemmyBackend *backend, U32 pid, String8 name, String8 path,
+                                                       Memmy_PointerWidth pointer_width)
+{
+    if (backend->process_count >= TEST_MEMMY_BACKEND_MAX_PROCESSES)
+    {
+        return 0;
+    }
+
+    Test_MemmyBackendProcess *process = &backend->processes[backend->process_count++];
+    *process = (Test_MemmyBackendProcess){
+        .pid = pid,
+        .name = name,
+        .path = path,
+        .pointer_width = pointer_width,
+    };
+    return process;
+}
+
+Test_MemmyBackendModule *Test_MemmyBackend_AddModule(Test_MemmyBackend *backend, U32 pid, String8 name, String8 path,
+                                                     Memmy_Addr base, Memmy_Size size)
+{
+    if (backend->module_count >= TEST_MEMMY_BACKEND_MAX_MODULES)
+    {
+        return 0;
+    }
+
+    Test_MemmyBackendModule *module = &backend->modules[backend->module_count++];
+    *module = (Test_MemmyBackendModule){
+        .pid = pid,
+        .name = name,
+        .path = path,
+        .base = base,
+        .size = size,
+    };
+    return module;
+}
+
+Test_MemmyBackendRegion *Test_MemmyBackend_AddRegion(Test_MemmyBackend *backend, U32 pid, Memmy_Addr base,
+                                                     Memmy_Size size, Memmy_RegionAccess access,
+                                                     Memmy_RegionState state)
+{
+    if (backend->region_count >= TEST_MEMMY_BACKEND_MAX_REGIONS)
+    {
+        return 0;
+    }
+
+    Test_MemmyBackendRegion *region = &backend->regions[backend->region_count++];
+    *region = (Test_MemmyBackendRegion){
+        .pid = pid,
+        .base = base,
+        .size = size,
+        .access = access,
+        .state = state,
+    };
+    return region;
 }

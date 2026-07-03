@@ -93,6 +93,9 @@ B32 Memmy_Process_IsOpen(Memmy_Process *process);
 void Memmy_Process_Close(Memmy_Process *process);
 Memmy_Status Memmy_Process_ListModules(Arena *arena, Memmy_Process *process, Memmy_ModuleList *out, Memmy_Error *error);
 Memmy_Status Memmy_Process_ListRegions(Arena *arena, Memmy_Process *process, Memmy_RegionList *out, Memmy_Error *error);
+Memmy_ProcessInfo *Memmy_ProcessList_Push(Arena *arena, Memmy_ProcessList *list);
+Memmy_Module *Memmy_ModuleList_Push(Arena *arena, Memmy_ModuleList *list);
+Memmy_Region *Memmy_RegionList_Push(Arena *arena, Memmy_RegionList *list);
 Memmy_Status Memmy_Process_Read(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size, U64 *bytes_read,
                                 Memmy_Error *error);
 Memmy_Status Memmy_Process_Write(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size, U64 *bytes_written,

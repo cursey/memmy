@@ -152,6 +152,27 @@ Memmy_Status Memmy_Process_ListRegions(Arena *arena, Memmy_Process *process, Mem
     return backend->list_regions(arena, process, out, error);
 }
 
+Memmy_ProcessInfo *Memmy_ProcessList_Push(Arena *arena, Memmy_ProcessList *list)
+{
+    Memmy_ProcessInfo *info = Arena_PushStruct(arena, Memmy_ProcessInfo);
+    List_PushBack(&list->list, &info->link);
+    return info;
+}
+
+Memmy_Module *Memmy_ModuleList_Push(Arena *arena, Memmy_ModuleList *list)
+{
+    Memmy_Module *module = Arena_PushStruct(arena, Memmy_Module);
+    List_PushBack(&list->list, &module->link);
+    return module;
+}
+
+Memmy_Region *Memmy_RegionList_Push(Arena *arena, Memmy_RegionList *list)
+{
+    Memmy_Region *region = Arena_PushStruct(arena, Memmy_Region);
+    List_PushBack(&list->list, &region->link);
+    return region;
+}
+
 Memmy_Status Memmy_Process_Read(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size, U64 *bytes_read,
                                 Memmy_Error *error)
 {
