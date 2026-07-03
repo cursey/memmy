@@ -1,0 +1,24 @@
+# Build outputs
+build/
+*.fdb
+*.d
+
+# Debug symbols
+*.dSYM/
+*.pdb
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# Generated (contains absolute paths)
+compile_commands.json
+
+# Caches
+.cache/
+
+# OS
+.DS_Store
+Thumbs.db
