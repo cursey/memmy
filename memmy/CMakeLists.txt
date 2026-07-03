@@ -1,3 +1,5 @@
-add_library(memmy INTERFACE)
-target_include_directories(memmy INTERFACE include)
-target_link_libraries(memmy INTERFACE base)
+file(GLOB_RECURSE MEMMY_SOURCES CONFIGURE_DEPENDS src/*.c)
+
+add_library(memmy ${MEMMY_SOURCES})
+target_include_directories(memmy PUBLIC include)
+target_link_libraries(memmy PUBLIC base)
