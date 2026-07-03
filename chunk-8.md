@@ -1,55 +1,67 @@
-# Chunk 8: Stable Output, JSON, And Error Contract
+# Chunk 8: Explicit-Range Value Scan
 
 ## Goal
 
-Finish the CLI output contract: stable JSON/JSONL output, standard error
-objects, address formatting, text error spans, and exit codes.
+Implement exact typed-value scanning over exactly one caller-provided absolute
+range, then expose it through `scan`.
 
 ## Spec Coverage
 
-- Section 5: error model, parser spans, JSON error object, exit codes.
-- Sections 15.3-15.9: command text output and JSON/JSONL output shapes.
-- Section 17: address formatting, module-relative formatting, JSON rules.
-- Section 22 milestone 6.
-- Section 24: pleasant human output and stable agent output.
+- `spec-v0.md` section 6: single half-open ranges.
+- `spec-v0.md` section 10: value parsing and bytes wildcard rejection.
+- `spec-v0.md` section 11: `Memmy_Process_ScanValue`, chunking, limits, and
+  optional region intersection.
+- `spec-v0.md` section 12.6: `scan`.
+- `spec-v0.md` section 13: scan text and JSONL address formatting.
+- `spec-v0.md` section 16 milestone 7.
 
 ## Steps
 
-1. Implement `Memmy_FormatAddress`.
-2. Format 64-bit addresses as `0x0000000000000000` width and 32-bit addresses
-   as `0x00000000` width.
-3. Format module-relative expressions when the containing module can be safely
-   represented as `<name>+0xoffset`; otherwise fall back to absolute addresses.
-4. Add JSON escaping helpers for strings and bytes.
-5. Implement successful JSON output for:
-   - `procs`
-   - `mods`
-   - `addr`
-   - `peek`
-6. Upgrade `scan` and `pscan` text output from absolute-only addresses to
-   include module-relative display when available.
-7. Implement JSONL successful output for `scan` and `pscan`.
-8. Implement standard JSON error objects for every command when `--json` or
-   `--jsonl` is active.
-9. Implement text error formatting with source spans where available.
-10. Centralize status-to-exit-code mapping.
+1. Implement `Memmy_Process_ScanValue` as an exact byte-sequence scan over
+   `Memmy_Value.bytes`.
+2. Share the chunked scanner core with `Memmy_Process_ScanPattern` where it
+   keeps behavior identical.
+3. Reuse `Memmy_Value_Parse` for all scan values.
+4. Ensure `bytes` scan values reject wildcard tokens.
+5. Ensure `str` and `wstr` scans are case-sensitive and do not append implicit
+   trailing NUL bytes.
+6. Support scalar, pointer, bytes, UTF-8 string, and UTF-16LE string scans.
+7. Preserve the v0 scan rules:
+   - reads stay inside the requested range
+   - matches may cross chunk boundaries
+   - result addresses are absolute
+   - zero-length ranges produce no results
+   - region listing may optimize reads but must not create input ranges
+   - unreadable-hole and partial-read behavior matches
+     `Memmy_Process_ScanPattern`
+8. Implement CLI:
+   - `memmy scan --pid <pid> --start <addr> --end <addr> --type <type> --value <value>`
+   - `memmy scan --pid <pid> --start <addr> --length <size> --type <type> --value <value>`
+   - optional `--limit <count>`
+   - optional `--chunk-size <bytes>`
+9. Require `Memmy_BackendCap_Read` and `Memmy_ProcessAccess_Read`.
+10. Do not require `ListRegions` for `scan`; use it only as an optimization
+    when available.
+11. Do not add implicit whole-process scans, narrowing scans, `--range`, or
+    access filter options.
 
 ## Tests
 
-1. Unit tests for fixed-width address formatting.
-2. Unit tests for module-relative formatting and fallback cases.
-3. CLI snapshot-style tests proving `scan` and `pscan` text output include
-   module-relative display when available and fall back to absolute-only
-   addresses when not.
-4. Unit tests for JSON escaping, byte-array hex formatting, and stable keys.
-5. CLI snapshot-style tests for text and JSON success output.
-6. CLI snapshot-style tests for JSON and text errors.
-7. Unit tests for exit-code mapping.
+1. Unit tests for scalar value scanning at multiple alignments.
+2. Unit tests for pointer-width-aware `ptr` scans on 32-bit and 64-bit fake
+   processes.
+3. Unit tests for bytes, UTF-8, and UTF-16LE value scans.
+4. Unit tests proving bytes values reject wildcards.
+5. Unit tests for both explicit range forms.
+6. Unit tests proving chunk-boundary matches are found.
+7. Unit tests proving `limit` caps result count.
+8. Unit tests for scan behavior with and without `ListRegions`.
+9. Unit tests proving unreadable holes and partial reads match pattern-scan
+   behavior.
+10. CLI tests for representative `scan` invocations.
 
 ## Done When
 
-- Every command has the specified text output and JSON or JSONL rendering for
-  already-supported command paths.
-- Failures consistently use `Memmy_Error` and the required exit codes.
-- The output behavior is stable enough for humans and agents.
-- The build and tests pass.
+- `scan` satisfies the v0 explicit-range behavior.
+- Pattern and value scanning share range, chunking, and limit semantics.
+- The build and unit tests pass before starting Chunk 8b.

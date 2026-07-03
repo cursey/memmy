@@ -1,48 +1,79 @@
-# Chunk 9: Linux Backend
+# Chunk 9: Windows Backend Hardening And Integration
 
 ## Goal
 
-Add the planned Linux backend behind the existing `Memmy_Backend` interface
-without changing portable core or CLI code.
+Finish and harden the Windows backend required by v0, then verify the CLI
+against real local processes where safe.
+
+Linux and macOS remain future targets in v0; this chunk must not expand the
+platform scope beyond Windows.
 
 ## Spec Coverage
 
-- Section 6: backend boundary and portable OS rules.
-- Section 19: Linux backend plan.
-- Section 24: API shape must not be Windows-only.
+- `spec-v0.md` section 8: backend boundary and capability accuracy.
+- `spec-v0.md` section 9: process, module, region, read, and write APIs.
+- `spec-v0.md` section 11: scan behavior with and without `ListRegions`.
+- `spec-v0.md` section 12: command backend-capability and process-access
+  requirements.
+- `spec-v0.md` section 14: Windows backend APIs and cross-bitness support.
 
 ## Steps
 
-1. Add `memmy/src/platform/linux/` source files matching the backend operation
-   split used by Windows.
-2. Implement Linux backend initialization for `Memmy_Context_InitDefault` when
-   building on Linux.
-3. Implement process enumeration using `/proc`.
-4. Implement process path/name lookup using `/proc/<pid>/` data.
-5. Implement module and region enumeration from `/proc/<pid>/maps`.
-6. Implement process open/close using backend-private state appropriate for
-   Linux.
-7. Implement remote reads using `process_vm_readv` where available.
-8. Implement remote writes using `process_vm_writev` where available.
-9. Add `/proc/<pid>/mem` or `ptrace` fallback only where necessary and keep
-   permission failures clear.
-10. Map Linux failures into existing `Memmy_Status` values.
-11. Ensure Linux backend capabilities accurately reflect available operations.
-12. Update CMake with platform-conditional compilation.
+1. Audit all production includes and confirm native Windows headers appear only
+   under `memmy/src/platform/win32/`.
+2. Verify the Win32 backend capability bitset accurately reflects implemented
+   operations:
+   - `Read`
+   - `Write`
+   - `ListProcs`
+   - `ListModules`
+   - `ListRegions`
+3. Verify access mapping for:
+   - `Memmy_ProcessAccess_Read`
+   - `Memmy_ProcessAccess_Write`
+   - `Memmy_ProcessAccess_Query`
+4. Verify process enumeration reports stable pid, name, path, and pointer-width
+   data where available.
+5. Verify module enumeration reports name, path, base, and size.
+6. Verify region enumeration reports base, size, access, and state without
+   wrapping `base + size` in CLI output.
+7. Verify same-bitness targets work.
+8. Verify 64-bit hosts can inspect 64-bit and WOW64 32-bit targets.
+9. Return `Memmy_Status_Unsupported` with a clear diagnostic for unsupported
+   cross-bitness cases.
+10. Harden read/write error mapping for common Windows failures:
+    - access denied
+    - partial copy
+    - invalid or unreadable address
+    - invalid or unwritable address
+    - other platform failures with `os_code`
+11. Verify scan chunk reads behave correctly when regions are readable,
+    unreadable, guard, reserved, or free.
+12. Confirm Windows backend code performs pointer casts only at the backend
+    boundary.
+13. Add integration tests or documented smoke-test commands that are safe on a
+    developer machine.
 
 ## Tests
 
-1. Existing pure-core and CLI parser tests pass unchanged on Linux.
-2. Linux integration smoke test:
+1. Full unit test suite passes on Windows.
+2. Windows integration smoke tests:
    - `memmy procs`
    - `memmy mods --pid <current-process-pid>`
-   - safe read from a known current-process address when practical
-3. Region mapping tests using representative `/proc/<pid>/maps` fixtures.
-4. Permission-denied tests where practical in CI or documented manual checks.
+   - `memmy regions --pid <current-process-pid>`
+3. Safe current-process fixture tests for:
+   - `peek --addr`
+   - `poke --addr --dry-run`
+   - normal `poke` against controlled writable memory
+   - `pscan --start ... --length ...`
+   - `scan --start ... --length ...`
+4. Manual or automated verification for WOW64 pointer width when available.
+5. Negative tests for access-denied and unsupported cases where practical.
 
 ## Done When
 
-- Linux builds without Windows headers or Windows-only assumptions.
-- The same CLI commands work against the Linux backend where permissions allow.
-- Unsupported or permission-limited operations return clear `Memmy_Error`
-  diagnostics.
+- The Windows backend satisfies every v0 backend requirement.
+- Real-process smoke tests pass or have documented platform/permission reasons
+  for any skipped case.
+- No future-platform implementation has been added.
+- The build and unit tests pass before starting Chunk 10.

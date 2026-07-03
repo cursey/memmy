@@ -1,69 +1,69 @@
-# Chunk 6: Range Expressions And Pattern Scan
+# Chunk 6: Absolute Poke And Dry Run
 
 ## Goal
 
-Implement range expressions, pattern parsing/matching, chunked pattern scanning,
-and the `pscan` command.
+Implement remote memory writes and the v0 `poke` command using absolute
+`--addr` input only, including dry-run old/new display.
 
 ## Spec Coverage
 
-- Section 13: pattern syntax, representation, parser, and matcher.
-- Section 14: scan options, result lists, chunking rules, pattern scan API.
-- Section 16: range expressions.
-- Section 15.8-15.9 for shared scan result output shape, focused on `pscan`.
-- Section 22 milestone 4.
+- `spec-v0.md` section 5: absolute address parsing.
+- `spec-v0.md` section 9: `Memmy_Process_Write`.
+- `spec-v0.md` section 10: value encoding.
+- `spec-v0.md` section 12.5: `poke`.
+- `spec-v0.md` section 14: Windows write backend.
+- `spec-v0.md` section 16 milestone 5.
 
 ## Steps
 
-1. Implement `Memmy_Pattern_Parse` with exact bytes and wildcard support
-   controlled by `Memmy_PatternParseFlag_AllowWildcards`.
-2. Implement `Memmy_Pattern_Match` as a simple linear matcher.
-3. Add `Memmy_Range`, `Memmy_RangeList`, and `Memmy_RangeList_Push`.
-4. Implement `Memmy_RangeExpr_Resolve` for initial required forms:
-   - `module`
-   - `address_expr..address_expr`
-   - `address_expr:+size`
-   - `module[start..end]`
-   - `module[start:+size]`
-5. Reuse `Memmy_ConstExpr_ParseAndEval` for module bracket offsets and sized
-   ranges.
-6. Enforce half-open ranges and return overflow for invalid size/order
-   arithmetic.
-7. Implement `Memmy_ScanOptions`, `Memmy_ScanResult`,
-   `Memmy_ScanResultList`, and push helpers.
-8. Implement `Memmy_Process_ScanPattern`.
-9. Scan only committed readable regions by default.
-10. Apply access filters as intersections.
-11. Read memory in chunks with overlap so matches crossing chunk boundaries are
-    found.
-12. Respect `chunk_size` and `max_results`.
-13. Implement `memmy pscan --pid <pid> --pattern <pattern>` and
-    `--range <range-expr>`.
-14. Add `--readable`, `--writable`, and `--executable` filters.
-15. For initial text output, print scan result addresses as fixed-width absolute
-    addresses only. Module-relative display and JSONL formatting are added in
-    Chunk 8.
-16. Keep command execution data-oriented so Chunk 8 can add JSON/JSONL
-    renderers without rewriting backend and parsing logic.
+1. Implement `Memmy_Process_Write` as process-bound backend dispatch.
+2. Extend the test backend write behavior to support:
+   - successful full writes
+   - partial writes
+   - unwritable ranges
+   - access-denied cases
+   - proof that dry-run leaves memory unchanged
+3. Implement Windows backend write using `WriteProcessMemory` or the chosen v0
+   write API.
+4. Do not change remote memory protection in v0.
+5. Map backend write failures to:
+   - `Memmy_Status_Unwritable`
+   - `Memmy_Status_PartialWrite`
+   - `Memmy_Status_AccessDenied`
+   - `Memmy_Status_PlatformError`
+6. Implement:
+   - `memmy poke --pid <pid> --addr <addr> --type <type> --value <value>`
+   - `memmy poke --pid <pid> --addr <addr> --type u32 --value 1337 --dry-run`
+7. Support all value types from `Memmy_Value_Parse`, including `bytes`, `str`,
+   and `wstr`.
+8. For dry-run, read the old bytes, format old/new values, and perform no
+   write.
+9. For normal poke, read the old value first for display consistency, then write
+   the encoded new value.
+10. Request `Memmy_ProcessAccess_Read | Memmy_ProcessAccess_Write` and require
+    `Memmy_BackendCap_Read | Memmy_BackendCap_Write`.
+11. Keep `poke` independent of region enumeration.
+12. Do not support `--expr`, module-relative input, pointer chains, remote
+    allocation, or memory protection changes.
 
 ## Tests
 
-1. Unit tests for pattern parsing with exact bytes, wildcards, invalid tokens,
-   and wildcard rejection when flags are not set.
-2. Unit tests for `Memmy_Pattern_Match`.
-3. Unit tests for every initial range expression form.
-4. Unit tests for range overflow and invalid half-open bounds.
-5. Test-backend scan tests for:
-   - default readable-region selection
-   - access filter intersection
-   - chunk boundary matches
-   - max result limiting
-   - explicit range limiting
-6. CLI tests for `pscan` text output.
+1. Unit tests for `Memmy_Process_Write` dispatch through the test backend.
+2. Unit tests for full write, partial write, unwritable range, and
+   access-denied mapping.
+3. CLI tests for dry-run proving memory is unchanged.
+4. CLI tests for normal `poke` proving memory changes in the test backend.
+5. CLI tests for all representative value classes:
+   - scalar integer
+   - pointer
+   - bytes
+   - UTF-8 string
+   - UTF-16LE string
+6. CLI tests proving `--addr` rejects expression-like input.
+7. Windows smoke test writing to controlled current-process memory where safe.
 
 ## Done When
 
-- `pscan` can scan fake backend memory and real readable Windows regions.
-- Pattern scan results are absolute addresses ready for later formatting and
-  JSON output.
-- The build and unit tests pass.
+- `poke` and `poke --dry-run` satisfy the v0 absolute-address behavior.
+- Write status mapping is stable and tested.
+- The build and unit tests pass before starting Chunk 7.

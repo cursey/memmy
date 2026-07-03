@@ -1,58 +1,81 @@
-# Chunk 10: macOS Backend And Final Spec Audit
+# Chunk 10: Final v0 Audit And Spec Alignment
 
 ## Goal
 
-Add the planned macOS backend and perform the final requirement-by-requirement
-audit proving the implemented repo satisfies `spec.md`.
+Perform a requirement-by-requirement audit proving the implementation satisfies
+`spec-v0.md`, and update any repo documentation that still points users or
+agents at full-spec behavior for v0 work.
+
+This is not a feature-expansion chunk. It is the final correctness pass for the
+v0 target.
 
 ## Spec Coverage
 
-- Section 20: macOS backend plan.
-- Section 21: complete test strategy.
-- Section 23: initial non-goals remain out of scope.
-- Section 24: design principles.
-- Whole-spec completion audit.
+- All of `spec-v0.md`.
+- `spec-v0.md` section 2: explicit non-goals.
+- `spec-v0.md` section 15: important v0 tests.
+- `spec-v0.md` section 16: milestone completion.
 
 ## Steps
 
-1. Add `memmy/src/platform/macos/` source files matching the backend operation
-   split used by Windows and Linux.
-2. Implement macOS backend initialization for `Memmy_Context_InitDefault` when
-   building on macOS.
-3. Implement process enumeration using `proc_listpids` and process path lookup
-   using `proc_pidpath`.
-4. Implement process open/close around Mach task access where permitted.
-5. Implement remote reads using `mach_vm_read_overwrite`.
-6. Implement remote writes using `mach_vm_write`.
-7. Implement region enumeration using `mach_vm_region`.
-8. Map macOS permission, SIP, hardened runtime, and code-signing failures into
-   clear `Memmy_Status_AccessDenied`, `Memmy_Status_Unsupported`, or
-   `Memmy_Status_PlatformError` diagnostics.
-9. Ensure macOS backend capabilities reflect actual runtime support.
-10. Update CMake with platform-conditional macOS compilation.
-11. Add macOS integration smoke tests or documented manual test commands.
-12. Run a full audit against every `spec.md` section and record gaps as either
-    fixed work or explicit non-goals from section 23.
-13. Confirm that non-goals remain unimplemented unless added intentionally in a
-    later spec revision.
-14. Confirm that `spec.md` still matches repo layout, naming, and behavior.
+1. Build a traceability checklist from every `spec-v0.md` section and mark each
+   requirement as:
+   - implemented and tested
+   - intentionally unsupported because it is a v0 non-goal
+   - missing and fixed in this chunk before completion
+2. Confirm these full-spec features are absent or explicitly rejected:
+   - address expression parsing or resolution
+   - range expression parsing or resolution
+   - constant-expression parsing or evaluation
+   - module-relative input syntax
+   - pointer-chain resolution
+   - implicit whole-process scans
+   - multiple input addresses or ranges per invocation
+   - symbol loading
+   - repeated narrowing scans
+   - remote allocation/free
+   - memory protection changes
+   - thread enumeration or suspension
+   - Linux/macOS backend implementation as part of v0
+3. Confirm every required public API from `spec-v0.md` is declared, defined,
+   named correctly, and included through `memmy.h`.
+4. Confirm every required CLI command exists:
+   - `procs`
+   - `mods`
+   - `regions`
+   - `peek`
+   - `poke`
+   - `scan`
+   - `pscan`
+5. Confirm every command rejects unsupported v0 syntax with clear CLI errors.
+6. Confirm `spec-v0.md` examples match implemented option names and output
+   shapes.
+7. Confirm the broader future design document remains separate from this v0
+   chunk sequence, which clearly targets `spec-v0.md`.
+8. Update nearby planning docs only if they still instruct implementers to build
+   full-spec behavior for the v0 chunk sequence.
+9. Run formatting on changed C sources if this audit includes code fixes.
+10. Run the complete build and test suite.
+11. Record any intentionally skipped Windows integration checks with concrete
+    reasons, such as permission limits or unavailable WOW64 environment.
 
 ## Tests
 
-1. Existing pure-core and CLI parser tests pass unchanged on macOS.
-2. macOS smoke test:
-   - `memmy procs`
-   - `memmy mods --pid <current-process-pid>` where permitted
-   - safe current-process read where permitted
-3. Permission-denied behavior is tested or manually verified with expected
-   diagnostics.
-4. Whole-repo build and test pass on supported platforms.
+1. `cmake -S . -B build`
+2. `cmake --build build`
+3. Complete unit test executable or `ctest` invocation used by the repo.
+4. CLI snapshot/integration tests for every command in text mode.
+5. CLI snapshot/integration tests for required JSON/JSONL success output.
+6. CLI snapshot/integration tests for JSON and text error output.
+7. Windows smoke tests from Chunk 9.
+8. Audit-specific negative tests proving non-goal syntax is not accidentally
+   accepted.
 
 ## Done When
 
-- macOS either supports each backend operation or reports a clear supported
-  status/error under platform constraints.
-- A final audit shows every required initial feature from `spec.md` is
-  implemented, tested, or explicitly covered by the spec's non-goals.
-- The chunk sequence can be read from 1 through 8, 8b, 9, and 10 as a complete
-  path from the current repo state to the full specification.
+- The chunk sequence from Chunk 1 through Chunk 10 is a complete path to
+  satisfying `spec-v0.md`.
+- All chunks use `spec-v0.md` as their implementation target.
+- Every v0 requirement is implemented and tested, or explicitly identified as a
+  v0 non-goal.
+- The final build and test suite pass.

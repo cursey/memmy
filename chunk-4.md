@@ -1,69 +1,76 @@
-# Chunk 4: Address Expressions And Memory Read
+# Chunk 4: Type, Value, And Pattern Parsing
 
 ## Goal
 
-Implement constant expressions, address expressions, pointer-chain resolution,
-memory reads, and the `addr` and `peek` commands.
+Implement the v0 type parser, typed value encoder, and byte-pattern parser used
+by `peek`, `poke`, `scan`, and `pscan`.
 
 ## Spec Coverage
 
-- Section 10.1 and 10.3: read and pointer read.
-- Section 11: address expression grammar, parser, resolver, and trace.
-- Section 12 type parsing for read-sized scalar and payload requests.
-- Section 15.5-15.6: `addr` and `peek`.
-- Section 22 milestone 2.
+- `spec-v0.md` section 10: required value types, `Memmy_Type`,
+  `Memmy_Value`, and `Memmy_Pattern`.
+- `spec-v0.md` section 12.4-12.7: command inputs for typed values and patterns.
+- `spec-v0.md` section 15: typed value parsing, pattern parsing, and wildcard
+  rejection tests.
 
 ## Steps
 
-1. Implement `Memmy_ConstExpr_ParseAndEval` using checked arithmetic helpers
-   from `base_checked.h`.
-2. Add parser tests for integer forms, unary operators, binary precedence,
-   parentheses, division/modulo by zero, and overflow.
-3. Implement `Memmy_AddressExpr_Parse` with:
-   - integer base
-   - bracketed module base
-   - `+offset`
-   - `-offset`
-   - bare `->`
-   - `->offset`
-   - parenthesized constant offsets
-4. Preserve operation source text for resolver traces.
-5. Implement `Memmy_AddressExpr_Resolve` using module lookup and
-   `Memmy_Process_ReadPtr`.
-6. Use checked address arithmetic for every add/subtract/deref-offset step.
-7. Return precise `Memmy_Error` parser spans for invalid syntax.
-8. Implement `Memmy_Type_Parse` for all spellings, with `ptr` size determined
-   at concrete use sites by target pointer width.
-9. Implement typed peek read helpers:
-   - scalar integer and float reads
-   - pointer reads
-   - `bytes`, `str`, and `wstr` reads requiring `--count`
-10. Validate UTF-8 for `str` and UTF-16LE for `wstr`.
-11. Implement `memmy addr --pid <pid> --expr <expr>` with trace text output.
-12. Implement `memmy peek --pid <pid> --expr <expr> --type <type>` and the
-    payload `--count` forms.
-13. Request minimal process access for these commands and require module
-    listing only when the expression uses module syntax.
-14. Keep command execution data-oriented so Chunk 8 can add JSON/JSONL
-    renderers without rewriting backend and parsing logic.
+1. Define:
+   - `Memmy_TypeKind`
+   - `Memmy_Type`
+   - `Memmy_Value`
+   - `Memmy_PatternByte`
+   - `Memmy_Pattern`
+   - `Memmy_PatternParseFlags`
+2. Implement `Memmy_Type_Parse` for:
+   - `u8`, `i8`
+   - `u16`, `i16`
+   - `u32`, `i32`
+   - `u64`, `i64`
+   - `f32`, `f64`
+   - `ptr`
+   - `bytes`
+   - `str`
+   - `wstr`
+3. Set `fixed_size` from the parsed type alone:
+   - fixed scalar sizes for numeric types
+   - `0` for `ptr` before target pointer width is applied
+   - `0` for `bytes`, `str`, and `wstr`
+4. Implement `Memmy_Value_Parse`:
+   - integer exact bounds and overflow checks
+   - pointer-width-aware `ptr` encoding
+   - little-endian scalar encoding
+   - `f32` and `f64` decimal parsing
+   - `bytes` through `Memmy_Pattern_Parse` with wildcards rejected
+   - UTF-8 `str` encoding without a trailing NUL
+   - UTF-16LE `wstr` encoding without a trailing NUL
+5. Implement `Memmy_Pattern_Parse`:
+   - lowercase or uppercase hex bytes
+   - whitespace-separated byte tokens
+   - `??` wildcard tokens only when
+     `Memmy_PatternParseFlag_AllowWildcards` is set
+   - precise parse errors for invalid byte and wildcard syntax
+6. Add a small internal matcher helper if useful for scanner tests, but keep the
+   public API limited to the v0 functions unless a public matcher already exists.
+7. Do not implement address expressions, constant expressions, or
+   module-relative syntax in this chunk.
 
 ## Tests
 
-1. Unit tests for address expression parsing, invalid forms, and error spans.
-2. Unit tests for resolver traces using the test backend.
-3. Unit tests for 32-bit and 64-bit pointer-chain resolution.
-4. Unit tests for read failures:
-   - unreadable
-   - partial read
-   - overflow
-   - missing or ambiguous module
-5. CLI tests using the test backend or a local fixture process for `addr` and
-   `peek`.
-6. Windows smoke test reading from the current process where safe.
+1. Unit tests for every accepted `Memmy_Type_Parse` spelling.
+2. Unit tests for rejected type names and error context `type`.
+3. Unit tests for integer value parsing at min/max bounds for every signed and
+   unsigned integer type.
+4. Unit tests for integer overflow, underflow, invalid syntax, and wrong signs.
+5. Unit tests for pointer encoding at 32-bit and 64-bit widths.
+6. Unit tests for `f32` and `f64` parsing and byte encoding.
+7. Unit tests for `bytes`, `str`, and `wstr` encoding.
+8. Unit tests for pattern parsing with exact bytes, wildcards, invalid tokens,
+   and wildcard rejection when flags are not set.
 
 ## Done When
 
-- `addr` and `peek` satisfy their text-output forms.
-- The address expression language is the shared resolver used by all commands
-  that accept addresses.
-- The build and unit tests pass.
+- Parsing and encoding is shared by later `peek`, `poke`, `scan`, and `pscan`
+  commands.
+- `bytes` values reject wildcards while `pscan --pattern` can allow them.
+- The build and unit tests pass before starting Chunk 5.
