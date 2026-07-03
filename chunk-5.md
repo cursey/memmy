@@ -36,6 +36,8 @@ with dry-run support.
 13. Implement normal `poke` so it reads old value first for display, then
     writes the encoded new value.
 14. Keep `poke` independent of region enumeration in the initial version.
+15. Keep command execution data-oriented so Chunk 8 can add JSON/JSONL
+    renderers without rewriting backend and parsing logic.
 
 ## Tests
 

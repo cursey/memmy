@@ -1784,6 +1784,8 @@ Common command options:
 --value <value>             Value text.
 --pattern <pattern>         Byte pattern text.
 --range <range-expr>        Scan range expression.
+--limit <count>             Maximum scan results to emit.
+--chunk-size <bytes>        Scan read chunk size.
 --count <count>             Explicit byte or character count.
 --filter <text>             Command-specific name filter.
 ```
@@ -1792,6 +1794,8 @@ Common command options:
 
 `--range` is single-use for `scan` and `pscan`. If no `--range` is provided,
 scan commands use all candidate readable regions after flag filtering.
+
+`--limit` and `--chunk-size` are single-use for `scan` and `pscan`.
 
 Scan access filters combine as an intersection. For example, `--readable
 --writable` scans only regions that are both readable and writable.
@@ -2020,6 +2024,8 @@ memmy scan --pid 1234 --range <range-expr> --type <type> --value <value>
 memmy scan --pid 1234 --readable --type u32 --value 1337
 memmy scan --pid 1234 --writable --type u32 --value 1337
 memmy scan --pid 1234 --executable --type bytes --value '48 8B'
+memmy scan --pid 1234 --limit <count> --type u32 --value 1337
+memmy scan --pid 1234 --chunk-size <bytes> --type u32 --value 1337
 memmy scan --pid 1234 --type str --value 'player_name'
 memmy scan --pid 1234 --type wstr --value 'player_name'
 ```
@@ -2053,6 +2059,8 @@ JSONL output:
 memmy pscan --pid 1234 --pattern <pattern>
 memmy pscan --pid 1234 --range <range-expr> --pattern <pattern>
 memmy pscan --pid 1234 --executable --pattern <pattern>
+memmy pscan --pid 1234 --limit <count> --pattern <pattern>
+memmy pscan --pid 1234 --chunk-size <bytes> --pattern <pattern>
 ```
 
 Examples:

@@ -40,6 +40,11 @@ and the `pscan` command.
 13. Implement `memmy pscan --pid <pid> --pattern <pattern>` and
     `--range <range-expr>`.
 14. Add `--readable`, `--writable`, and `--executable` filters.
+15. For initial text output, print scan result addresses as fixed-width absolute
+    addresses only. Module-relative display and JSONL formatting are added in
+    Chunk 8.
+16. Keep command execution data-oriented so Chunk 8 can add JSON/JSONL
+    renderers without rewriting backend and parsing logic.
 
 ## Tests
 

@@ -54,5 +54,5 @@ audit proving the implemented repo satisfies `spec.md`.
   status/error under platform constraints.
 - A final audit shows every required initial feature from `spec.md` is
   implemented, tested, or explicitly covered by the spec's non-goals.
-- The chunk sequence can be read from 1 through 10 as a complete path from the
-  current repo state to the full specification.
+- The chunk sequence can be read from 1 through 8, 8b, 9, and 10 as a complete
+  path from the current repo state to the full specification.

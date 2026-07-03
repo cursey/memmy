@@ -44,6 +44,8 @@ memory reads, and the `addr` and `peek` commands.
     payload `--count` forms.
 13. Request minimal process access for these commands and require module
     listing only when the expression uses module syntax.
+14. Keep command execution data-oriented so Chunk 8 can add JSON/JSONL
+    renderers without rewriting backend and parsing logic.
 
 ## Tests
 

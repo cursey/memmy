@@ -31,9 +31,12 @@ then expose it through the `scan` command.
    - `--executable`
 6. Require `Read`, `ListRegions`, and `ListModules` backend capabilities for
    scan commands as specified.
-7. Use the same text output columns as `pscan`.
-8. Keep scan result generation in the core library and module-relative display
-   in the CLI layer.
+7. Use the same initial text output columns as `pscan`, with fixed-width
+   absolute addresses only.
+8. Keep scan result generation in the core library. Module-relative display and
+   JSONL formatting are added in Chunk 8.
+9. Keep command execution data-oriented so Chunk 8 can add JSON/JSONL renderers
+   without rewriting backend and parsing logic.
 
 ## Tests
 

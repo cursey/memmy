@@ -24,8 +24,10 @@ commands: `memmy --help`, `memmy procs`, and `memmy mods --pid <pid>`.
    - `Memmy_BackendCap_ListProcs`
    - `Memmy_BackendCap_ListModules`
    - `Memmy_BackendCap_ListRegions`
-   - `Memmy_BackendCap_Read`
-   - `Memmy_BackendCap_Write`
+
+   Wire read/write capability fields and backend stubs only as needed for the
+   compiled backend shape. Full Win32 read behavior is completed in Chunk 4,
+   and full Win32 write behavior is completed in Chunk 5.
 4. Implement process enumeration using documented Win32 APIs from the spec.
 5. Implement process open/close with correct access mapping and harmless
    repeated close behavior.
@@ -34,12 +36,16 @@ commands: `memmy --help`, `memmy procs`, and `memmy mods --pid <pid>`.
    `Memmy_RegionAccess` and `Memmy_RegionState`.
 8. Replace the current no-op CLI with command dispatch and global option
    parsing.
-9. Add help text that teaches the command shape and points to address
+9. Keep command execution data-oriented: command handlers should collect typed
+   result data and pass it to text renderers, rather than interleaving backend
+   calls with direct printing. Chunk 8 adds JSON/JSONL renderers over the same
+   result data.
+10. Add help text that teaches the command shape and points to address
    expression syntax even before later commands are implemented.
-10. Implement `procs` text output and `--filter`.
-11. Implement `mods --pid <pid>` text output and `--filter`.
-12. Check backend capabilities before opening processes when possible.
-13. Map failures to the exit codes defined in the spec.
+11. Implement `procs` text output and `--filter`.
+12. Implement `mods --pid <pid>` text output and `--filter`.
+13. Check backend capabilities before opening processes when possible.
+14. Map failures to the exit codes defined in the spec.
 
 ## Tests
 
