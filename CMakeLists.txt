@@ -8,3 +8,5 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_subdirectory(vendor)
 add_subdirectory(base)
+add_subdirectory(memmy)
+add_subdirectory(cmd)
