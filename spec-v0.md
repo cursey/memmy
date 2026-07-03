@@ -14,6 +14,7 @@ Primary CLI:
 ```txt
 memmy procs
 memmy mods  --pid 1234
+memmy regions --pid 1234
 memmy peek  --pid 1234 --addr 0x000001d856780004 --type u32
 memmy poke  --pid 1234 --addr 0x000001d856780004 --type u32 --value 1337
 memmy scan  --pid 1234 --start 0x00007ff800000000 --end 0x00007ff8001a4000 --type u32 --value 1337
@@ -50,6 +51,10 @@ thread enumeration or suspension
 
 Module lists still exist, but module names are output information only in v0.
 They are not accepted as address or range input.
+
+Region lists also exist as discovery output. They help users and agents choose
+absolute `--start`, `--end`, and `--length` values without requiring range
+syntax.
 
 ## 3. Project Shape
 
@@ -116,8 +121,13 @@ Hex input uses `0x` or `0X`. Decimal input has no prefix. Overflow returns
 Required helpers:
 
 ```c
-B32 Memmy_ParseAddress(String8 text, Memmy_Addr *out, Memmy_Error *error);
-B32 Memmy_ParseSize(String8 text, Memmy_Size *out, Memmy_Error *error);
+Memmy_Status Memmy_ParseAddress(String8 text,
+                                Memmy_Addr *out,
+                                Memmy_Error *error);
+
+Memmy_Status Memmy_ParseSize(String8 text,
+                             Memmy_Size *out,
+                             Memmy_Error *error);
 ```
 
 ## 6. Ranges
@@ -478,6 +488,9 @@ wstr
 `ptr` uses the target process pointer width. `bytes`, `str`, and `wstr` are
 variable-width values.
 
+`fixed_size` is the byte width known from the parsed type alone. It is `0` for
+variable-width types and for `ptr` before target pointer width is applied.
+
 ```c
 typedef U32 Memmy_TypeKind;
 
@@ -507,7 +520,8 @@ Memmy_Status Memmy_Value_Parse(Arena *arena,
                                Memmy_Error *error);
 ```
 
-Patterns are byte sequences with optional `??` wildcards:
+Patterns are byte sequences. Wildcards are accepted only when
+`Memmy_PatternParseFlag_AllowWildcards` is set.
 
 ```txt
 48 8B ?? ?? 89
@@ -526,11 +540,21 @@ typedef struct Memmy_Pattern
     U64 count;
 } Memmy_Pattern;
 
+typedef U32 Memmy_PatternParseFlags;
+enum
+{
+    Memmy_PatternParseFlag_AllowWildcards = 1u << 0,
+};
+
 Memmy_Status Memmy_Pattern_Parse(Arena *arena,
                                  String8 text,
+                                 Memmy_PatternParseFlags flags,
                                  Memmy_Pattern *out,
                                  Memmy_Error *error);
 ```
+
+`pscan --pattern` passes `Memmy_PatternParseFlag_AllowWildcards`. Parsing a
+`bytes` value for `peek`, `poke`, or `scan` rejects wildcards.
 
 ## 11. Scanning
 
@@ -582,8 +606,13 @@ limit is a maximum result count
 result addresses are absolute
 ```
 
-Region enumeration may be used to avoid impossible reads, but it must not create
-implicit input ranges.
+`scan` and `pscan` require `Read`, not `ListRegions`. If `ListRegions` is
+available, scans may intersect the requested range with committed readable
+regions to avoid impossible reads. If `ListRegions` is unavailable, scans
+attempt chunked reads directly within the requested range and report unreadable
+chunks according to the scanner error rules.
+
+Region enumeration must not create implicit input ranges.
 
 ## 12. CLI
 
@@ -607,6 +636,7 @@ Commands:
 ```txt
 procs   List processes.
 mods    List modules for a process.
+regions List memory regions for a process.
 peek    Read one absolute address.
 poke    Write one absolute address.
 scan    Scan one absolute range for a typed value.
@@ -628,6 +658,7 @@ Command requirements:
 Command  Backend caps     Process access
 procs    ListProcs        none
 mods     ListModules      Query
+regions  ListRegions      Query
 peek     Read             Read
 poke     Read, Write      Read | Write
 scan     Read             Read
@@ -677,7 +708,38 @@ BASE                SIZE        NAME
 0x00007ff800000000  0x1a4000    game.exe
 ```
 
-### 12.3 `peek`
+### 12.3 `regions`
+
+```txt
+memmy regions --pid 1234
+memmy regions --pid 1234 --json
+```
+
+Text:
+
+```txt
+BASE                END                 SIZE        ACCESS  STATE
+0x000001d800000000  0x000001d800010000  0x10000     rw-     committed
+```
+
+JSON:
+
+```json
+[
+  {
+    "base": "0x000001d800000000",
+    "end": "0x000001d800010000",
+    "size": "0x10000",
+    "access": "rw-",
+    "state": "committed"
+  }
+]
+```
+
+`END` is computed as `base + size`. If backend or test data would overflow,
+the command reports `Memmy_Status_Overflow` instead of wrapping.
+
+### 12.4 `peek`
 
 ```txt
 memmy peek --pid 1234 --addr <addr> --type <type>
@@ -703,7 +765,7 @@ JSON:
 }
 ```
 
-### 12.4 `poke`
+### 12.5 `poke`
 
 ```txt
 memmy poke --pid 1234 --addr <addr> --type <type> --value <value>
@@ -724,7 +786,7 @@ would write:
   new:     1337 / 0x00000539
 ```
 
-### 12.5 `scan`
+### 12.6 `scan`
 
 ```txt
 memmy scan --pid 1234 --start <addr> --end <addr> --type <type> --value <value>
@@ -733,7 +795,7 @@ memmy scan --pid 1234 --start <addr> --length <size> --limit <count> --type u32 
 memmy scan --pid 1234 --start <addr> --length <size> --chunk-size <bytes> --type bytes --value "48 8B"
 ```
 
-### 12.6 `pscan`
+### 12.7 `pscan`
 
 ```txt
 memmy pscan --pid 1234 --start <addr> --end <addr> --pattern <pattern>
@@ -806,11 +868,14 @@ address parsing
 size parsing
 range start/end validation
 range start/length overflow validation
+region listing
 typed value parsing
 pattern parsing
+bytes value wildcard rejection
 peek at absolute address
 poke at absolute address
 scan within one explicit range
+scan with and without ListRegions
 chunk-boundary matches
 JSON escaping
 ambiguous process-name handling
@@ -823,10 +888,12 @@ operations.
 ## 16. Milestones
 
 ```txt
-1. CLI skeleton: memmy --help, procs, mods
-2. Memory read: peek --addr
-3. Memory write: poke --addr, --dry-run
-4. Pattern scan: pscan --start/--end or --start/--length
-5. Value scan: scan --start/--end or --start/--length
-6. Agent output: --json, --jsonl, stable errors
+1. CLI skeleton: memmy --help, procs, mods, regions
+2. Numeric helpers: address, size, and range construction
+3. Type, value, and pattern parsing
+4. Memory read: peek --addr
+5. Memory write: poke --addr, --dry-run
+6. Pattern scan: pscan --start/--end or --start/--length
+7. Value scan: scan --start/--end or --start/--length
+8. Agent output: --json, --jsonl, stable errors
 ```
