@@ -1,5 +1,6 @@
 #include "memmy_exec.h"
 #include "test_framework.h"
+#include "test_memmy_backend.h"
 
 static U64 test_memmy_exec_address_list_process_call_count;
 
@@ -31,6 +32,25 @@ static void Test_AddModule(Arena *arena, Memmy_ModuleList *modules, String8 name
     module->name = name;
     module->base = base;
     module->size = 0x1000;
+}
+
+static Memmy_Process Test_ProcessForBackend(Test_MemmyBackend *backend, Memmy_PointerWidth pointer_width)
+{
+    return (Memmy_Process){
+        .backend = Test_MemmyBackend_AsBackend(backend),
+        .pid = 4242,
+        .pointer_width = pointer_width,
+        .backend_data = backend,
+    };
+}
+
+static void Test_WriteU64LE(Test_MemmyBackend *backend, Memmy_Addr addr, U64 value, U64 size)
+{
+    U64 offset = addr - backend->memory_base;
+    for (U64 i = 0; i < size; i++)
+    {
+        backend->memory[offset + i] = (U8)(value >> (i * 8));
+    }
 }
 
 Test(Test_MemmyExecAddressResolvesAbsoluteAddresses)
@@ -116,6 +136,153 @@ Test(Test_MemmyExecAddressDetectsArithmeticOverflowAndUnderflow)
 
     error = (Memmy_Error){0};
     AssertEq(Memmy_AddressExpr_Resolve(0, 0, &underflow, &addr, &error), Memmy_Status_Overflow);
+    AssertEq(error.status, Memmy_Status_Overflow);
+
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyExecAddressResolvesBareDereference)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    Test_WriteU64LE(&backend, 0x1000, 0x1080, 8);
+
+    Memmy_Process process = Test_ProcessForBackend(&backend, Memmy_PointerWidth_64);
+    Memmy_AddressExpr expr = {0};
+    Test_ParseAddress(arena, "0x1000->", &expr);
+
+    Memmy_Error error = {0};
+    Memmy_Addr addr = 0;
+    AssertEq(Memmy_AddressExpr_Resolve(&process, 0, &expr, &addr, &error), Memmy_Status_Ok);
+    AssertTrue(addr == 0x1080);
+    AssertEq(backend.read_call_count, 1);
+
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyExecAddressResolvesDereferencePlusOffset)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    Test_MemmyBackend_SetMemoryBase(&backend, 0x1123);
+    Test_WriteU64LE(&backend, 0x1123, 0x2000, 8);
+
+    Memmy_ModuleList modules = {0};
+    Test_AddModule(arena, &modules, String8_Lit("client.dll"), 0x1000);
+    Memmy_Process process = Test_ProcessForBackend(&backend, Memmy_PointerWidth_64);
+    Memmy_AddressExpr expr = {0};
+    Test_ParseAddress(arena, "<client.dll>+0x123->0x8", &expr);
+
+    Memmy_Error error = {0};
+    Memmy_Addr addr = 0;
+    AssertEq(Memmy_AddressExpr_Resolve(&process, &modules, &expr, &addr, &error), Memmy_Status_Ok);
+    AssertTrue(addr == 0x2008);
+
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyExecAddressResolvesChainedDereferences)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    Test_WriteU64LE(&backend, 0x1000, 0x1020, 8);
+    Test_WriteU64LE(&backend, 0x1030, 0x1050, 8);
+
+    Memmy_Process process = Test_ProcessForBackend(&backend, Memmy_PointerWidth_64);
+    Memmy_AddressExpr expr = {0};
+    Test_ParseAddress(arena, "0x1000->0x10->", &expr);
+
+    Memmy_Error error = {0};
+    Memmy_Addr addr = 0;
+    AssertEq(Memmy_AddressExpr_Resolve(&process, 0, &expr, &addr, &error), Memmy_Status_Ok);
+    AssertTrue(addr == 0x1050);
+    AssertEq(backend.read_call_count, 2);
+
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyExecAddressUses32BitPointerWidth)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    Test_WriteU64LE(&backend, 0x1000, 0xffffffff12345678ull, 8);
+
+    Memmy_Process process = Test_ProcessForBackend(&backend, Memmy_PointerWidth_32);
+    Memmy_AddressExpr expr = {0};
+    Test_ParseAddress(arena, "0x1000->", &expr);
+
+    Memmy_Error error = {0};
+    Memmy_Addr addr = 0;
+    AssertEq(Memmy_AddressExpr_Resolve(&process, 0, &expr, &addr, &error), Memmy_Status_Ok);
+    AssertTrue(addr == 0x12345678);
+    AssertTrue(backend.max_read_end == 0x1004);
+
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyExecAddressUses64BitPointerWidth)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    Test_WriteU64LE(&backend, 0x1000, 0x1122334455667788ull, 8);
+
+    Memmy_Process process = Test_ProcessForBackend(&backend, Memmy_PointerWidth_64);
+    Memmy_AddressExpr expr = {0};
+    Test_ParseAddress(arena, "0x1000->", &expr);
+
+    Memmy_Error error = {0};
+    Memmy_Addr addr = 0;
+    AssertEq(Memmy_AddressExpr_Resolve(&process, 0, &expr, &addr, &error), Memmy_Status_Ok);
+    AssertTrue(addr == 0x1122334455667788ull);
+    AssertTrue(backend.max_read_end == 0x1008);
+
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyExecAddressPropagatesPointerReadFailures)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+
+    Memmy_Process process = Test_ProcessForBackend(&backend, Memmy_PointerWidth_64);
+    Memmy_AddressExpr expr = {0};
+    Test_ParseAddress(arena, "0x1000->", &expr);
+
+    Test_MemmyBackend_AddUnreadableRange(&backend, 0x1000, 0x1008);
+    Memmy_Error error = {0};
+    Memmy_Addr addr = 0;
+    AssertEq(Memmy_AddressExpr_Resolve(&process, 0, &expr, &addr, &error), Memmy_Status_Unreadable);
+    AssertEq(error.status, Memmy_Status_Unreadable);
+
+    backend.unreadable_range_count = 0;
+    Test_MemmyBackend_SetReadLimit(&backend, 2);
+    error = (Memmy_Error){0};
+    AssertEq(Memmy_AddressExpr_Resolve(&process, 0, &expr, &addr, &error), Memmy_Status_PartialRead);
+    AssertEq(error.status, Memmy_Status_PartialRead);
+
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyExecAddressDetectsOverflowAfterPointerRead)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    Test_WriteU64LE(&backend, 0x1000, U64_MAX, 8);
+
+    Memmy_Process process = Test_ProcessForBackend(&backend, Memmy_PointerWidth_64);
+    Memmy_AddressExpr expr = {0};
+    Test_ParseAddress(arena, "0x1000->1", &expr);
+
+    Memmy_Error error = {0};
+    Memmy_Addr addr = 0;
+    AssertEq(Memmy_AddressExpr_Resolve(&process, 0, &expr, &addr, &error), Memmy_Status_Overflow);
     AssertEq(error.status, Memmy_Status_Overflow);
 
     Arena_Destroy(arena);
@@ -211,6 +378,13 @@ TestSuite suite_memmy_exec_address =
                    TestCase_Make(Test_MemmyExecAddressResolvesModulePlusMinusOffsets),
                    TestCase_Make(Test_MemmyExecAddressResolvesMemoryAddressExpressions),
                    TestCase_Make(Test_MemmyExecAddressDetectsArithmeticOverflowAndUnderflow),
+                   TestCase_Make(Test_MemmyExecAddressResolvesBareDereference),
+                   TestCase_Make(Test_MemmyExecAddressResolvesDereferencePlusOffset),
+                   TestCase_Make(Test_MemmyExecAddressResolvesChainedDereferences),
+                   TestCase_Make(Test_MemmyExecAddressUses32BitPointerWidth),
+                   TestCase_Make(Test_MemmyExecAddressUses64BitPointerWidth),
+                   TestCase_Make(Test_MemmyExecAddressPropagatesPointerReadFailures),
+                   TestCase_Make(Test_MemmyExecAddressDetectsOverflowAfterPointerRead),
                    TestCase_Make(Test_MemmyExecAddressReportsMissingModule),
                    TestCase_Make(Test_MemmyExecAddressReportsAmbiguousModule),
                    TestCase_Make(Test_MemmyExecAddressDoesNotEnumerateProcesses),

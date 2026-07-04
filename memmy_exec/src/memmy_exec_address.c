@@ -102,6 +102,60 @@ static Memmy_Status Memmy_AddressExpr_ApplySubOffset(Memmy_Addr addr, I64 offset
     return Memmy_Status_Ok;
 }
 
+static Memmy_Status Memmy_AddressExpr_ReadPointer(Memmy_Process *process, Memmy_Addr addr, Memmy_Addr *out,
+                                                  Memmy_Error *error)
+{
+    if (process == 0)
+    {
+        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("address"),
+                        String8_Lit("missing selected process for pointer dereference"));
+        return Memmy_Status_InvalidArgument;
+    }
+
+    U64 pointer_size = 0;
+    if (process->pointer_width == Memmy_PointerWidth_32)
+    {
+        pointer_size = 4;
+    }
+    else if (process->pointer_width == Memmy_PointerWidth_64)
+    {
+        pointer_size = 8;
+    }
+    else
+    {
+        Memmy_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("address"),
+                        String8_Lit("target pointer width is unknown"));
+        return Memmy_Status_Unsupported;
+    }
+
+    U8 bytes[8] = {0};
+    U64 bytes_read = 0;
+    Memmy_Status status = Memmy_Process_Read(process, addr, bytes, pointer_size, &bytes_read, error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+    if (bytes_read != pointer_size)
+    {
+        Memmy_Error_Set(error, Memmy_Status_PartialRead, String8_Lit("address"),
+                        String8_Lit("pointer read returned too few bytes"));
+        if (error != 0)
+        {
+            error->byte_count = bytes_read;
+        }
+        return Memmy_Status_PartialRead;
+    }
+
+    Memmy_Addr value = 0;
+    for (U64 i = 0; i < pointer_size; i++)
+    {
+        value |= ((Memmy_Addr)bytes[i]) << (i * 8);
+    }
+
+    *out = value;
+    return Memmy_Status_Ok;
+}
+
 Memmy_Status Memmy_AddressExpr_Resolve(Memmy_Process *process, Memmy_ModuleList *modules, Memmy_AddressExpr *expr,
                                        Memmy_Addr *out, Memmy_Error *error)
 {
@@ -150,11 +204,27 @@ Memmy_Status Memmy_AddressExpr_Resolve(Memmy_Process *process, Memmy_ModuleList 
                 return status;
             }
         }
+        else if (op->kind == Memmy_AddressOpKind_Deref || op->kind == Memmy_AddressOpKind_DerefOffset)
+        {
+            Memmy_Status status = Memmy_AddressExpr_ReadPointer(process, addr, &addr, error);
+            if (status != Memmy_Status_Ok)
+            {
+                return status;
+            }
+            if (op->kind == Memmy_AddressOpKind_DerefOffset)
+            {
+                status = Memmy_AddressExpr_ApplyOffset(addr, op->offset, &addr, error);
+                if (status != Memmy_Status_Ok)
+                {
+                    return status;
+                }
+            }
+        }
         else
         {
-            Memmy_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("address"),
-                            String8_Lit("pointer-chain resolution is not implemented"));
-            return Memmy_Status_Unsupported;
+            Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("address"),
+                            String8_Lit("unknown address expression operation"));
+            return Memmy_Status_InvalidArgument;
         }
     }
 
