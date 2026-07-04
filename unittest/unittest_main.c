@@ -15,7 +15,15 @@ extern TestSuite suite_regex;
 extern TestSuite suite_fs;
 extern TestSuite suite_process;
 extern TestSuite suite_checked;
-extern TestSuite suite_memmy;
+extern TestSuite suite_memmy_header;
+extern TestSuite suite_memmy_status;
+extern TestSuite suite_memmy_value;
+extern TestSuite suite_memmy_range;
+extern TestSuite suite_memmy_scan;
+extern TestSuite suite_memmy_context;
+extern TestSuite suite_memmy_process;
+extern TestSuite suite_memmy_cli;
+extern TestSuite suite_memmy_win32_backend;
 
 int main(int argc, char **argv)
 {
@@ -37,7 +45,15 @@ int main(int argc, char **argv)
         suite_fs,
         suite_process,
         suite_checked,
-        suite_memmy,
+        suite_memmy_header,
+        suite_memmy_status,
+        suite_memmy_value,
+        suite_memmy_range,
+        suite_memmy_scan,
+        suite_memmy_context,
+        suite_memmy_process,
+        suite_memmy_cli,
+        suite_memmy_win32_backend,
     };
 
     Test_RunAll(suites, ArrayCount(suites));
