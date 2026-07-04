@@ -245,7 +245,19 @@ static Memmy_Status Memmy_Win32_Write(Memmy_Process *process, Memmy_Addr addr, v
     if (!ok)
     {
         DWORD err = GetLastError();
-        Memmy_Status status = got > 0 ? Memmy_Status_PartialWrite : Memmy_Status_Unwritable;
+        Memmy_Status status = Memmy_Status_PlatformError;
+        if (got > 0)
+        {
+            status = Memmy_Status_PartialWrite;
+        }
+        else if (err == ERROR_ACCESS_DENIED)
+        {
+            status = Memmy_Status_AccessDenied;
+        }
+        else if (err == ERROR_PARTIAL_COPY || err == ERROR_INVALID_ADDRESS || err == ERROR_NOACCESS)
+        {
+            status = Memmy_Status_Unwritable;
+        }
         Memmy_Error_Set(error, status, String8_Lit("win32"), String8_Lit("WriteProcessMemory failed"));
         if (error != 0)
         {

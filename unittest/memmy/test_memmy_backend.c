@@ -106,6 +106,12 @@ static Memmy_Status Test_MemmyBackend_Write(Memmy_Process *process, Memmy_Addr a
     Test_MemmyBackend *backend = (Test_MemmyBackend *)process->backend_data;
     *bytes_written = 0;
 
+    if (backend->write_status != Memmy_Status_Ok)
+    {
+        Memmy_Error_Set(error, backend->write_status, String8_Lit("backend"), String8_Lit("test write failure"));
+        return backend->write_status;
+    }
+
     if (addr < backend->memory_base || addr - backend->memory_base >= TEST_MEMMY_BACKEND_MEMORY_SIZE)
     {
         Memmy_Error_Set(error, Memmy_Status_Unwritable, String8_Lit("backend"),
@@ -115,6 +121,10 @@ static Memmy_Status Test_MemmyBackend_Write(Memmy_Process *process, Memmy_Addr a
 
     U64 offset = addr - backend->memory_base;
     U64 available = TEST_MEMMY_BACKEND_MEMORY_SIZE - offset;
+    if (backend->write_limit != 0)
+    {
+        available = Min(available, backend->write_limit);
+    }
     U64 to_write = Min(size, available);
     memcpy(backend->memory + offset, buffer, (size_t)to_write);
     *bytes_written = to_write;
@@ -191,6 +201,8 @@ void Test_MemmyBackend_Init(Test_MemmyBackend *backend)
         .memory_base = 0x1000,
         .read_status = Memmy_Status_Ok,
         .read_limit = 0,
+        .write_status = Memmy_Status_Ok,
+        .write_limit = 0,
     };
 
     Test_MemmyBackend_AddProcess(backend, Test_MemmyBackend_Pid, String8_Lit("test-process"),
@@ -281,4 +293,14 @@ void Test_MemmyBackend_SetReadStatus(Test_MemmyBackend *backend, Memmy_Status st
 void Test_MemmyBackend_SetReadLimit(Test_MemmyBackend *backend, U64 limit)
 {
     backend->read_limit = limit;
+}
+
+void Test_MemmyBackend_SetWriteStatus(Test_MemmyBackend *backend, Memmy_Status status)
+{
+    backend->write_status = status;
+}
+
+void Test_MemmyBackend_SetWriteLimit(Test_MemmyBackend *backend, U64 limit)
+{
+    backend->write_limit = limit;
 }

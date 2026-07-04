@@ -504,6 +504,11 @@ Test(Test_MemmyDispatchRejectsMissingCallback)
     AssertEq(Memmy_Process_Read(&process, 0, buffer, sizeof(buffer), &bytes_read, &error), Memmy_Status_Unsupported);
     AssertEq(error.status, Memmy_Status_Unsupported);
 
+    U64 bytes_written = 0;
+    AssertEq(Memmy_Process_Write(&process, 0, buffer, sizeof(buffer), &bytes_written, &error),
+             Memmy_Status_Unsupported);
+    AssertEq(error.status, Memmy_Status_Unsupported);
+
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
 }
@@ -615,6 +620,56 @@ Test(Test_MemmyProcessReadDispatchAndFailureMapping)
 
     Test_MemmyBackend_SetReadStatus(&test_backend, Memmy_Status_PlatformError);
     AssertEq(Memmy_Process_Read(process, 0x5001, buffer, 4, &bytes_read, &error), Memmy_Status_PlatformError);
+    AssertEq(error.status, Memmy_Status_PlatformError);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyProcessWriteDispatchAndFailureMapping)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    Test_MemmyBackend_SetMemoryBase(&test_backend, 0x5000);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    Memmy_Process *process = 0;
+    Memmy_Error error = {0};
+    AssertEq(Memmy_Process_Open(arena, 4242, Memmy_ProcessAccess_Write, &process, &error), Memmy_Status_Ok);
+
+    U8 replacement[4] = {0xaa, 0xbb, 0xcc, 0xdd};
+    U64 bytes_written = 0;
+    AssertEq(Memmy_Process_Write(process, 0x5001, replacement, sizeof(replacement), &bytes_written, &error),
+             Memmy_Status_Ok);
+    AssertEq(bytes_written, 4);
+    AssertEq(test_backend.memory[1], 0xaa);
+    AssertEq(test_backend.memory[4], 0xdd);
+
+    Test_MemmyBackend_SetWriteLimit(&test_backend, 2);
+    replacement[0] = 0x11;
+    replacement[1] = 0x22;
+    AssertEq(Memmy_Process_Write(process, 0x5008, replacement, sizeof(replacement), &bytes_written, &error),
+             Memmy_Status_PartialWrite);
+    AssertEq(bytes_written, 2);
+    AssertEq(test_backend.memory[8], 0x11);
+    AssertEq(test_backend.memory[9], 0x22);
+
+    Test_MemmyBackend_SetWriteLimit(&test_backend, 0);
+    AssertEq(Memmy_Process_Write(process, 0x6000, replacement, sizeof(replacement), &bytes_written, &error),
+             Memmy_Status_Unwritable);
+    AssertEq(bytes_written, 0);
+
+    Test_MemmyBackend_SetWriteStatus(&test_backend, Memmy_Status_AccessDenied);
+    AssertEq(Memmy_Process_Write(process, 0x5001, replacement, sizeof(replacement), &bytes_written, &error),
+             Memmy_Status_AccessDenied);
+    AssertEq(error.status, Memmy_Status_AccessDenied);
+
+    Test_MemmyBackend_SetWriteStatus(&test_backend, Memmy_Status_PlatformError);
+    AssertEq(Memmy_Process_Write(process, 0x5001, replacement, sizeof(replacement), &bytes_written, &error),
+             Memmy_Status_PlatformError);
     AssertEq(error.status, Memmy_Status_PlatformError);
 
     Memmy_Context_Set(0);
@@ -751,6 +806,144 @@ Test(Test_MemmyCliPeekCountAndAddressValidation)
              Memmy_Status_InvalidEncoding);
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(bad_wstr), bad_wstr, &out, &error),
              Memmy_Status_InvalidEncoding);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliPokeDryRunLeavesMemoryUnchanged)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    U8 before[4] = {0};
+    memcpy(before, test_backend.memory + 4, sizeof(before));
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy",  "poke", "--pid",   "4242", "--addr",   "0x1004",
+                    "--type", "u32",  "--value", "1337", "--dry-run"};
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("would write:\n"
+                                 "  process: 4242\n"
+                                 "  address: 0x0000000000001004\n"
+                                 "  type:    u32\n"
+                                 "  old:     117835012  0x07060504\n"
+                                 "  new:     1337  0x00000539\n"));
+    AssertEq(memcmp(before, test_backend.memory + 4, sizeof(before)), 0);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliPokeWritesRepresentativeValues)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *u32_argv[] = {"memmy", "poke", "--pid", "4242", "--addr", "0x1020", "--type", "u32", "--value", "1337"};
+    char *ptr_argv[] = {"memmy",  "poke",   "--pid", "4242",    "--addr",
+                        "0x1030", "--type", "ptr",   "--value", "0x1122334455667788"};
+    char *bytes_argv[] = {"memmy",  "poke",   "--pid", "4242",    "--addr",
+                          "0x1040", "--type", "bytes", "--value", "90 90 cc"};
+    char *str_argv[] = {"memmy", "poke", "--pid", "4242", "--addr", "0x1050", "--type", "str", "--value", "hello"};
+    char *wstr_argv[] = {"memmy", "poke", "--pid", "4242", "--addr", "0x1060", "--type", "wstr", "--value", "Hi"};
+    char *str_option_value_argv[] = {"memmy",  "poke",   "--pid", "4242",    "--addr",
+                                     "0x1070", "--type", "str",   "--value", "--flag"};
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(u32_argv), u32_argv, &out, &error), Memmy_Status_Ok);
+    U8 u32_expected[] = {0x39, 0x05, 0x00, 0x00};
+    AssertEq(memcmp(test_backend.memory + 0x20, u32_expected, sizeof(u32_expected)), 0);
+    AssertTrue(String8_Find(out, String8_Lit("wrote:\n"), 0) != STRING8_NPOS);
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(ptr_argv), ptr_argv, &out, &error), Memmy_Status_Ok);
+    U8 ptr_expected[] = {0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11};
+    AssertEq(memcmp(test_backend.memory + 0x30, ptr_expected, sizeof(ptr_expected)), 0);
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(bytes_argv), bytes_argv, &out, &error), Memmy_Status_Ok);
+    U8 bytes_expected[] = {0x90, 0x90, 0xcc};
+    AssertEq(memcmp(test_backend.memory + 0x40, bytes_expected, sizeof(bytes_expected)), 0);
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(str_argv), str_argv, &out, &error), Memmy_Status_Ok);
+    AssertEq(memcmp(test_backend.memory + 0x50, "hello", 5), 0);
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(wstr_argv), wstr_argv, &out, &error), Memmy_Status_Ok);
+    U8 wstr_expected[] = {'H', 0, 'i', 0};
+    AssertEq(memcmp(test_backend.memory + 0x60, wstr_expected, sizeof(wstr_expected)), 0);
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(str_option_value_argv), str_option_value_argv, &out, &error),
+             Memmy_Status_Ok);
+    AssertEq(memcmp(test_backend.memory + 0x70, "--flag", 6), 0);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliPokeValidation)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *bad_addr[] = {"memmy", "poke", "--pid", "4242", "--addr", "0x1000+4", "--type", "u8", "--value", "1"};
+    char *missing_value[] = {"memmy", "poke", "--pid", "4242", "--addr", "0x1000", "--type", "u8"};
+    char *count[] = {"memmy",  "poke",  "--pid",   "4242", "--addr",  "0x1000",
+                     "--type", "bytes", "--value", "90",   "--count", "1"};
+    char *bad_old_str[] = {"memmy", "poke", "--pid", "4242", "--addr", "0x10f0", "--type", "str", "--value", "ok"};
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(bad_addr), bad_addr, &out, &error), Memmy_Status_ParseError);
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(missing_value), missing_value, &out, &error),
+             Memmy_Status_ParseError);
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(count), count, &out, &error), Memmy_Status_ParseError);
+
+    test_backend.memory[0xf0] = 0xff;
+    test_backend.memory[0xf1] = 0xff;
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(bad_old_str), bad_old_str, &out, &error),
+             Memmy_Status_InvalidEncoding);
+    AssertEq(test_backend.memory[0xf0], 0xff);
+    AssertEq(test_backend.memory[0xf1], 0xff);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliRejectsPokeOptionsOnOtherCommands)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *procs_value[] = {"memmy", "procs", "--value", "ignored"};
+    char *peek_dry_run[] = {"memmy", "peek", "--pid", "4242", "--addr", "0x1000", "--type", "u8", "--dry-run"};
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(procs_value), procs_value, &out, &error),
+             Memmy_Status_ParseError);
+    AssertEq(error.status, Memmy_Status_ParseError);
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(peek_dry_run), peek_dry_run, &out, &error),
+             Memmy_Status_ParseError);
+    AssertEq(error.status, Memmy_Status_ParseError);
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -951,8 +1144,12 @@ TestSuite suite_memmy = TestSuite_Make(
     TestCase_Make(Test_MemmyCloseMarksProcessClosedWithoutCallback),
     TestCase_Make(Test_MemmyTestBackendCapabilitiesAndReadWrite),
     TestCase_Make(Test_MemmyProcessReadDispatchAndFailureMapping),
+    TestCase_Make(Test_MemmyProcessWriteDispatchAndFailureMapping),
     TestCase_Make(Test_MemmyTestBackendConfiguredInventory), TestCase_Make(Test_MemmyCliPeekTextOutput),
-    TestCase_Make(Test_MemmyCliPeekCountAndAddressValidation), TestCase_Make(Test_MemmyCliHelpAndVersion),
+    TestCase_Make(Test_MemmyCliPeekCountAndAddressValidation),
+    TestCase_Make(Test_MemmyCliPokeDryRunLeavesMemoryUnchanged),
+    TestCase_Make(Test_MemmyCliPokeWritesRepresentativeValues), TestCase_Make(Test_MemmyCliPokeValidation),
+    TestCase_Make(Test_MemmyCliRejectsPokeOptionsOnOtherCommands), TestCase_Make(Test_MemmyCliHelpAndVersion),
     TestCase_Make(Test_MemmyCliProcsModsRegionsTextOutput), TestCase_Make(Test_MemmyCliNameAmbiguityAndRegionOverflow),
     TestCase_Make(Test_MemmyCliExitCodeMapping), TestCase_Make(Test_MemmyDefaultContextWin32ReadWriteCallbacks),
     TestCase_Make(Test_MemmyDefaultContextWin32ReadWriteSelfProcess), );
