@@ -28,8 +28,6 @@ static Memmy_Status Test_MemmyBackend_ListProcesses(Arena *arena, Memmy_ProcessL
 static Memmy_Status Test_MemmyBackend_OpenProcess(Arena *arena, U32 pid, Memmy_ProcessAccess access,
                                                   Memmy_Process **out, Memmy_Error *error)
 {
-    Unused(access);
-
     Test_MemmyBackend *test_backend = ContainerOf(Memmy_Context_Get()->backend, Test_MemmyBackend, backend);
     Test_MemmyBackendProcess *info = 0;
     for (U64 i = 0; i < test_backend->process_count; i++)
@@ -47,6 +45,10 @@ static Memmy_Status Test_MemmyBackend_OpenProcess(Arena *arena, U32 pid, Memmy_P
                         String8_Lit("test process was not found"));
         return Memmy_Status_NotFound;
     }
+
+    test_backend->open_call_count++;
+    test_backend->last_open_pid = pid;
+    test_backend->last_open_access = access;
 
     Memmy_Process *process = Arena_PushStruct(arena, Memmy_Process);
     process->backend = &test_backend->backend;
@@ -221,6 +223,9 @@ void Test_MemmyBackend_Init(Test_MemmyBackend *backend)
         .read_status = Memmy_Status_Ok,
         .read_limit = 0,
         .read_call_count = 0,
+        .open_call_count = 0,
+        .last_open_pid = 0,
+        .last_open_access = 0,
         .min_read_addr = 0,
         .max_read_end = 0,
         .write_status = Memmy_Status_Ok,

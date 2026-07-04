@@ -15,13 +15,18 @@ int main(int argc, char **argv)
     }
 
     String8 output = {0};
+    B32 json = Memmy_Cli_ArgvHasJson(argc, argv);
     status = Memmy_Cli_RunToString(arena, argc, argv, &output, &error);
+    if (status != Memmy_Status_Ok && json)
+    {
+        output = Memmy_Cli_FormatJsonError(arena, &error);
+    }
     if (output.len > 0)
     {
         fwrite(output.data, 1, (size_t)output.len, stdout);
     }
 
-    if (status != Memmy_Status_Ok)
+    if (status != Memmy_Status_Ok && !json)
     {
         fprintf(stderr, "memmy: %s", Memmy_Status_Name(status));
         if (error.message.len > 0)

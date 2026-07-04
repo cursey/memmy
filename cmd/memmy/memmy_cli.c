@@ -1,5 +1,6 @@
 #include "memmy_cli.h"
 
+#include <math.h>
 #include <stdarg.h>
 #include <string.h>
 
@@ -48,6 +49,16 @@ static Memmy_Status Memmy_Cli_ReadOptionValueRaw(I32 argc, char **argv, I32 inde
 
     *out = String8_FromCStr(argv[index + 1]);
     return Memmy_Status_Ok;
+}
+
+static Memmy_Status Memmy_Cli_InvalidOption(Memmy_Error *error, String8 message, String8 input)
+{
+    Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("cli"), message);
+    if (error != 0)
+    {
+        error->input = input;
+    }
+    return Memmy_Status_InvalidArgument;
 }
 
 Memmy_Status Memmy_Cli_ParseRangeOptions(I32 argc, char **argv, Memmy_Range *out, Memmy_Error *error)
@@ -203,6 +214,101 @@ static void Memmy_Cli_PushLine(Arena *arena, String8List *list, char *fmt, ...)
     String8List_Push(arena, list, line);
 }
 
+B32 Memmy_Cli_ArgvHasJson(I32 argc, char **argv)
+{
+    for (I32 i = 1; i < argc; i++)
+    {
+        if (String8_Eq(String8_FromCStr(argv[i]), String8_Lit("--json")))
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+String8 Memmy_Cli_FormatAddress(Arena *arena, Memmy_PointerWidth pointer_width, Memmy_Addr address)
+{
+    U32 width = pointer_width == Memmy_PointerWidth_32 ? 8 : 16;
+    return String8_PushF(arena, "0x%0*llx", width, (unsigned long long)address);
+}
+
+String8 Memmy_Cli_FormatJsonString(Arena *arena, String8 text)
+{
+    String8List parts = {0};
+    String8List_Push(arena, &parts, String8_Lit("\""));
+    for (U64 i = 0; i < text.len; i++)
+    {
+        U8 c = text.data[i];
+        switch (c)
+        {
+        case '"':
+            String8List_Push(arena, &parts, String8_Lit("\\\""));
+            break;
+        case '\\':
+            String8List_Push(arena, &parts, String8_Lit("\\\\"));
+            break;
+        case '\b':
+            String8List_Push(arena, &parts, String8_Lit("\\b"));
+            break;
+        case '\f':
+            String8List_Push(arena, &parts, String8_Lit("\\f"));
+            break;
+        case '\n':
+            String8List_Push(arena, &parts, String8_Lit("\\n"));
+            break;
+        case '\r':
+            String8List_Push(arena, &parts, String8_Lit("\\r"));
+            break;
+        case '\t':
+            String8List_Push(arena, &parts, String8_Lit("\\t"));
+            break;
+        default:
+            if (c < 0x20)
+            {
+                String8List_Push(arena, &parts, String8_PushF(arena, "\\u%04x", c));
+            }
+            else
+            {
+                String8List_Push(arena, &parts, String8_Make(text.data + i, 1));
+            }
+            break;
+        }
+    }
+    String8List_Push(arena, &parts, String8_Lit("\""));
+    return String8List_Join(arena, &parts, (String8){0});
+}
+
+String8 Memmy_Cli_FormatHexBytes(Arena *arena, String8 bytes)
+{
+    String8List parts = {0};
+    for (U64 i = 0; i < bytes.len; i++)
+    {
+        Memmy_Cli_PushLine(arena, &parts, "%s%02x", i == 0 ? "" : " ", bytes.data[i]);
+    }
+    return String8List_Join(arena, &parts, (String8){0});
+}
+
+String8 Memmy_Cli_FormatJsonError(Arena *arena, Memmy_Error *error)
+{
+    Memmy_Error fallback = {0};
+    if (error == 0)
+    {
+        error = &fallback;
+    }
+    String8 status = Memmy_Status_String(error->status);
+    String8 status_json = Memmy_Cli_FormatJsonString(arena, status);
+    String8 message_json = Memmy_Cli_FormatJsonString(arena, error->message);
+    String8 context_json = Memmy_Cli_FormatJsonString(arena, error->context);
+    String8 input_json = Memmy_Cli_FormatJsonString(arena, error->input);
+    return String8_PushF(arena,
+                         "{\"ok\":false,\"error\":{\"status\":%.*s,\"message\":%.*s,\"context\":%.*s,"
+                         "\"input\":%.*s,\"byte_offset\":%llu,\"byte_count\":%llu,\"os_code\":%u}}\n",
+                         (int)status_json.len, (char *)status_json.data, (int)message_json.len,
+                         (char *)message_json.data, (int)context_json.len, (char *)context_json.data,
+                         (int)input_json.len, (char *)input_json.data, (unsigned long long)error->byte_offset,
+                         (unsigned long long)error->byte_count, error->os_code);
+}
+
 static B32 Memmy_Cli_ContainsNoCase(String8 text, String8 needle)
 {
     if (needle.len == 0)
@@ -310,26 +416,41 @@ static Memmy_Status Memmy_Cli_ParseOptions(Arena *arena, I32 argc, char **argv, 
         String8 arg = String8_FromCStr(argv[i]);
         if (String8_Eq(arg, String8_Lit("--help")))
         {
+            if (out->help)
+            {
+                return Memmy_Cli_InvalidOption(error, String8_Lit("duplicate --help"), arg);
+            }
             out->help = 1;
         }
         else if (String8_Eq(arg, String8_Lit("--version")))
         {
+            if (out->version)
+            {
+                return Memmy_Cli_InvalidOption(error, String8_Lit("duplicate --version"), arg);
+            }
             out->version = 1;
         }
         else if (String8_Eq(arg, String8_Lit("--json")))
         {
+            if (out->json)
+            {
+                return Memmy_Cli_InvalidOption(error, String8_Lit("duplicate --json"), arg);
+            }
             out->json = 1;
         }
         else if (String8_Eq(arg, String8_Lit("--jsonl")))
         {
+            if (out->jsonl)
+            {
+                return Memmy_Cli_InvalidOption(error, String8_Lit("duplicate --jsonl"), arg);
+            }
             out->jsonl = 1;
         }
         else if (String8_Eq(arg, String8_Lit("--pid")))
         {
             if (out->has_pid)
             {
-                Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("cli"), String8_Lit("duplicate --pid"));
-                return Memmy_Status_ParseError;
+                return Memmy_Cli_InvalidOption(error, String8_Lit("duplicate --pid"), arg);
             }
             String8 value = {0};
             Memmy_Status status = Memmy_Cli_ReadOptionValue(argc, argv, i, arg, &value, error);
@@ -349,8 +470,7 @@ static Memmy_Status Memmy_Cli_ParseOptions(Arena *arena, I32 argc, char **argv, 
         {
             if (out->has_name)
             {
-                Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("cli"), String8_Lit("duplicate --name"));
-                return Memmy_Status_ParseError;
+                return Memmy_Cli_InvalidOption(error, String8_Lit("duplicate --name"), arg);
             }
             Memmy_Status status = Memmy_Cli_ReadOptionValue(argc, argv, i, arg, &out->name, error);
             if (status != Memmy_Status_Ok)
@@ -364,8 +484,7 @@ static Memmy_Status Memmy_Cli_ParseOptions(Arena *arena, I32 argc, char **argv, 
         {
             if (out->has_filter)
             {
-                Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("cli"), String8_Lit("duplicate --filter"));
-                return Memmy_Status_ParseError;
+                return Memmy_Cli_InvalidOption(error, String8_Lit("duplicate --filter"), arg);
             }
             Memmy_Status status = Memmy_Cli_ReadOptionValue(argc, argv, i, arg, &out->filter, error);
             if (status != Memmy_Status_Ok)
@@ -379,8 +498,7 @@ static Memmy_Status Memmy_Cli_ParseOptions(Arena *arena, I32 argc, char **argv, 
         {
             if (out->has_addr)
             {
-                Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("cli"), String8_Lit("duplicate --addr"));
-                return Memmy_Status_ParseError;
+                return Memmy_Cli_InvalidOption(error, String8_Lit("duplicate --addr"), arg);
             }
             String8 value = {0};
             Memmy_Status status = Memmy_Cli_ReadOptionValue(argc, argv, i, arg, &value, error);
@@ -400,8 +518,7 @@ static Memmy_Status Memmy_Cli_ParseOptions(Arena *arena, I32 argc, char **argv, 
         {
             if (out->has_type)
             {
-                Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("cli"), String8_Lit("duplicate --type"));
-                return Memmy_Status_ParseError;
+                return Memmy_Cli_InvalidOption(error, String8_Lit("duplicate --type"), arg);
             }
             Memmy_Status status = Memmy_Cli_ReadOptionValue(argc, argv, i, arg, &out->type_text, error);
             if (status != Memmy_Status_Ok)
@@ -420,8 +537,7 @@ static Memmy_Status Memmy_Cli_ParseOptions(Arena *arena, I32 argc, char **argv, 
         {
             if (out->has_count)
             {
-                Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("cli"), String8_Lit("duplicate --count"));
-                return Memmy_Status_ParseError;
+                return Memmy_Cli_InvalidOption(error, String8_Lit("duplicate --count"), arg);
             }
             String8 value = {0};
             Memmy_Status status = Memmy_Cli_ReadOptionValue(argc, argv, i, arg, &value, error);
@@ -441,8 +557,7 @@ static Memmy_Status Memmy_Cli_ParseOptions(Arena *arena, I32 argc, char **argv, 
         {
             if (out->has_value)
             {
-                Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("cli"), String8_Lit("duplicate --value"));
-                return Memmy_Status_ParseError;
+                return Memmy_Cli_InvalidOption(error, String8_Lit("duplicate --value"), arg);
             }
             Memmy_Status status = Memmy_Cli_ReadOptionValueRaw(argc, argv, i, arg, &out->value_text, error);
             if (status != Memmy_Status_Ok)
@@ -456,8 +571,7 @@ static Memmy_Status Memmy_Cli_ParseOptions(Arena *arena, I32 argc, char **argv, 
         {
             if (out->dry_run)
             {
-                Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("cli"), String8_Lit("duplicate --dry-run"));
-                return Memmy_Status_ParseError;
+                return Memmy_Cli_InvalidOption(error, String8_Lit("duplicate --dry-run"), arg);
             }
             out->dry_run = 1;
         }
@@ -465,8 +579,7 @@ static Memmy_Status Memmy_Cli_ParseOptions(Arena *arena, I32 argc, char **argv, 
         {
             if (out->has_start)
             {
-                Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("cli"), String8_Lit("duplicate --start"));
-                return Memmy_Status_ParseError;
+                return Memmy_Cli_InvalidOption(error, String8_Lit("duplicate --start"), arg);
             }
             Memmy_Status status = Memmy_Cli_ReadOptionValue(argc, argv, i, arg, &out->start_text, error);
             if (status != Memmy_Status_Ok)
@@ -485,8 +598,7 @@ static Memmy_Status Memmy_Cli_ParseOptions(Arena *arena, I32 argc, char **argv, 
         {
             if (out->has_end)
             {
-                Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("cli"), String8_Lit("duplicate --end"));
-                return Memmy_Status_ParseError;
+                return Memmy_Cli_InvalidOption(error, String8_Lit("duplicate --end"), arg);
             }
             Memmy_Status status = Memmy_Cli_ReadOptionValue(argc, argv, i, arg, &out->end_text, error);
             if (status != Memmy_Status_Ok)
@@ -505,8 +617,7 @@ static Memmy_Status Memmy_Cli_ParseOptions(Arena *arena, I32 argc, char **argv, 
         {
             if (out->has_length)
             {
-                Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("cli"), String8_Lit("duplicate --length"));
-                return Memmy_Status_ParseError;
+                return Memmy_Cli_InvalidOption(error, String8_Lit("duplicate --length"), arg);
             }
             Memmy_Status status = Memmy_Cli_ReadOptionValue(argc, argv, i, arg, &out->length_text, error);
             if (status != Memmy_Status_Ok)
@@ -525,8 +636,7 @@ static Memmy_Status Memmy_Cli_ParseOptions(Arena *arena, I32 argc, char **argv, 
         {
             if (out->has_limit)
             {
-                Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("cli"), String8_Lit("duplicate --limit"));
-                return Memmy_Status_ParseError;
+                return Memmy_Cli_InvalidOption(error, String8_Lit("duplicate --limit"), arg);
             }
             String8 value = {0};
             Memmy_Status status = Memmy_Cli_ReadOptionValue(argc, argv, i, arg, &value, error);
@@ -546,9 +656,7 @@ static Memmy_Status Memmy_Cli_ParseOptions(Arena *arena, I32 argc, char **argv, 
         {
             if (out->has_chunk_size)
             {
-                Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("cli"),
-                                String8_Lit("duplicate --chunk-size"));
-                return Memmy_Status_ParseError;
+                return Memmy_Cli_InvalidOption(error, String8_Lit("duplicate --chunk-size"), arg);
             }
             String8 value = {0};
             Memmy_Status status = Memmy_Cli_ReadOptionValue(argc, argv, i, arg, &value, error);
@@ -568,8 +676,7 @@ static Memmy_Status Memmy_Cli_ParseOptions(Arena *arena, I32 argc, char **argv, 
         {
             if (out->has_pattern)
             {
-                Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("cli"), String8_Lit("duplicate --pattern"));
-                return Memmy_Status_ParseError;
+                return Memmy_Cli_InvalidOption(error, String8_Lit("duplicate --pattern"), arg);
             }
             Memmy_Status status = Memmy_Cli_ReadOptionValue(argc, argv, i, arg, &out->pattern_text, error);
             if (status != Memmy_Status_Ok)
@@ -587,12 +694,7 @@ static Memmy_Status Memmy_Cli_ParseOptions(Arena *arena, I32 argc, char **argv, 
         }
         else if (Memmy_Cli_IsOption(argv[i]))
         {
-            Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("cli"), String8_Lit("unknown option"));
-            if (error != 0)
-            {
-                error->input = arg;
-            }
-            return Memmy_Status_ParseError;
+            return Memmy_Cli_InvalidOption(error, String8_Lit("unknown option"), arg);
         }
         else if (out->command.len == 0)
         {
@@ -609,15 +711,14 @@ static Memmy_Status Memmy_Cli_ParseOptions(Arena *arena, I32 argc, char **argv, 
         }
     }
 
-    if (out->json)
+    if (out->json && out->jsonl)
     {
-        Memmy_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("cli"), String8_Lit("json output is not ready"));
-        return Memmy_Status_Unsupported;
+        return Memmy_Cli_InvalidOption(error, String8_Lit("use --json or --jsonl, not both"), String8_Lit("--jsonl"));
     }
     if (out->jsonl && !String8_Eq(out->command, String8_Lit("scan")) && !String8_Eq(out->command, String8_Lit("pscan")))
     {
-        Memmy_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("cli"), String8_Lit("jsonl output is not ready"));
-        return Memmy_Status_Unsupported;
+        return Memmy_Cli_InvalidOption(error, String8_Lit("--jsonl is only valid for scan and pscan"),
+                                       String8_Lit("--jsonl"));
     }
 
     return Memmy_Status_Ok;
@@ -707,26 +808,26 @@ static Memmy_Status Memmy_Cli_ResolveTarget(Arena *arena, Memmy_CliOptions *opti
 
 static Memmy_Status Memmy_Cli_RejectPokeOptions(Memmy_CliOptions *options, String8 command, Memmy_Error *error)
 {
+    Unused(command);
     if (options->has_value)
     {
-        Memmy_Error_Set(error, Memmy_Status_ParseError, command, String8_Lit("--value is only valid for poke"));
-        return Memmy_Status_ParseError;
+        return Memmy_Cli_InvalidOption(error, String8_Lit("--value is only valid for poke"), String8_Lit("--value"));
     }
     if (options->dry_run)
     {
-        Memmy_Error_Set(error, Memmy_Status_ParseError, command, String8_Lit("--dry-run is only valid for poke"));
-        return Memmy_Status_ParseError;
+        return Memmy_Cli_InvalidOption(error, String8_Lit("--dry-run is only valid for poke"),
+                                       String8_Lit("--dry-run"));
     }
     return Memmy_Status_Ok;
 }
 
 static Memmy_Status Memmy_Cli_RejectScanOptions(Memmy_CliOptions *options, String8 command, Memmy_Error *error)
 {
+    Unused(command);
     if (options->has_start || options->has_end || options->has_length || options->has_limit ||
         options->has_chunk_size || options->has_pattern)
     {
-        Memmy_Error_Set(error, Memmy_Status_ParseError, command, String8_Lit("scan option is invalid here"));
-        return Memmy_Status_ParseError;
+        return Memmy_Cli_InvalidOption(error, String8_Lit("scan option is invalid here"), (String8){0});
     }
     return Memmy_Status_Ok;
 }
@@ -763,44 +864,48 @@ static Memmy_Status Memmy_Cli_ResolveScanRange(Memmy_CliOptions *options, String
 
 static Memmy_Status Memmy_Cli_RejectNonPscanOptions(Memmy_CliOptions *options, Memmy_Error *error)
 {
-    if (options->has_name || options->has_filter || options->has_addr || options->has_type || options->has_count ||
-        options->has_value || options->dry_run)
+    if (options->has_filter || options->has_addr || options->has_type || options->has_count || options->has_value ||
+        options->dry_run)
     {
-        Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("pscan"),
-                        String8_Lit("option is invalid for pscan"));
-        return Memmy_Status_ParseError;
+        return Memmy_Cli_InvalidOption(error, String8_Lit("option is invalid for pscan"), (String8){0});
     }
     return Memmy_Status_Ok;
 }
 
 static Memmy_Status Memmy_Cli_RejectNonScanOptions(Memmy_CliOptions *options, Memmy_Error *error)
 {
-    if (options->has_name || options->has_filter || options->has_addr || options->has_count || options->dry_run ||
-        options->has_pattern)
+    if (options->has_filter || options->has_addr || options->has_count || options->dry_run || options->has_pattern)
     {
-        Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("scan"), String8_Lit("option is invalid for scan"));
-        return Memmy_Status_ParseError;
+        return Memmy_Cli_InvalidOption(error, String8_Lit("option is invalid for scan"), (String8){0});
     }
     return Memmy_Status_Ok;
 }
 
 static String8 Memmy_Cli_Help(Arena *arena)
 {
-    return String8_Copy(arena,
-                        String8_Lit("memmy [global-options] <command> [command-options]\n"
-                                    "\n"
-                                    "Commands:\n"
-                                    "  procs\n"
-                                    "  mods --pid <pid>\n"
-                                    "  regions --pid <pid>\n"
-                                    "  peek --pid <pid> --addr <addr> --type <type>\n"
-                                    "  poke --pid <pid> --addr <addr> --type <type> --value <value>\n"
-                                    "  scan --pid <pid> --start <addr> --end <addr> --type <type> --value <value>\n"
-                                    "  pscan --pid <pid> --start <addr> --end <addr> --pattern <pattern>\n"
-                                    "\n"
-                                    "Global options:\n"
-                                    "  --help\n"
-                                    "  --version\n"));
+    return String8_Copy(
+        arena,
+        String8_Lit("memmy [global-options] <command> [command-options]\n"
+                    "\n"
+                    "Commands:\n"
+                    "  procs\n"
+                    "  mods --pid <pid>|--name <name>\n"
+                    "  regions --pid <pid>|--name <name>\n"
+                    "  peek --pid <pid>|--name <name> --addr <addr> --type <type>\n"
+                    "  poke --pid <pid>|--name <name> --addr <addr> --type <type> --value <value>\n"
+                    "  scan --pid <pid>|--name <name> --start <addr> --end <addr> --type <type> --value <value>\n"
+                    "  scan --pid <pid>|--name <name> --start <addr> --length <size> --type <type> --value <value>\n"
+                    "  pscan --pid <pid>|--name <name> --start <addr> --end <addr> --pattern <pattern>\n"
+                    "  pscan --pid <pid>|--name <name> --start <addr> --length <size> --pattern <pattern>\n"
+                    "\n"
+                    "Global options:\n"
+                    "  --json\n"
+                    "  --jsonl  scan and pscan only\n"
+                    "  --help\n"
+                    "  --version\n"
+                    "\n"
+                    "Types: u8 i8 u16 i16 u32 i32 u64 i64 f32 f64 ptr bytes str wstr\n"
+                    "Patterns: two-digit hex bytes with ? or ?? wildcards for pscan\n"));
 }
 
 static Memmy_Status Memmy_Cli_RunProcs(Arena *arena, Memmy_CliOptions *options, String8 *out, Memmy_Error *error)
@@ -820,6 +925,10 @@ static Memmy_Status Memmy_Cli_RunProcs(Arena *arena, Memmy_CliOptions *options, 
     {
         return status;
     }
+    if (options->has_pid || options->has_name || options->has_addr || options->has_type || options->has_count)
+    {
+        return Memmy_Cli_InvalidOption(error, String8_Lit("option is invalid for procs"), (String8){0});
+    }
 
     Memmy_ProcessList processes = {0};
     status = Memmy_ListProcesses(arena, &processes, error);
@@ -829,7 +938,15 @@ static Memmy_Status Memmy_Cli_RunProcs(Arena *arena, Memmy_CliOptions *options, 
     }
 
     String8List lines = {0};
-    String8List_Push(arena, &lines, String8_Lit("PID     ARCH   NAME\n"));
+    if (options->json)
+    {
+        String8List_Push(arena, &lines, String8_Lit("[\n"));
+    }
+    else
+    {
+        String8List_Push(arena, &lines, String8_Lit("PID     ARCH   NAME\n"));
+    }
+    B32 first_json = 1;
     List_ForEach(Memmy_ProcessInfo, info, &processes.list, link)
     {
         if (options->has_filter && !Memmy_Cli_ContainsNoCase(info->name, options->filter) &&
@@ -838,9 +955,26 @@ static Memmy_Status Memmy_Cli_RunProcs(Arena *arena, Memmy_CliOptions *options, 
             continue;
         }
 
-        String8 arch = Memmy_Cli_PointerWidthString(info->pointer_width);
-        Memmy_Cli_PushLine(arena, &lines, "%u    %.*s    %.*s\n", info->pid, (int)arch.len, (char *)arch.data,
-                           (int)info->name.len, (char *)info->name.data);
+        if (options->json)
+        {
+            String8 name = Memmy_Cli_FormatJsonString(arena, info->name);
+            String8 path = Memmy_Cli_FormatJsonString(arena, info->path);
+            U32 pointer_width = info->pointer_width == Memmy_PointerWidth_32 ? 32 : 64;
+            Memmy_Cli_PushLine(arena, &lines, "%s  {\"pid\":%u,\"name\":%.*s,\"path\":%.*s,\"pointer_width\":%u}",
+                               first_json ? "" : ",\n", info->pid, (int)name.len, (char *)name.data, (int)path.len,
+                               (char *)path.data, pointer_width);
+            first_json = 0;
+        }
+        else
+        {
+            String8 arch = Memmy_Cli_PointerWidthString(info->pointer_width);
+            Memmy_Cli_PushLine(arena, &lines, "%u    %.*s    %.*s\n", info->pid, (int)arch.len, (char *)arch.data,
+                               (int)info->name.len, (char *)info->name.data);
+        }
+    }
+    if (options->json)
+    {
+        String8List_Push(arena, &lines, first_json ? String8_Lit("]\n") : String8_Lit("\n]\n"));
     }
     *out = String8List_Join(arena, &lines, (String8){0});
     return Memmy_Status_Ok;
@@ -1186,6 +1320,89 @@ static Memmy_Status Memmy_Cli_FormatPeekValue(Arena *arena, Memmy_CliOptions *op
     return Memmy_Status_Ok;
 }
 
+static Memmy_Status Memmy_Cli_FormatJsonValueFields(Arena *arena, Memmy_CliOptions *options, String8 bytes,
+                                                    String8 *out, Memmy_Error *error)
+{
+    Memmy_Type type = options->type;
+    switch (type.kind)
+    {
+    case Memmy_TypeKind_U8:
+    case Memmy_TypeKind_U16:
+    case Memmy_TypeKind_U32:
+    case Memmy_TypeKind_U64:
+    case Memmy_TypeKind_Ptr: {
+        U64 value = Memmy_Cli_ReadLE(bytes);
+        *out = String8_PushF(arena, "\"value\":%llu,\"hex\":\"0x%0*llx\"", (unsigned long long)value,
+                             (int)(bytes.len * 2), (unsigned long long)value);
+    }
+    break;
+    case Memmy_TypeKind_I8:
+    case Memmy_TypeKind_I16:
+    case Memmy_TypeKind_I32:
+    case Memmy_TypeKind_I64: {
+        I64 value = Memmy_Cli_ReadSLE(bytes);
+        U64 hex = Memmy_Cli_ReadLE(bytes);
+        *out = String8_PushF(arena, "\"value\":%lld,\"hex\":\"0x%0*llx\"", (long long)value, (int)(bytes.len * 2),
+                             (unsigned long long)hex);
+    }
+    break;
+    case Memmy_TypeKind_F32: {
+        F32 value = 0;
+        memcpy(&value, bytes.data, sizeof(value));
+        if (isfinite((double)value))
+        {
+            *out = String8_PushF(arena, "\"value\":%g", (double)value);
+        }
+        else
+        {
+            *out = String8_Lit("\"value\":null");
+        }
+    }
+    break;
+    case Memmy_TypeKind_F64: {
+        F64 value = 0;
+        memcpy(&value, bytes.data, sizeof(value));
+        if (isfinite(value))
+        {
+            *out = String8_PushF(arena, "\"value\":%g", value);
+        }
+        else
+        {
+            *out = String8_Lit("\"value\":null");
+        }
+    }
+    break;
+    case Memmy_TypeKind_Bytes: {
+        String8 hex_bytes = Memmy_Cli_FormatHexBytes(arena, bytes);
+        String8 value = Memmy_Cli_FormatJsonString(arena, hex_bytes);
+        *out = String8_PushF(arena, "\"value\":%.*s", (int)value.len, (char *)value.data);
+    }
+    break;
+    case Memmy_TypeKind_Str: {
+        Memmy_Status status = Memmy_Cli_ValidateUtf8(bytes, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        String8 value = Memmy_Cli_FormatJsonString(arena, bytes);
+        *out = String8_PushF(arena, "\"value\":%.*s", (int)value.len, (char *)value.data);
+    }
+    break;
+    case Memmy_TypeKind_WStr: {
+        Memmy_Status status = Memmy_Cli_ValidateWStr(bytes, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        String8 text = Memmy_Cli_DecodeWStr(arena, bytes);
+        String8 value = Memmy_Cli_FormatJsonString(arena, text);
+        *out = String8_PushF(arena, "\"value\":%.*s", (int)value.len, (char *)value.data);
+    }
+    break;
+    }
+    return Memmy_Status_Ok;
+}
+
 static Memmy_Status Memmy_Cli_RunPeek(Arena *arena, Memmy_CliOptions *options, String8 *out, Memmy_Error *error)
 {
     Memmy_Status status = Memmy_Cli_RequireCap(Memmy_BackendCap_Read, error);
@@ -1203,10 +1420,16 @@ static Memmy_Status Memmy_Cli_RunPeek(Arena *arena, Memmy_CliOptions *options, S
     {
         return status;
     }
-    if (!options->has_pid || options->has_name)
+    if (options->has_filter)
     {
-        Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("peek"), String8_Lit("peek requires --pid"));
-        return Memmy_Status_ParseError;
+        return Memmy_Cli_InvalidOption(error, String8_Lit("option is invalid for peek"), String8_Lit("--filter"));
+    }
+
+    U32 pid = 0;
+    status = Memmy_Cli_ResolveTarget(arena, options, &pid, error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
     }
     if (!options->has_addr)
     {
@@ -1220,7 +1443,7 @@ static Memmy_Status Memmy_Cli_RunPeek(Arena *arena, Memmy_CliOptions *options, S
     }
 
     Memmy_Process *process = 0;
-    status = Memmy_Process_Open(arena, options->pid, Memmy_ProcessAccess_Read, &process, error);
+    status = Memmy_Process_Open(arena, pid, Memmy_ProcessAccess_Read, &process, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
@@ -1249,17 +1472,33 @@ static Memmy_Status Memmy_Cli_RunPeek(Arena *arena, Memmy_CliOptions *options, S
         return Memmy_Status_PartialRead;
     }
 
-    String8List lines = {0};
-    U32 addr_width = pointer_width == Memmy_PointerWidth_32 ? 8 : 16;
-    Memmy_Cli_PushLine(arena, &lines, "0x%0*llx: %.*s ", addr_width, (unsigned long long)options->addr,
-                       (int)options->type_text.len, (char *)options->type_text.data);
-    status = Memmy_Cli_FormatPeekValue(arena, options, String8_Make(buffer, read_size), &lines, error);
-    if (status != Memmy_Status_Ok)
+    String8 address = Memmy_Cli_FormatAddress(arena, pointer_width, options->addr);
+    if (options->json)
     {
-        return status;
+        String8 value_fields = {0};
+        status = Memmy_Cli_FormatJsonValueFields(arena, options, String8_Make(buffer, read_size), &value_fields, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        String8 type_json = Memmy_Cli_FormatJsonString(arena, options->type_text);
+        *out =
+            String8_PushF(arena, "{\"address\":\"%.*s\",\"type\":%.*s,%.*s}\n", (int)address.len, (char *)address.data,
+                          (int)type_json.len, (char *)type_json.data, (int)value_fields.len, (char *)value_fields.data);
     }
-    String8List_Push(arena, &lines, String8_Lit("\n"));
-    *out = String8List_Join(arena, &lines, (String8){0});
+    else
+    {
+        String8List lines = {0};
+        Memmy_Cli_PushLine(arena, &lines, "%.*s: %.*s ", (int)address.len, (char *)address.data,
+                           (int)options->type_text.len, (char *)options->type_text.data);
+        status = Memmy_Cli_FormatPeekValue(arena, options, String8_Make(buffer, read_size), &lines, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        String8List_Push(arena, &lines, String8_Lit("\n"));
+        *out = String8List_Join(arena, &lines, (String8){0});
+    }
     return Memmy_Status_Ok;
 }
 
@@ -1288,10 +1527,16 @@ static Memmy_Status Memmy_Cli_RunPoke(Arena *arena, Memmy_CliOptions *options, S
     {
         return status;
     }
-    if (!options->has_pid || options->has_name)
+    if (options->has_filter)
     {
-        Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("poke"), String8_Lit("poke requires --pid"));
-        return Memmy_Status_ParseError;
+        return Memmy_Cli_InvalidOption(error, String8_Lit("option is invalid for poke"), String8_Lit("--filter"));
+    }
+
+    U32 pid = 0;
+    status = Memmy_Cli_ResolveTarget(arena, options, &pid, error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
     }
     if (!options->has_addr)
     {
@@ -1315,8 +1560,7 @@ static Memmy_Status Memmy_Cli_RunPoke(Arena *arena, Memmy_CliOptions *options, S
     }
 
     Memmy_Process *process = 0;
-    status =
-        Memmy_Process_Open(arena, options->pid, Memmy_ProcessAccess_Read | Memmy_ProcessAccess_Write, &process, error);
+    status = Memmy_Process_Open(arena, pid, Memmy_ProcessAccess_Read | Memmy_ProcessAccess_Write, &process, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
@@ -1382,39 +1626,67 @@ static Memmy_Status Memmy_Cli_RunPoke(Arena *arena, Memmy_CliOptions *options, S
 
     Memmy_Process_Close(process);
 
-    String8List lines = {0};
-    U32 addr_width = pointer_width == Memmy_PointerWidth_32 ? 8 : 16;
-    String8 verb = options->dry_run ? String8_Lit("would write") : String8_Lit("wrote");
-    Memmy_Cli_PushLine(arena, &lines, "%.*s:\n", (int)verb.len, (char *)verb.data);
-    Memmy_Cli_PushLine(arena, &lines, "  process: %u\n", options->pid);
-    Memmy_Cli_PushLine(arena, &lines, "  address: 0x%0*llx\n", addr_width, (unsigned long long)options->addr);
-    Memmy_Cli_PushLine(arena, &lines, "  type:    %.*s\n", (int)options->type_text.len,
-                       (char *)options->type_text.data);
-    Memmy_Cli_PushLine(arena, &lines, "  old:     %.*s\n", (int)old_value.len, (char *)old_value.data);
-    Memmy_Cli_PushLine(arena, &lines, "  new:     %.*s\n", (int)new_display.len, (char *)new_display.data);
-    *out = String8List_Join(arena, &lines, (String8){0});
+    String8 address = Memmy_Cli_FormatAddress(arena, pointer_width, options->addr);
+    if (options->json)
+    {
+        String8 type_json = Memmy_Cli_FormatJsonString(arena, options->type_text);
+        String8 old_json = Memmy_Cli_FormatJsonString(arena, old_value);
+        String8 new_json = Memmy_Cli_FormatJsonString(arena, new_display);
+        *out = String8_PushF(arena,
+                             "{\"process\":%u,\"address\":\"%.*s\",\"type\":%.*s,\"old\":%.*s,\"new\":%.*s,"
+                             "\"dry_run\":%s}\n",
+                             pid, (int)address.len, (char *)address.data, (int)type_json.len, (char *)type_json.data,
+                             (int)old_json.len, (char *)old_json.data, (int)new_json.len, (char *)new_json.data,
+                             options->dry_run ? "true" : "false");
+    }
+    else
+    {
+        String8List lines = {0};
+        String8 verb = options->dry_run ? String8_Lit("would write") : String8_Lit("wrote");
+        Memmy_Cli_PushLine(arena, &lines, "%.*s:\n", (int)verb.len, (char *)verb.data);
+        Memmy_Cli_PushLine(arena, &lines, "  process: %u\n", pid);
+        Memmy_Cli_PushLine(arena, &lines, "  address: %.*s\n", (int)address.len, (char *)address.data);
+        Memmy_Cli_PushLine(arena, &lines, "  type:    %.*s\n", (int)options->type_text.len,
+                           (char *)options->type_text.data);
+        Memmy_Cli_PushLine(arena, &lines, "  old:     %.*s\n", (int)old_value.len, (char *)old_value.data);
+        Memmy_Cli_PushLine(arena, &lines, "  new:     %.*s\n", (int)new_display.len, (char *)new_display.data);
+        *out = String8List_Join(arena, &lines, (String8){0});
+    }
     return Memmy_Status_Ok;
 }
 
 static String8 Memmy_Cli_FormatScanResults(Arena *arena, Memmy_ScanResultList *results,
-                                           Memmy_PointerWidth pointer_width, B32 jsonl)
+                                           Memmy_PointerWidth pointer_width, B32 json, B32 jsonl)
 {
     String8List lines = {0};
-    U32 addr_width = pointer_width == Memmy_PointerWidth_32 ? 8 : 16;
     if (jsonl)
     {
         List_ForEach(Memmy_ScanResult, result, &results->list, link)
         {
-            Memmy_Cli_PushLine(arena, &lines, "{\"address\":\"0x%0*llx\"}\n", addr_width,
-                               (unsigned long long)result->address);
+            String8 address = Memmy_Cli_FormatAddress(arena, pointer_width, result->address);
+            Memmy_Cli_PushLine(arena, &lines, "{\"address\":\"%.*s\"}\n", (int)address.len, (char *)address.data);
         }
+    }
+    else if (json)
+    {
+        String8List_Push(arena, &lines, String8_Lit("{\"results\":["));
+        B32 first = 1;
+        List_ForEach(Memmy_ScanResult, result, &results->list, link)
+        {
+            String8 address = Memmy_Cli_FormatAddress(arena, pointer_width, result->address);
+            Memmy_Cli_PushLine(arena, &lines, "%s{\"address\":\"%.*s\"}", first ? "" : ",", (int)address.len,
+                               (char *)address.data);
+            first = 0;
+        }
+        String8List_Push(arena, &lines, String8_Lit("]}\n"));
     }
     else
     {
         String8List_Push(arena, &lines, String8_Lit("ADDRESS\n"));
         List_ForEach(Memmy_ScanResult, result, &results->list, link)
         {
-            Memmy_Cli_PushLine(arena, &lines, "0x%0*llx\n", addr_width, (unsigned long long)result->address);
+            String8 address = Memmy_Cli_FormatAddress(arena, pointer_width, result->address);
+            Memmy_Cli_PushLine(arena, &lines, "%.*s\n", (int)address.len, (char *)address.data);
         }
     }
 
@@ -1433,10 +1705,11 @@ static Memmy_Status Memmy_Cli_RunScan(Arena *arena, Memmy_CliOptions *options, S
     {
         return status;
     }
-    if (!options->has_pid)
+    U32 pid = 0;
+    status = Memmy_Cli_ResolveTarget(arena, options, &pid, error);
+    if (status != Memmy_Status_Ok)
     {
-        Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("scan"), String8_Lit("scan requires --pid"));
-        return Memmy_Status_ParseError;
+        return status;
     }
     if (!options->has_type)
     {
@@ -1457,7 +1730,7 @@ static Memmy_Status Memmy_Cli_RunScan(Arena *arena, Memmy_CliOptions *options, S
     }
 
     Memmy_Process *process = 0;
-    status = Memmy_Process_Open(arena, options->pid, Memmy_ProcessAccess_Read, &process, error);
+    status = Memmy_Process_Open(arena, pid, Memmy_ProcessAccess_Read, &process, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
@@ -1485,7 +1758,7 @@ static Memmy_Status Memmy_Cli_RunScan(Arena *arena, Memmy_CliOptions *options, S
         return status;
     }
 
-    *out = Memmy_Cli_FormatScanResults(arena, &results, pointer_width, options->jsonl);
+    *out = Memmy_Cli_FormatScanResults(arena, &results, pointer_width, options->json, options->jsonl);
     return Memmy_Status_Ok;
 }
 
@@ -1501,10 +1774,11 @@ static Memmy_Status Memmy_Cli_RunPscan(Arena *arena, Memmy_CliOptions *options, 
     {
         return status;
     }
-    if (!options->has_pid)
+    U32 pid = 0;
+    status = Memmy_Cli_ResolveTarget(arena, options, &pid, error);
+    if (status != Memmy_Status_Ok)
     {
-        Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("pscan"), String8_Lit("pscan requires --pid"));
-        return Memmy_Status_ParseError;
+        return status;
     }
     if (!options->has_pattern)
     {
@@ -1520,7 +1794,7 @@ static Memmy_Status Memmy_Cli_RunPscan(Arena *arena, Memmy_CliOptions *options, 
     }
 
     Memmy_Process *process = 0;
-    status = Memmy_Process_Open(arena, options->pid, Memmy_ProcessAccess_Read, &process, error);
+    status = Memmy_Process_Open(arena, pid, Memmy_ProcessAccess_Read, &process, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
@@ -1540,7 +1814,7 @@ static Memmy_Status Memmy_Cli_RunPscan(Arena *arena, Memmy_CliOptions *options, 
         return status;
     }
 
-    *out = Memmy_Cli_FormatScanResults(arena, &results, pointer_width, options->jsonl);
+    *out = Memmy_Cli_FormatScanResults(arena, &results, pointer_width, options->json, options->jsonl);
     return Memmy_Status_Ok;
 }
 
@@ -1560,6 +1834,10 @@ static Memmy_Status Memmy_Cli_RunMods(Arena *arena, Memmy_CliOptions *options, S
     if (status != Memmy_Status_Ok)
     {
         return status;
+    }
+    if (options->has_addr || options->has_type || options->has_count)
+    {
+        return Memmy_Cli_InvalidOption(error, String8_Lit("option is invalid for mods"), (String8){0});
     }
 
     U32 pid = 0;
@@ -1585,7 +1863,15 @@ static Memmy_Status Memmy_Cli_RunMods(Arena *arena, Memmy_CliOptions *options, S
     }
 
     String8List lines = {0};
-    String8List_Push(arena, &lines, String8_Lit("BASE                SIZE        NAME\n"));
+    if (options->json)
+    {
+        String8List_Push(arena, &lines, String8_Lit("[\n"));
+    }
+    else
+    {
+        String8List_Push(arena, &lines, String8_Lit("BASE                SIZE        NAME\n"));
+    }
+    B32 first_json = 1;
     List_ForEach(Memmy_Module, module, &modules.list, link)
     {
         if (options->has_filter && !Memmy_Cli_ContainsNoCase(module->name, options->filter) &&
@@ -1594,8 +1880,27 @@ static Memmy_Status Memmy_Cli_RunMods(Arena *arena, Memmy_CliOptions *options, S
             continue;
         }
 
-        Memmy_Cli_PushLine(arena, &lines, "0x%016llx  0x%llx    %.*s\n", (unsigned long long)module->base,
-                           (unsigned long long)module->size, (int)module->name.len, (char *)module->name.data);
+        if (options->json)
+        {
+            String8 base = Memmy_Cli_FormatAddress(arena, process->pointer_width, module->base);
+            String8 name = Memmy_Cli_FormatJsonString(arena, module->name);
+            String8 path = Memmy_Cli_FormatJsonString(arena, module->path);
+            Memmy_Cli_PushLine(arena, &lines, "%s  {\"base\":\"%.*s\",\"size\":\"0x%llx\",\"name\":%.*s,\"path\":%.*s}",
+                               first_json ? "" : ",\n", (int)base.len, (char *)base.data,
+                               (unsigned long long)module->size, (int)name.len, (char *)name.data, (int)path.len,
+                               (char *)path.data);
+            first_json = 0;
+        }
+        else
+        {
+            String8 base = Memmy_Cli_FormatAddress(arena, process->pointer_width, module->base);
+            Memmy_Cli_PushLine(arena, &lines, "%.*s  0x%llx    %.*s\n", (int)base.len, (char *)base.data,
+                               (unsigned long long)module->size, (int)module->name.len, (char *)module->name.data);
+        }
+    }
+    if (options->json)
+    {
+        String8List_Push(arena, &lines, first_json ? String8_Lit("]\n") : String8_Lit("\n]\n"));
     }
 
     Memmy_Process_Close(process);
@@ -1619,6 +1924,10 @@ static Memmy_Status Memmy_Cli_RunRegions(Arena *arena, Memmy_CliOptions *options
     if (status != Memmy_Status_Ok)
     {
         return status;
+    }
+    if (options->has_filter || options->has_addr || options->has_type || options->has_count)
+    {
+        return Memmy_Cli_InvalidOption(error, String8_Lit("option is invalid for regions"), (String8){0});
     }
 
     U32 pid = 0;
@@ -1644,7 +1953,16 @@ static Memmy_Status Memmy_Cli_RunRegions(Arena *arena, Memmy_CliOptions *options
     }
 
     String8List lines = {0};
-    String8List_Push(arena, &lines, String8_Lit("BASE                END                 SIZE        ACCESS  STATE\n"));
+    if (options->json)
+    {
+        String8List_Push(arena, &lines, String8_Lit("[\n"));
+    }
+    else
+    {
+        String8List_Push(arena, &lines,
+                         String8_Lit("BASE                END                 SIZE        ACCESS  STATE\n"));
+    }
+    B32 first_json = 1;
     List_ForEach(Memmy_Region, region, &regions.list, link)
     {
         Memmy_Addr end = 0;
@@ -1657,9 +1975,31 @@ static Memmy_Status Memmy_Cli_RunRegions(Arena *arena, Memmy_CliOptions *options
 
         String8 access = Memmy_Cli_RegionAccessString(region->access);
         String8 state = Memmy_Cli_RegionStateString(region->state);
-        Memmy_Cli_PushLine(arena, &lines, "0x%016llx  0x%016llx  0x%llx     %.*s     %.*s\n",
-                           (unsigned long long)region->base, (unsigned long long)end, (unsigned long long)region->size,
-                           (int)access.len, (char *)access.data, (int)state.len, (char *)state.data);
+        String8 base = Memmy_Cli_FormatAddress(arena, process->pointer_width, region->base);
+        String8 end_text = Memmy_Cli_FormatAddress(arena, process->pointer_width, end);
+        if (options->json)
+        {
+            String8 access_json = Memmy_Cli_FormatJsonString(arena, access);
+            String8 state_json = Memmy_Cli_FormatJsonString(arena, state);
+            Memmy_Cli_PushLine(arena, &lines,
+                               "%s  {\"base\":\"%.*s\",\"end\":\"%.*s\",\"size\":\"0x%llx\","
+                               "\"access\":%.*s,\"state\":%.*s}",
+                               first_json ? "" : ",\n", (int)base.len, (char *)base.data, (int)end_text.len,
+                               (char *)end_text.data, (unsigned long long)region->size, (int)access_json.len,
+                               (char *)access_json.data, (int)state_json.len, (char *)state_json.data);
+            first_json = 0;
+        }
+        else
+        {
+            Memmy_Cli_PushLine(arena, &lines, "%.*s  %.*s  0x%llx     %.*s     %.*s\n", (int)base.len,
+                               (char *)base.data, (int)end_text.len, (char *)end_text.data,
+                               (unsigned long long)region->size, (int)access.len, (char *)access.data, (int)state.len,
+                               (char *)state.data);
+        }
+    }
+    if (options->json)
+    {
+        String8List_Push(arena, &lines, first_json ? String8_Lit("]\n") : String8_Lit("\n]\n"));
     }
 
     Memmy_Process_Close(process);

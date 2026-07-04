@@ -456,6 +456,13 @@ static void Test_DisableListRegions(Test_MemmyBackend *backend)
     backend->backend.list_regions = 0;
 }
 
+static void Test_ResetOpenTracking(Test_MemmyBackend *backend)
+{
+    backend->open_call_count = 0;
+    backend->last_open_pid = 0;
+    backend->last_open_access = 0;
+}
+
 static void Test_ParsePattern(Arena *arena, char *text, Memmy_Pattern *out)
 {
     Memmy_Error error = {0};
@@ -1536,16 +1543,16 @@ Test(Test_MemmyCliRejectsPokeOptionsOnOtherCommands)
     char *peek_jsonl[] = {"memmy", "peek", "--pid", "4242", "--addr", "0x1000", "--type", "u8", "--jsonl"};
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(procs_value), procs_value, &out, &error),
-             Memmy_Status_ParseError);
-    AssertEq(error.status, Memmy_Status_ParseError);
+             Memmy_Status_InvalidArgument);
+    AssertEq(error.status, Memmy_Status_InvalidArgument);
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(peek_dry_run), peek_dry_run, &out, &error),
-             Memmy_Status_ParseError);
-    AssertEq(error.status, Memmy_Status_ParseError);
+             Memmy_Status_InvalidArgument);
+    AssertEq(error.status, Memmy_Status_InvalidArgument);
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(peek_jsonl), peek_jsonl, &out, &error),
-             Memmy_Status_Unsupported);
-    AssertEq(error.status, Memmy_Status_Unsupported);
+             Memmy_Status_InvalidArgument);
+    AssertEq(error.status, Memmy_Status_InvalidArgument);
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -1640,6 +1647,223 @@ Test(Test_MemmyCliNameAmbiguityAndRegionOverflow)
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(overflow_argv), overflow_argv, &out, &error),
              Memmy_Status_Overflow);
     AssertEq(error.status, Memmy_Status_Overflow);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliJsonHelpers)
+{
+    Arena *arena = Arena_CreateDefault();
+    U8 bytes[] = {0x00, 0x0a, 0xff};
+
+    AssertStrEq(Memmy_Cli_FormatAddress(arena, Memmy_PointerWidth_64, 0x4242), String8_Lit("0x0000000000004242"));
+    AssertStrEq(Memmy_Cli_FormatAddress(arena, Memmy_PointerWidth_32, 0x4242), String8_Lit("0x00004242"));
+    AssertStrEq(Memmy_Cli_FormatHexBytes(arena, String8_Make(bytes, ArrayCount(bytes))), String8_Lit("00 0a ff"));
+    AssertStrEq(Memmy_Cli_FormatJsonString(arena, String8_Lit("a\0b\n\"\\")), String8_Lit("\"a\\u0000b\\n\\\"\\\\\""));
+
+    Memmy_Error error = {
+        .status = Memmy_Status_ParseError,
+        .message = String8_Lit("bad \"address\""),
+        .context = String8_Lit("address"),
+        .input = String8_Lit("0x"),
+        .byte_offset = 2,
+        .byte_count = 1,
+        .os_code = 5,
+    };
+    AssertStrEq(Memmy_Cli_FormatJsonError(arena, &error),
+                String8_Lit("{\"ok\":false,\"error\":{\"status\":\"parse_error\",\"message\":\"bad "
+                            "\\\"address\\\"\",\"context\":\"address\",\"input\":\"0x\",\"byte_offset\":2,"
+                            "\"byte_count\":1,\"os_code\":5}}\n"));
+
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliJsonSuccessOutput)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    test_backend.process_count = 0;
+    test_backend.module_count = 0;
+    test_backend.region_count = 0;
+    Test_MemmyBackend_AddProcess(&test_backend, 222, String8_Lit("beta.exe"), String8_Lit("C:\\beta.exe"),
+                                 Memmy_PointerWidth_64);
+    Test_MemmyBackend_AddModule(&test_backend, 222, String8_Lit("beta.dll"), String8_Lit("C:\\beta.dll"),
+                                0x00007ff800000000, 0x1a4000);
+    Test_MemmyBackend_AddRegion(&test_backend, 222, 0x000001d800000000, 0x10000,
+                                Memmy_RegionAccess_Read | Memmy_RegionAccess_Write, Memmy_RegionState_Committed);
+    U8 bytes[] = {0x48, 0x8b};
+    memcpy(test_backend.memory + 0x20, bytes, sizeof(bytes));
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *procs_argv[] = {"memmy", "--json", "procs"};
+    char *mods_argv[] = {"memmy", "--json", "mods", "--name", "beta.exe"};
+    char *regions_argv[] = {"memmy", "--json", "regions", "--pid", "222"};
+    char *peek_argv[] = {"memmy", "--json", "peek", "--name", "beta.exe", "--addr", "0x1002", "--type", "u32"};
+    char *poke_argv[] = {"memmy",  "--json", "poke", "--pid",   "222",    "--addr",
+                         "0x1004", "--type", "u16",  "--value", "0x1234", "--dry-run"};
+    char *scan_argv[] = {"memmy",    "--json", "scan",   "--pid", "222",     "--start", "0x1020",
+                         "--length", "2",      "--type", "bytes", "--value", "48 8b"};
+    char *pscan_argv[] = {"memmy",  "--json",   "pscan", "--pid",     "222",  "--start",
+                          "0x1020", "--length", "2",     "--pattern", "48 ??"};
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(procs_argv), procs_argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("[\n"
+                                 "  {\"pid\":222,\"name\":\"beta.exe\",\"path\":\"C:\\\\beta.exe\","
+                                 "\"pointer_width\":64}\n"
+                                 "]\n"));
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(mods_argv), mods_argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("[\n"
+                                 "  {\"base\":\"0x00007ff800000000\",\"size\":\"0x1a4000\","
+                                 "\"name\":\"beta.dll\",\"path\":\"C:\\\\beta.dll\"}\n"
+                                 "]\n"));
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(regions_argv), regions_argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("[\n"
+                                 "  {\"base\":\"0x000001d800000000\",\"end\":\"0x000001d800010000\","
+                                 "\"size\":\"0x10000\",\"access\":\"rw-\",\"state\":\"committed\"}\n"
+                                 "]\n"));
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(peek_argv), peek_argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("{\"address\":\"0x0000000000001002\",\"type\":\"u32\",\"value\":84148994,"
+                                 "\"hex\":\"0x05040302\"}\n"));
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(poke_argv), poke_argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("{\"process\":222,\"address\":\"0x0000000000001004\",\"type\":\"u16\","
+                                 "\"old\":\"1284  0x0504\",\"new\":\"4660  0x1234\",\"dry_run\":true}\n"));
+
+    Test_DisableListRegions(&test_backend);
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(scan_argv), scan_argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("{\"results\":[{\"address\":\"0x0000000000001020\"}]}\n"));
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(pscan_argv), pscan_argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("{\"results\":[{\"address\":\"0x0000000000001020\"}]}\n"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliJsonNonFiniteFloatValuesAreValidJson)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+
+    U32 f32_nan_bits = 0x7fc00000;
+    U64 f64_inf_bits = 0x7ff0000000000000ull;
+    memcpy(test_backend.memory + 0x20, &f32_nan_bits, sizeof(f32_nan_bits));
+    memcpy(test_backend.memory + 0x30, &f64_inf_bits, sizeof(f64_inf_bits));
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *f32_nan_argv[] = {"memmy", "--json", "peek", "--pid", "4242", "--addr", "0x1020", "--type", "f32"};
+    char *f64_inf_argv[] = {"memmy", "--json", "peek", "--pid", "4242", "--addr", "0x1030", "--type", "f64"};
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(f32_nan_argv), f32_nan_argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("{\"address\":\"0x0000000000001020\",\"type\":\"f32\",\"value\":null}\n"));
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(f64_inf_argv), f64_inf_argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("{\"address\":\"0x0000000000001030\",\"type\":\"f64\",\"value\":null}\n"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliProcessAccessRequests)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    U8 bytes[] = {0x48, 0x8b};
+    memcpy(test_backend.memory + 0x20, bytes, sizeof(bytes));
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *mods_argv[] = {"memmy", "mods", "--pid", "4242"};
+    char *regions_argv[] = {"memmy", "regions", "--pid", "4242"};
+    char *peek_argv[] = {"memmy", "peek", "--pid", "4242", "--addr", "0x1000", "--type", "u8"};
+    char *scan_argv[] = {"memmy",    "scan", "--pid",  "4242",  "--start", "0x1020",
+                         "--length", "2",    "--type", "bytes", "--value", "48 8b"};
+    char *pscan_argv[] = {"memmy",  "pscan",    "--pid", "4242",      "--start",
+                          "0x1020", "--length", "2",     "--pattern", "48 ??"};
+    char *poke_argv[] = {"memmy",  "poke", "--pid",   "4242", "--addr",   "0x1020",
+                         "--type", "u8",   "--value", "1",    "--dry-run"};
+
+    Test_ResetOpenTracking(&test_backend);
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(mods_argv), mods_argv, &out, &error), Memmy_Status_Ok);
+    AssertEq(test_backend.open_call_count, 1);
+    AssertEq(test_backend.last_open_access, Memmy_ProcessAccess_Query);
+
+    Test_ResetOpenTracking(&test_backend);
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(regions_argv), regions_argv, &out, &error), Memmy_Status_Ok);
+    AssertEq(test_backend.open_call_count, 1);
+    AssertEq(test_backend.last_open_access, Memmy_ProcessAccess_Query);
+
+    Test_ResetOpenTracking(&test_backend);
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(peek_argv), peek_argv, &out, &error), Memmy_Status_Ok);
+    AssertEq(test_backend.open_call_count, 1);
+    AssertEq(test_backend.last_open_access, Memmy_ProcessAccess_Read);
+
+    Test_ResetOpenTracking(&test_backend);
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(scan_argv), scan_argv, &out, &error), Memmy_Status_Ok);
+    AssertEq(test_backend.open_call_count, 1);
+    AssertEq(test_backend.last_open_access, Memmy_ProcessAccess_Read);
+
+    Test_ResetOpenTracking(&test_backend);
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(pscan_argv), pscan_argv, &out, &error), Memmy_Status_Ok);
+    AssertEq(test_backend.open_call_count, 1);
+    AssertEq(test_backend.last_open_access, Memmy_ProcessAccess_Read);
+
+    Test_ResetOpenTracking(&test_backend);
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(poke_argv), poke_argv, &out, &error), Memmy_Status_Ok);
+    AssertEq(test_backend.open_call_count, 1);
+    AssertEq(test_backend.last_open_access, Memmy_ProcessAccess_Read | Memmy_ProcessAccess_Write);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliInvalidOptionsAndNameNotFound)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *duplicate_json[] = {"memmy", "--json", "--json", "procs"};
+    char *unknown_option[] = {"memmy", "procs", "--expr", "module+4"};
+    char *name_not_found[] = {"memmy", "peek", "--name", "missing.exe", "--addr", "0x1000", "--type", "u8"};
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(duplicate_json), duplicate_json, &out, &error),
+             Memmy_Status_InvalidArgument);
+    AssertStrEq(error.context, String8_Lit("cli"));
+    AssertStrEq(error.input, String8_Lit("--json"));
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(unknown_option), unknown_option, &out, &error),
+             Memmy_Status_InvalidArgument);
+    AssertStrEq(error.context, String8_Lit("cli"));
+    AssertStrEq(error.input, String8_Lit("--expr"));
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(name_not_found), name_not_found, &out, &error),
+             Memmy_Status_NotFound);
+    AssertStrEq(error.context, String8_Lit("process"));
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -1766,5 +1990,8 @@ TestSuite suite_memmy = TestSuite_Make(
     TestCase_Make(Test_MemmyCliScanTextOutputRangeFormsAndValues),
     TestCase_Make(Test_MemmyCliRejectsPokeOptionsOnOtherCommands), TestCase_Make(Test_MemmyCliHelpAndVersion),
     TestCase_Make(Test_MemmyCliProcsModsRegionsTextOutput), TestCase_Make(Test_MemmyCliNameAmbiguityAndRegionOverflow),
-    TestCase_Make(Test_MemmyCliExitCodeMapping), TestCase_Make(Test_MemmyDefaultContextWin32ReadWriteCallbacks),
+    TestCase_Make(Test_MemmyCliJsonHelpers), TestCase_Make(Test_MemmyCliJsonSuccessOutput),
+    TestCase_Make(Test_MemmyCliJsonNonFiniteFloatValuesAreValidJson), TestCase_Make(Test_MemmyCliProcessAccessRequests),
+    TestCase_Make(Test_MemmyCliInvalidOptionsAndNameNotFound), TestCase_Make(Test_MemmyCliExitCodeMapping),
+    TestCase_Make(Test_MemmyDefaultContextWin32ReadWriteCallbacks),
     TestCase_Make(Test_MemmyDefaultContextWin32ReadWriteSelfProcess), );
