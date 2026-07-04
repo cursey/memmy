@@ -1,7 +1,7 @@
 #include "memmy_cli_internal.h"
 
-static String8 Memmy_Cli_FormatScanResults(Arena *arena, Memmy_ScanResultList *results,
-                                           Memmy_PointerWidth pointer_width, B32 json, B32 jsonl)
+String8 Memmy_Cli_FormatScanResults(Arena *arena, Memmy_ScanResultList *results, Memmy_PointerWidth pointer_width,
+                                    B32 json, B32 jsonl)
 {
     String8List lines = {0};
     if (jsonl)

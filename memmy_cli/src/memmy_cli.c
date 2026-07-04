@@ -722,7 +722,8 @@ static Memmy_Status Memmy_Cli_ParseOptions(Arena *arena, I32 argc, char **argv, 
     {
         return Memmy_Cli_InvalidOption(error, String8_Lit("use --json or --jsonl, not both"), String8_Lit("--jsonl"));
     }
-    if (out->jsonl && !String8_Eq(out->command, String8_Lit("scan")) && !String8_Eq(out->command, String8_Lit("pscan")))
+    if (out->jsonl && !out->has_expr && !String8_Eq(out->command, String8_Lit("scan")) &&
+        !String8_Eq(out->command, String8_Lit("pscan")))
     {
         return Memmy_Cli_InvalidOption(error, String8_Lit("--jsonl is only valid for scan and pscan"),
                                        String8_Lit("--jsonl"));

@@ -102,5 +102,7 @@ Memmy_Status Memmy_Cli_FormatPeekOutput(Arena *arena, Memmy_CliPeekOutput *peek,
                                         Memmy_Error *error);
 Memmy_Status Memmy_Cli_FormatPokeOutput(Arena *arena, Memmy_CliPokeOutput *poke, B32 json, String8 *out,
                                         Memmy_Error *error);
+String8 Memmy_Cli_FormatScanResults(Arena *arena, Memmy_ScanResultList *results, Memmy_PointerWidth pointer_width,
+                                    B32 json, B32 jsonl);
 
 #endif // MEMMY_CLI_INTERNAL_H
