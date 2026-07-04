@@ -10,8 +10,6 @@ Test(Test_MemmyDefaultBackendReadWriteCallbacks)
 #if OS_WINDOWS || OS_MACOS
     AssertEq(status, Memmy_Status_Ok);
     AssertTrue(ctx.backend != 0);
-    AssertTrue(Memmy_Backend_HasCapability(ctx.backend, Memmy_BackendCap_Read));
-    AssertTrue(Memmy_Backend_HasCapability(ctx.backend, Memmy_BackendCap_Write));
     AssertTrue(ctx.backend->read != 0);
     AssertTrue(ctx.backend->write != 0);
 #else
@@ -38,9 +36,7 @@ Test(Test_MemmyDefaultBackendReadWriteSelfProcess)
     U64 byte_count = 0;
     Memmy_Process *process = 0;
 
-    AssertEq(Memmy_Process_Open(arena, Os_GetProcessId(), Memmy_ProcessAccess_Read | Memmy_ProcessAccess_Write,
-                                &process, &error),
-             Memmy_Status_Ok);
+    AssertEq(Memmy_Process_Open(arena, Os_GetProcessId(), &process, &error), Memmy_Status_Ok);
     AssertEq(Memmy_Process_Read(process, (Memmy_Addr)(uintptr_t)&value, &read_value, sizeof(read_value), &byte_count,
                                 &error),
              Memmy_Status_Ok);
@@ -78,9 +74,7 @@ Test(Test_MemmyDefaultBackendSelfProcessInventoryAndScan)
     memcpy(fixture + 8, pattern_bytes, sizeof(pattern_bytes));
 
     Memmy_Process *process = 0;
-    AssertEq(Memmy_Process_Open(arena, Os_GetProcessId(), Memmy_ProcessAccess_Read | Memmy_ProcessAccess_Query,
-                                &process, &error),
-             Memmy_Status_Ok);
+    AssertEq(Memmy_Process_Open(arena, Os_GetProcessId(), &process, &error), Memmy_Status_Ok);
     AssertTrue(process->pointer_width == Memmy_PointerWidth_32 || process->pointer_width == Memmy_PointerWidth_64);
 
     Memmy_ModuleList modules = {0};

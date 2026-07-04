@@ -52,12 +52,7 @@ Memmy_Status Memmy_Cli_FormatPokeOutput(Arena *arena, Memmy_CliPokeOutput *poke,
 
 Memmy_Status Memmy_Cli_RunPoke(Arena *arena, Memmy_CliOptions *options, String8 *out, Memmy_Error *error)
 {
-    Memmy_Status status = Memmy_Cli_RequireCaps(Memmy_BackendCap_Read | Memmy_BackendCap_Write, error);
-    if (status != Memmy_Status_Ok)
-    {
-        return status;
-    }
-    status = Memmy_Cli_RejectScanOptions(options, String8_Lit("poke"), error);
+    Memmy_Status status = Memmy_Cli_RejectScanOptions(options, String8_Lit("poke"), error);
     if (status != Memmy_Status_Ok)
     {
         return status;
@@ -95,7 +90,7 @@ Memmy_Status Memmy_Cli_RunPoke(Arena *arena, Memmy_CliOptions *options, String8 
     }
 
     Memmy_Process *process = 0;
-    status = Memmy_Process_Open(arena, pid, Memmy_ProcessAccess_Read | Memmy_ProcessAccess_Write, &process, error);
+    status = Memmy_Process_Open(arena, pid, &process, error);
     if (status != Memmy_Status_Ok)
     {
         return status;

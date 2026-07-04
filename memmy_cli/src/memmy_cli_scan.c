@@ -40,12 +40,7 @@ String8 Memmy_Cli_FormatScanResults(Arena *arena, Memmy_ScanResultList *results,
 
 Memmy_Status Memmy_Cli_RunScan(Arena *arena, Memmy_CliOptions *options, String8 *out, Memmy_Error *error)
 {
-    Memmy_Status status = Memmy_Cli_RequireCap(Memmy_BackendCap_Read, error);
-    if (status != Memmy_Status_Ok)
-    {
-        return status;
-    }
-    status = Memmy_Cli_RejectNonScanOptions(options, error);
+    Memmy_Status status = Memmy_Cli_RejectNonScanOptions(options, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
@@ -75,7 +70,7 @@ Memmy_Status Memmy_Cli_RunScan(Arena *arena, Memmy_CliOptions *options, String8 
     }
 
     Memmy_Process *process = 0;
-    status = Memmy_Process_Open(arena, pid, Memmy_ProcessAccess_Read, &process, error);
+    status = Memmy_Process_Open(arena, pid, &process, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
@@ -109,12 +104,7 @@ Memmy_Status Memmy_Cli_RunScan(Arena *arena, Memmy_CliOptions *options, String8 
 
 Memmy_Status Memmy_Cli_RunPscan(Arena *arena, Memmy_CliOptions *options, String8 *out, Memmy_Error *error)
 {
-    Memmy_Status status = Memmy_Cli_RequireCap(Memmy_BackendCap_Read, error);
-    if (status != Memmy_Status_Ok)
-    {
-        return status;
-    }
-    status = Memmy_Cli_RejectNonPscanOptions(options, error);
+    Memmy_Status status = Memmy_Cli_RejectNonPscanOptions(options, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
@@ -139,7 +129,7 @@ Memmy_Status Memmy_Cli_RunPscan(Arena *arena, Memmy_CliOptions *options, String8
     }
 
     Memmy_Process *process = 0;
-    status = Memmy_Process_Open(arena, pid, Memmy_ProcessAccess_Read, &process, error);
+    status = Memmy_Process_Open(arena, pid, &process, error);
     if (status != Memmy_Status_Ok)
     {
         return status;

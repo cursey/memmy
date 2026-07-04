@@ -29,7 +29,6 @@ extern TestSuite suite_memmy_expr_const;
 extern TestSuite suite_memmy_expr_address;
 extern TestSuite suite_memmy_expr_memory;
 extern TestSuite suite_memmy_expr_range;
-extern TestSuite suite_memmy_exec_requirements;
 extern TestSuite suite_memmy_exec_address;
 extern TestSuite suite_memmy_exec_peek_poke;
 extern TestSuite suite_memmy_exec_range;
@@ -76,7 +75,6 @@ int main(int argc, char **argv)
         suite_memmy_expr_address,
         suite_memmy_expr_memory,
         suite_memmy_expr_range,
-        suite_memmy_exec_requirements,
         suite_memmy_exec_address,
         suite_memmy_exec_peek_poke,
         suite_memmy_exec_range,

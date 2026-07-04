@@ -44,7 +44,6 @@ Test(Test_MemmyCliExprResolvesModuleAddressByPid)
     AssertStrEq(out, String8_Lit("0x0000000000001123\n"));
     AssertEq(test_backend.open_call_count, 1);
     AssertEq(test_backend.last_open_pid, 1234);
-    AssertEq(test_backend.last_open_access, Memmy_ProcessAccess_Query);
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -69,7 +68,6 @@ Test(Test_MemmyCliExprResolvesPointerChainByPid)
     AssertStrEq(out, String8_Lit("0x0000000000002008\n"));
     AssertEq(test_backend.open_call_count, 1);
     AssertEq(test_backend.last_open_pid, 1234);
-    AssertEq(test_backend.last_open_access, Memmy_ProcessAccess_Read | Memmy_ProcessAccess_Query);
     AssertEq(test_backend.read_call_count, 1);
 
     Memmy_Context_Set(0);
@@ -448,7 +446,7 @@ Test(Test_MemmyCliExprFormatsPatternScanTextLikePscan)
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("ADDRESS\n"
                                  "0x0000000000001010\n"));
-    AssertEq(test_backend.last_open_access, Memmy_ProcessAccess_Read | Memmy_ProcessAccess_Query);
+    AssertEq(test_backend.last_open_pid, 1234);
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -498,7 +496,6 @@ Test(Test_MemmyCliExprFormatsValueScanTextLikeScan)
                                  "0x0000000000001010\n"
                                  "0x0000000000001030\n"));
     AssertEq(test_backend.last_open_pid, 1234);
-    AssertEq(test_backend.last_open_access, Memmy_ProcessAccess_Read | Memmy_ProcessAccess_Query);
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -555,7 +552,6 @@ Test(Test_MemmyCliExprScansWholeProcessValueWithRegions)
                                  "0x0000000000001012\n"
                                  "0x0000000000001045\n"));
     AssertEq(test_backend.last_open_pid, 1234);
-    AssertEq(test_backend.last_open_access, Memmy_ProcessAccess_Read | Memmy_ProcessAccess_Query);
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);

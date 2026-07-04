@@ -156,7 +156,7 @@ Test(Test_MemmyCliJsonHelpers)
     Arena_Destroy(arena);
 }
 
-Test(Test_MemmyCliProcessAccessRequests)
+Test(Test_MemmyCliCommandsOpenSelectedProcess)
 {
     Arena *arena = Arena_CreateDefault();
     Test_MemmyBackend test_backend = {0};
@@ -182,32 +182,32 @@ Test(Test_MemmyCliProcessAccessRequests)
     Test_ResetOpenTracking(&test_backend);
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(mods_argv), mods_argv, &out, &error), Memmy_Status_Ok);
     AssertEq(test_backend.open_call_count, 1);
-    AssertEq(test_backend.last_open_access, Memmy_ProcessAccess_Query);
+    AssertEq(test_backend.last_open_pid, 4242);
 
     Test_ResetOpenTracking(&test_backend);
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(regions_argv), regions_argv, &out, &error), Memmy_Status_Ok);
     AssertEq(test_backend.open_call_count, 1);
-    AssertEq(test_backend.last_open_access, Memmy_ProcessAccess_Query);
+    AssertEq(test_backend.last_open_pid, 4242);
 
     Test_ResetOpenTracking(&test_backend);
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(peek_argv), peek_argv, &out, &error), Memmy_Status_Ok);
     AssertEq(test_backend.open_call_count, 1);
-    AssertEq(test_backend.last_open_access, Memmy_ProcessAccess_Read);
+    AssertEq(test_backend.last_open_pid, 4242);
 
     Test_ResetOpenTracking(&test_backend);
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(scan_argv), scan_argv, &out, &error), Memmy_Status_Ok);
     AssertEq(test_backend.open_call_count, 1);
-    AssertEq(test_backend.last_open_access, Memmy_ProcessAccess_Read);
+    AssertEq(test_backend.last_open_pid, 4242);
 
     Test_ResetOpenTracking(&test_backend);
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(pscan_argv), pscan_argv, &out, &error), Memmy_Status_Ok);
     AssertEq(test_backend.open_call_count, 1);
-    AssertEq(test_backend.last_open_access, Memmy_ProcessAccess_Read);
+    AssertEq(test_backend.last_open_pid, 4242);
 
     Test_ResetOpenTracking(&test_backend);
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(poke_argv), poke_argv, &out, &error), Memmy_Status_Ok);
     AssertEq(test_backend.open_call_count, 1);
-    AssertEq(test_backend.last_open_access, Memmy_ProcessAccess_Read | Memmy_ProcessAccess_Write);
+    AssertEq(test_backend.last_open_pid, 4242);
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -266,5 +266,5 @@ Test(Test_MemmyCliExitCodeMapping)
 TestSuite suite_memmy_cli = TestSuite_Make(
     "Memmy CLI", TestCase_Make(Test_MemmyCliRejectsPokeOptionsOnOtherCommands),
     TestCase_Make(Test_MemmyCliRejectsV0NonGoalSyntax), TestCase_Make(Test_MemmyCliHelpAndVersion),
-    TestCase_Make(Test_MemmyCliJsonHelpers), TestCase_Make(Test_MemmyCliProcessAccessRequests),
+    TestCase_Make(Test_MemmyCliJsonHelpers), TestCase_Make(Test_MemmyCliCommandsOpenSelectedProcess),
     TestCase_Make(Test_MemmyCliInvalidOptionsAndNameNotFound), TestCase_Make(Test_MemmyCliExitCodeMapping), );

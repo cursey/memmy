@@ -16,7 +16,7 @@ build\unittest\Debug\memmy_test.exe
 
 The Windows-only unit tests cover:
 
-- default backend capability bits and read/write callbacks
+- default backend read/write callbacks
 - current-process `ReadProcessMemory` and `WriteProcessMemory`
 - current-process module and region enumeration
 - current-process value and pattern scans over controlled memory

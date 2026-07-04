@@ -56,7 +56,6 @@ struct Test_MemmyBackend
     U64 read_call_count;
     U64 open_call_count;
     U32 last_open_pid;
-    Memmy_ProcessAccess last_open_access;
     Memmy_Addr min_read_addr;
     Memmy_Addr max_read_end;
     Memmy_Status write_status;

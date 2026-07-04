@@ -47,6 +47,80 @@ static Memmy_ProcessSelector Memmy_Cli_ExprProcessSelector(Memmy_MemoryExpr *exp
     return selector;
 }
 
+typedef struct Memmy_CliExprNeeds Memmy_CliExprNeeds;
+struct Memmy_CliExprNeeds
+{
+    B32 process;
+    B32 modules;
+    B32 regions;
+};
+
+static void Memmy_Cli_TargetExprNeeds(Memmy_TargetExpr *target, Memmy_CliExprNeeds *needs)
+{
+    if (target->kind == Memmy_TargetExprKind_Module)
+    {
+        needs->process = 1;
+        needs->modules = 1;
+    }
+    else if (target->kind == Memmy_TargetExprKind_WholeProcess)
+    {
+        needs->process = 1;
+        needs->regions = 1;
+    }
+}
+
+static void Memmy_Cli_AddressExprNeeds(Memmy_AddressExpr *address, Memmy_CliExprNeeds *needs)
+{
+    if (address->base_kind == Memmy_AddressExprBaseKind_Target)
+    {
+        Memmy_Cli_TargetExprNeeds(&address->target, needs);
+    }
+
+    List_ForEach(Memmy_AddressOp, op, &address->ops, link)
+    {
+        if (op->kind == Memmy_AddressOpKind_Deref || op->kind == Memmy_AddressOpKind_DerefOffset)
+        {
+            needs->process = 1;
+        }
+    }
+}
+
+static void Memmy_Cli_RangeExprNeeds(Memmy_RangeExpr *range, Memmy_CliExprNeeds *needs)
+{
+    if (range->kind == Memmy_RangeExprKind_Target)
+    {
+        Memmy_Cli_TargetExprNeeds(&range->target, needs);
+    }
+    else if (range->kind == Memmy_RangeExprKind_ModuleOffset || range->kind == Memmy_RangeExprKind_ModuleSized)
+    {
+        Memmy_Cli_TargetExprNeeds(&range->target, needs);
+    }
+    else if (range->kind == Memmy_RangeExprKind_AddressSized)
+    {
+        Memmy_Cli_AddressExprNeeds(&range->address, needs);
+    }
+}
+
+static Memmy_CliExprNeeds Memmy_Cli_MemoryExprNeeds(Memmy_MemoryExpr *expr)
+{
+    Memmy_CliExprNeeds needs = {0};
+    if (expr->kind == Memmy_MemoryExprKind_Address)
+    {
+        Memmy_Cli_AddressExprNeeds(&expr->address, &needs);
+    }
+    else if (expr->kind == Memmy_MemoryExprKind_Peek || expr->kind == Memmy_MemoryExprKind_Poke)
+    {
+        needs.process = 1;
+        Memmy_Cli_AddressExprNeeds(&expr->address, &needs);
+    }
+    else if (expr->kind == Memmy_MemoryExprKind_PatternScan || expr->kind == Memmy_MemoryExprKind_ValueScan)
+    {
+        needs.process = 1;
+        Memmy_Cli_RangeExprNeeds(&expr->range, &needs);
+    }
+    return needs;
+}
+
 static Memmy_Status Memmy_Cli_ResolveProcessName(Arena *arena, String8 name, U32 *out_pid, Memmy_Error *error)
 {
     Memmy_ProcessList processes = {0};
@@ -194,29 +268,9 @@ Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 
                                        String8_Lit("--jsonl"));
     }
 
-    Memmy_ExecRequirements requirements = {0};
-    status = Memmy_MemoryExpr_GetRequirements(&expr, &requirements, error);
-    if (status != Memmy_Status_Ok)
-    {
-        return status;
-    }
-
+    Memmy_CliExprNeeds needs = Memmy_Cli_MemoryExprNeeds(&expr);
     Memmy_ProcessSelector expr_selector = Memmy_Cli_ExprProcessSelector(&expr);
-    Memmy_BackendCap caps = requirements.backend_caps;
-    if (options->has_name || expr_selector.kind == Memmy_ProcessSelectorKind_Name)
-    {
-        caps |= Memmy_BackendCap_ListProcs;
-    }
-
-    status = Memmy_Cli_RequireCaps(caps, error);
-    if (status != Memmy_Status_Ok)
-    {
-        return status;
-    }
-
-    B32 process_required = requirements.needs_external_process ||
-                           expr_selector.kind != Memmy_ProcessSelectorKind_None || requirements.process_access != 0 ||
-                           requirements.needs_modules || requirements.needs_regions;
+    B32 process_required = needs.process || expr_selector.kind != Memmy_ProcessSelectorKind_None;
     U32 pid = 0;
     status = Memmy_Cli_SelectExprProcess(arena, options, expr_selector, process_required, &pid, error);
     if (status != Memmy_Status_Ok)
@@ -228,7 +282,7 @@ Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 
     Memmy_PointerWidth pointer_width = Memmy_PointerWidth_64;
     if (process_required)
     {
-        status = Memmy_Process_Open(arena, pid, requirements.process_access, &process, error);
+        status = Memmy_Process_Open(arena, pid, &process, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -238,7 +292,7 @@ Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 
 
     Memmy_ModuleList modules = {0};
     Memmy_ModuleList *modules_ptr = 0;
-    if (requirements.needs_modules)
+    if (needs.modules)
     {
         status = Memmy_Process_ListModules(arena, process, &modules, error);
         if (status != Memmy_Status_Ok)
@@ -251,7 +305,7 @@ Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 
 
     Memmy_RegionList regions = {0};
     Memmy_RegionList *regions_ptr = 0;
-    if (requirements.needs_regions)
+    if (needs.regions)
     {
         status = Memmy_Process_ListRegions(arena, process, &regions, error);
         if (status != Memmy_Status_Ok)

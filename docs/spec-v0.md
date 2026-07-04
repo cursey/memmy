@@ -276,7 +276,6 @@ typedef struct Memmy_Backend Memmy_Backend;
 struct Memmy_Backend
 {
     String8 name;
-    U32 capabilities;
 
     Memmy_Status (*list_processes)(Arena *arena,
                                    Memmy_ProcessList *out,
@@ -284,7 +283,6 @@ struct Memmy_Backend
 
     Memmy_Status (*open_process)(Arena *arena,
                                  U32 pid,
-                                 Memmy_ProcessAccess access,
                                  Memmy_Process **out,
                                  Memmy_Error *error);
 
@@ -316,19 +314,8 @@ struct Memmy_Backend
 };
 ```
 
-Capabilities:
-
-```c
-typedef U32 Memmy_BackendCap;
-enum
-{
-    Memmy_BackendCap_Read        = 1u << 0,
-    Memmy_BackendCap_Write       = 1u << 1,
-    Memmy_BackendCap_ListProcs   = 1u << 2,
-    Memmy_BackendCap_ListModules = 1u << 3,
-    Memmy_BackendCap_ListRegions = 1u << 4,
-};
-```
+Backends report unsupported operations by leaving optional callbacks null or by
+returning `Memmy_Status_Unsupported` from the callback.
 
 ## 9. Process, Module, and Region Types
 
@@ -339,16 +326,6 @@ enum
     Memmy_PointerWidth_Unknown,
     Memmy_PointerWidth_32,
     Memmy_PointerWidth_64,
-};
-```
-
-```c
-typedef U32 Memmy_ProcessAccess;
-enum
-{
-    Memmy_ProcessAccess_Read  = 1u << 0,
-    Memmy_ProcessAccess_Write = 1u << 1,
-    Memmy_ProcessAccess_Query = 1u << 2,
 };
 ```
 
@@ -437,7 +414,6 @@ Memmy_Status Memmy_ListProcesses(Arena *arena,
 
 Memmy_Status Memmy_Process_Open(Arena *arena,
                                 U32 pid,
-                                Memmy_ProcessAccess access,
                                 Memmy_Process **out,
                                 Memmy_Error *error);
 
@@ -606,9 +582,9 @@ limit is a maximum result count
 result addresses are absolute
 ```
 
-`scan` and `pscan` require `Read`, not `ListRegions`. If `ListRegions` is
-available, scans may intersect the requested range with committed readable
-regions to avoid impossible reads. If `ListRegions` is unavailable, scans
+`scan` and `pscan` require a process. If region listing is implemented, scans
+may intersect the requested range with committed readable regions to avoid
+impossible reads. If region listing is unsupported, scans
 attempt chunked reads directly within the requested range and report unreadable
 chunks according to the scanner error rules.
 
@@ -652,17 +628,17 @@ Target options:
 
 `--name` fails with `Memmy_Status_Ambiguous` if it matches multiple processes.
 
-Command requirements:
+Command behavior:
 
 ```txt
-Command  Backend caps     Process access
-procs    ListProcs        none
-mods     ListModules      Query
-regions  ListRegions      Query
-peek     Read             Read
-poke     Read, Write      Read | Write
-scan     Read             Read
-pscan    Read             Read
+Command  Backend operations attempted
+procs    list_processes
+mods     open_process, list_modules
+regions  open_process, list_regions
+peek     open_process, read
+poke     open_process, read, write
+scan     open_process, read, optional list_regions
+pscan    open_process, read, optional list_regions
 ```
 
 ### 12.1 `procs`

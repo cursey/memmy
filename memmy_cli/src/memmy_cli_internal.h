@@ -76,8 +76,6 @@ String8 Memmy_Cli_PointerWidthString(Memmy_PointerWidth width);
 String8 Memmy_Cli_RegionAccessString(Memmy_RegionAccess access);
 String8 Memmy_Cli_RegionStateString(Memmy_RegionState state);
 Memmy_Status Memmy_Cli_InvalidOption(Memmy_Error *error, String8 message, String8 input);
-Memmy_Status Memmy_Cli_RequireCap(Memmy_BackendCap cap, Memmy_Error *error);
-Memmy_Status Memmy_Cli_RequireCaps(Memmy_BackendCap caps, Memmy_Error *error);
 Memmy_Status Memmy_Cli_ResolveTarget(Arena *arena, Memmy_CliOptions *options, U32 *out_pid, Memmy_Error *error);
 Memmy_Status Memmy_Cli_RejectPokeOptions(Memmy_CliOptions *options, String8 command, Memmy_Error *error);
 Memmy_Status Memmy_Cli_RejectScanOptions(Memmy_CliOptions *options, String8 command, Memmy_Error *error);

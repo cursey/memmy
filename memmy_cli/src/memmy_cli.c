@@ -732,40 +732,6 @@ static Memmy_Status Memmy_Cli_ParseOptions(Arena *arena, I32 argc, char **argv, 
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_Cli_RequireCap(Memmy_BackendCap cap, Memmy_Error *error)
-{
-    Memmy_Context *ctx = Memmy_Context_Get();
-    if (ctx == 0 || ctx->backend == 0)
-    {
-        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("backend"), String8_Lit("missing backend"));
-        return Memmy_Status_InvalidArgument;
-    }
-    if (!Memmy_Backend_HasCapability(ctx->backend, cap))
-    {
-        Memmy_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("backend"),
-                        String8_Lit("backend capability is unavailable"));
-        return Memmy_Status_Unsupported;
-    }
-    return Memmy_Status_Ok;
-}
-
-Memmy_Status Memmy_Cli_RequireCaps(Memmy_BackendCap caps, Memmy_Error *error)
-{
-    Memmy_Context *ctx = Memmy_Context_Get();
-    if (ctx == 0 || ctx->backend == 0)
-    {
-        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("backend"), String8_Lit("missing backend"));
-        return Memmy_Status_InvalidArgument;
-    }
-    if ((ctx->backend->capabilities & caps) != caps)
-    {
-        Memmy_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("backend"),
-                        String8_Lit("backend capability is unavailable"));
-        return Memmy_Status_Unsupported;
-    }
-    return Memmy_Status_Ok;
-}
-
 Memmy_Status Memmy_Cli_ResolveTarget(Arena *arena, Memmy_CliOptions *options, U32 *out_pid, Memmy_Error *error)
 {
     if (options->has_pid == options->has_name)

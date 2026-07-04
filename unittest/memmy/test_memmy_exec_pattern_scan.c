@@ -27,7 +27,7 @@ Test(Test_MemmyExecPatternScanExecutesWildcardPattern)
 
     Memmy_Process *process = 0;
     Memmy_Error error = {0};
-    AssertEq(Memmy_Process_Open(arena, 4242, Memmy_ProcessAccess_Read | Memmy_ProcessAccess_Query, &process, &error),
+    AssertEq(Memmy_Process_Open(arena, 4242, &process, &error),
              Memmy_Status_Ok);
 
     Memmy_ModuleList modules = {0};
@@ -63,7 +63,7 @@ Test(Test_MemmyExecPatternScanUsesDefaultOptions)
 
     Memmy_Process *process = 0;
     Memmy_Error error = {0};
-    AssertEq(Memmy_Process_Open(arena, 4242, Memmy_ProcessAccess_Read | Memmy_ProcessAccess_Query, &process, &error),
+    AssertEq(Memmy_Process_Open(arena, 4242, &process, &error),
              Memmy_Status_Ok);
 
     Memmy_ModuleList modules = {0};

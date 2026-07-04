@@ -67,8 +67,8 @@ Statuses use:
 
 ## 8. Backend Boundary
 
-- `implemented and tested`: `Memmy_Context`, `Memmy_Backend`, and capability
-  bits match v0.
+- `implemented and tested`: `Memmy_Context` and `Memmy_Backend` match v0
+  backend dispatch.
 - `implemented and tested`: platform SDK includes and native process/memory
   calls are isolated under `memmy/src/platform/win32/`.
 
@@ -106,8 +106,8 @@ Statuses use:
   `regions`, `peek`, `poke`, `scan`, and `pscan`.
 - `implemented and tested`: `--pid` and `--name` target selection work; name
   ambiguity returns `Memmy_Status_Ambiguous`.
-- `implemented and tested`: backend capability and process access requirements
-  match v0.
+- `implemented and tested`: commands open target processes with Memmy's
+  standard process rights and report unsupported backend operations lazily.
 - `implemented and tested`: each command rejects unsupported v0 syntax and
   invalid option combinations with clear CLI errors.
 

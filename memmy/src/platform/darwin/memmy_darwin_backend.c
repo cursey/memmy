@@ -137,11 +137,8 @@ static Memmy_Status Memmy_Darwin_ListProcesses(Arena *arena, Memmy_ProcessList *
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Darwin_OpenProcess(Arena *arena, U32 pid, Memmy_ProcessAccess access, Memmy_Process **out,
-                                             Memmy_Error *error)
+static Memmy_Status Memmy_Darwin_OpenProcess(Arena *arena, U32 pid, Memmy_Process **out, Memmy_Error *error)
 {
-    Unused(access);
-
     mach_port_t task = MACH_PORT_NULL;
     B32 owns_task = 0;
     if (pid == Os_GetProcessId())
@@ -524,8 +521,6 @@ Memmy_Backend *Memmy_DarwinBackend_Create(Arena *arena)
     Memmy_DarwinBackend *backend = Arena_PushStruct(arena, Memmy_DarwinBackend);
     backend->backend = (Memmy_Backend){
         .name = String8_Lit("darwin"),
-        .capabilities = Memmy_BackendCap_Read | Memmy_BackendCap_Write | Memmy_BackendCap_ListProcs |
-                        Memmy_BackendCap_ListModules | Memmy_BackendCap_ListRegions,
         .list_processes = Memmy_Darwin_ListProcesses,
         .open_process = Memmy_Darwin_OpenProcess,
         .close_process = Memmy_Darwin_CloseProcess,

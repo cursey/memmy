@@ -16,7 +16,6 @@ void Test_ParseType(String8 text, Memmy_Type *out)
 
 void Test_DisableListRegions(Test_MemmyBackend *backend)
 {
-    backend->backend.capabilities &= ~Memmy_BackendCap_ListRegions;
     backend->backend.list_regions = 0;
 }
 
@@ -24,7 +23,6 @@ void Test_ResetOpenTracking(Test_MemmyBackend *backend)
 {
     backend->open_call_count = 0;
     backend->last_open_pid = 0;
-    backend->last_open_access = 0;
 }
 
 void Test_ParsePattern(Arena *arena, char *text, Memmy_Pattern *out)
@@ -46,7 +44,7 @@ void Test_ParseValue(Arena *arena, char *type_text, Memmy_PointerWidth pointer_w
 void Test_OpenProcess(Arena *arena, Memmy_Process **out)
 {
     Memmy_Error error = {0};
-    AssertEq(Memmy_Process_Open(arena, 4242, Memmy_ProcessAccess_Read, out, &error), Memmy_Status_Ok);
+    AssertEq(Memmy_Process_Open(arena, 4242, out, &error), Memmy_Status_Ok);
 }
 
 void Test_AssertScanAddresses(Memmy_ScanResultList *results, Memmy_Addr *addresses, U64 count)

@@ -4,12 +4,7 @@
 
 Memmy_Status Memmy_Cli_RunRegions(Arena *arena, Memmy_CliOptions *options, String8 *out, Memmy_Error *error)
 {
-    Memmy_Status status = Memmy_Cli_RequireCap(Memmy_BackendCap_ListRegions, error);
-    if (status != Memmy_Status_Ok)
-    {
-        return status;
-    }
-    status = Memmy_Cli_RejectPokeOptions(options, String8_Lit("regions"), error);
+    Memmy_Status status = Memmy_Cli_RejectPokeOptions(options, String8_Lit("regions"), error);
     if (status != Memmy_Status_Ok)
     {
         return status;
@@ -32,7 +27,7 @@ Memmy_Status Memmy_Cli_RunRegions(Arena *arena, Memmy_CliOptions *options, Strin
     }
 
     Memmy_Process *process = 0;
-    status = Memmy_Process_Open(arena, pid, Memmy_ProcessAccess_Query, &process, error);
+    status = Memmy_Process_Open(arena, pid, &process, error);
     if (status != Memmy_Status_Ok)
     {
         return status;

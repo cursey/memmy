@@ -333,7 +333,6 @@ Test(Test_MemmyExecAddressDoesNotEnumerateProcesses)
 
     Memmy_Backend backend = {
         .name = String8_Lit("exec-address-test"),
-        .capabilities = Memmy_BackendCap_ListProcs,
         .list_processes = Test_MemmyExecAddress_ListProcesses,
     };
     Memmy_Process process = {

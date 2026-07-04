@@ -122,32 +122,15 @@ static Memmy_Status Memmy_Win32_ListProcesses(Arena *arena, Memmy_ProcessList *o
     return Memmy_Status_Ok;
 }
 
-static DWORD Memmy_Win32_ProcessAccess(Memmy_ProcessAccess access)
+static DWORD Memmy_Win32_ProcessAccess(void)
 {
-    DWORD result = 0;
-    if (access & Memmy_ProcessAccess_Query)
-    {
-        result |= PROCESS_QUERY_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION;
-    }
-    if (access & Memmy_ProcessAccess_Read)
-    {
-        result |= PROCESS_VM_READ | PROCESS_QUERY_INFORMATION;
-    }
-    if (access & Memmy_ProcessAccess_Write)
-    {
-        result |= PROCESS_VM_WRITE | PROCESS_VM_OPERATION | PROCESS_QUERY_INFORMATION;
-    }
-    if (result == 0)
-    {
-        result = PROCESS_QUERY_INFORMATION;
-    }
-    return result;
+    return PROCESS_QUERY_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ | PROCESS_VM_WRITE |
+           PROCESS_VM_OPERATION;
 }
 
-static Memmy_Status Memmy_Win32_OpenProcess(Arena *arena, U32 pid, Memmy_ProcessAccess access, Memmy_Process **out,
-                                            Memmy_Error *error)
+static Memmy_Status Memmy_Win32_OpenProcess(Arena *arena, U32 pid, Memmy_Process **out, Memmy_Error *error)
 {
-    HANDLE handle = OpenProcess(Memmy_Win32_ProcessAccess(access), FALSE, pid);
+    HANDLE handle = OpenProcess(Memmy_Win32_ProcessAccess(), FALSE, pid);
     if (handle == 0)
     {
         DWORD err = GetLastError();
@@ -423,8 +406,6 @@ Memmy_Backend *Memmy_Win32Backend_Create(Arena *arena)
     Memmy_Win32Backend *backend = Arena_PushStruct(arena, Memmy_Win32Backend);
     backend->backend = (Memmy_Backend){
         .name = String8_Lit("win32"),
-        .capabilities = Memmy_BackendCap_Read | Memmy_BackendCap_Write | Memmy_BackendCap_ListProcs |
-                        Memmy_BackendCap_ListModules | Memmy_BackendCap_ListRegions,
         .list_processes = Memmy_Win32_ListProcesses,
         .open_process = Memmy_Win32_OpenProcess,
         .close_process = Memmy_Win32_CloseProcess,

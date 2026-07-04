@@ -55,7 +55,7 @@ Memmy_Status Memmy_ListProcesses(Arena *arena, Memmy_ProcessList *out, Memmy_Err
     {
         return status;
     }
-    if (!Memmy_Backend_HasCapability(backend, Memmy_BackendCap_ListProcs) || backend->list_processes == 0)
+    if (backend->list_processes == 0)
     {
         return memmy_Unsupported(error, "backend cannot list processes");
     }
@@ -63,8 +63,7 @@ Memmy_Status Memmy_ListProcesses(Arena *arena, Memmy_ProcessList *out, Memmy_Err
     return backend->list_processes(arena, out, error);
 }
 
-Memmy_Status Memmy_Process_Open(Arena *arena, U32 pid, Memmy_ProcessAccess access, Memmy_Process **out,
-                                Memmy_Error *error)
+Memmy_Status Memmy_Process_Open(Arena *arena, U32 pid, Memmy_Process **out, Memmy_Error *error)
 {
     if (arena == 0 || out == 0)
     {
@@ -85,7 +84,7 @@ Memmy_Status Memmy_Process_Open(Arena *arena, U32 pid, Memmy_ProcessAccess acces
     }
 
     *out = 0;
-    return backend->open_process(arena, pid, access, out, error);
+    return backend->open_process(arena, pid, out, error);
 }
 
 B32 Memmy_Process_IsOpen(Memmy_Process *process)
@@ -121,7 +120,7 @@ Memmy_Status Memmy_Process_ListModules(Arena *arena, Memmy_Process *process, Mem
     {
         return status;
     }
-    if (!Memmy_Backend_HasCapability(backend, Memmy_BackendCap_ListModules) || backend->list_modules == 0)
+    if (backend->list_modules == 0)
     {
         return memmy_Unsupported(error, "backend cannot list modules");
     }
@@ -144,7 +143,7 @@ Memmy_Status Memmy_Process_ListRegions(Arena *arena, Memmy_Process *process, Mem
     {
         return status;
     }
-    if (!Memmy_Backend_HasCapability(backend, Memmy_BackendCap_ListRegions) || backend->list_regions == 0)
+    if (backend->list_regions == 0)
     {
         return memmy_Unsupported(error, "backend cannot list regions");
     }
@@ -189,7 +188,7 @@ Memmy_Status Memmy_Process_Read(Memmy_Process *process, Memmy_Addr addr, void *b
     {
         return status;
     }
-    if (!Memmy_Backend_HasCapability(backend, Memmy_BackendCap_Read) || backend->read == 0)
+    if (backend->read == 0)
     {
         return memmy_Unsupported(error, "backend cannot read memory");
     }
@@ -213,7 +212,7 @@ Memmy_Status Memmy_Process_Write(Memmy_Process *process, Memmy_Addr addr, void *
     {
         return status;
     }
-    if (!Memmy_Backend_HasCapability(backend, Memmy_BackendCap_Write) || backend->write == 0)
+    if (backend->write == 0)
     {
         return memmy_Unsupported(error, "backend cannot write memory");
     }

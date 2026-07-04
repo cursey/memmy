@@ -215,72 +215,77 @@ static Memmy_Status Memmy_Process_ScanNeedle(Arena *arena, Memmy_Process *proces
     Memmy_Addr last_match = 0;
     B32 has_last_match = 0;
     Memmy_Backend *backend = process->backend;
-    if (backend != 0 && Memmy_Backend_HasCapability(backend, Memmy_BackendCap_ListRegions) &&
-        backend->list_regions != 0)
+    if (backend != 0 && backend->list_regions != 0)
     {
         Scratch scratch = Scratch_Begin(&arena, 1);
         Memmy_RegionList regions = {0};
         Memmy_Status status = Memmy_Process_ListRegions(scratch.arena, process, &regions, error);
-        if (status != Memmy_Status_Ok)
+        if (status == Memmy_Status_Unsupported)
+        {
+            Scratch_End(scratch);
+        }
+        else if (status != Memmy_Status_Ok)
         {
             Scratch_End(scratch);
             return status;
         }
-
-        Memmy_Range *scan_ranges = Arena_PushArrayNoZero(scratch.arena, Memmy_Range, regions.list.count);
-        U64 scan_range_count = 0;
-        List_ForEach(Memmy_Region, region, &regions.list, link)
+        else
         {
-            if (!Memmy_Scan_IsReadableRegion(region))
+            Memmy_Range *scan_ranges = Arena_PushArrayNoZero(scratch.arena, Memmy_Range, regions.list.count);
+            U64 scan_range_count = 0;
+            List_ForEach(Memmy_Region, region, &regions.list, link)
             {
-                continue;
+                if (!Memmy_Scan_IsReadableRegion(region))
+                {
+                    continue;
+                }
+
+                Memmy_Addr region_end = 0;
+                if (!AddU64Checked(region->base, region->size, &region_end))
+                {
+                    continue;
+                }
+
+                Memmy_Range scan_range = {
+                    .start = Max(options->range.start, region->base),
+                    .end = Min(options->range.end, region_end),
+                };
+                if (scan_range.end <= scan_range.start)
+                {
+                    continue;
+                }
+
+                scan_ranges[scan_range_count++] = scan_range;
             }
 
-            Memmy_Addr region_end = 0;
-            if (!AddU64Checked(region->base, region->size, &region_end))
+            Sort(scan_ranges, scan_range_count, sizeof(scan_ranges[0]), Memmy_ScanRange_Cmp, 0);
+            for (U64 i = 0; i < scan_range_count && !stop;)
             {
-                continue;
+                Memmy_Range merged_range = scan_ranges[i++];
+                while (i < scan_range_count && scan_ranges[i].start <= merged_range.end)
+                {
+                    merged_range.end = Max(merged_range.end, scan_ranges[i].end);
+                    i++;
+                }
+
+                status = Memmy_Process_ScanRange(arena, process, merged_range, options, needle, out, &any_read, &stop,
+                                                 &last_match, &has_last_match, error);
+                if (status != Memmy_Status_Ok || stop)
+                {
+                    Scratch_End(scratch);
+                    return status;
+                }
             }
 
-            Memmy_Range scan_range = {
-                .start = Max(options->range.start, region->base),
-                .end = Min(options->range.end, region_end),
-            };
-            if (scan_range.end <= scan_range.start)
+            Scratch_End(scratch);
+            if (!any_read)
             {
-                continue;
+                Memmy_Error_Set(error, Memmy_Status_Unreadable, String8_Lit("scan"),
+                                String8_Lit("scan range is unreadable"));
+                return Memmy_Status_Unreadable;
             }
-
-            scan_ranges[scan_range_count++] = scan_range;
+            return Memmy_Status_Ok;
         }
-
-        Sort(scan_ranges, scan_range_count, sizeof(scan_ranges[0]), Memmy_ScanRange_Cmp, 0);
-        for (U64 i = 0; i < scan_range_count && !stop;)
-        {
-            Memmy_Range merged_range = scan_ranges[i++];
-            while (i < scan_range_count && scan_ranges[i].start <= merged_range.end)
-            {
-                merged_range.end = Max(merged_range.end, scan_ranges[i].end);
-                i++;
-            }
-
-            status = Memmy_Process_ScanRange(arena, process, merged_range, options, needle, out, &any_read, &stop,
-                                             &last_match, &has_last_match, error);
-            if (status != Memmy_Status_Ok || stop)
-            {
-                Scratch_End(scratch);
-                return status;
-            }
-        }
-
-        Scratch_End(scratch);
-        if (!any_read)
-        {
-            Memmy_Error_Set(error, Memmy_Status_Unreadable, String8_Lit("scan"),
-                            String8_Lit("scan range is unreadable"));
-            return Memmy_Status_Unreadable;
-        }
-        return Memmy_Status_Ok;
     }
 
     Memmy_Status status = Memmy_Process_ScanRange(arena, process, options->range, options, needle, out, &any_read,

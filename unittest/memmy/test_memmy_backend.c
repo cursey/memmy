@@ -25,8 +25,7 @@ static Memmy_Status Test_MemmyBackend_ListProcesses(Arena *arena, Memmy_ProcessL
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Test_MemmyBackend_OpenProcess(Arena *arena, U32 pid, Memmy_ProcessAccess access,
-                                                  Memmy_Process **out, Memmy_Error *error)
+static Memmy_Status Test_MemmyBackend_OpenProcess(Arena *arena, U32 pid, Memmy_Process **out, Memmy_Error *error)
 {
     Test_MemmyBackend *test_backend = ContainerOf(Memmy_Context_Get()->backend, Test_MemmyBackend, backend);
     Test_MemmyBackendProcess *info = 0;
@@ -48,7 +47,6 @@ static Memmy_Status Test_MemmyBackend_OpenProcess(Arena *arena, U32 pid, Memmy_P
 
     test_backend->open_call_count++;
     test_backend->last_open_pid = pid;
-    test_backend->last_open_access = access;
 
     Memmy_Process *process = Arena_PushStruct(arena, Memmy_Process);
     process->backend = &test_backend->backend;
@@ -209,8 +207,6 @@ void Test_MemmyBackend_Init(Test_MemmyBackend *backend)
         .backend =
             {
                 .name = String8_Lit("test"),
-                .capabilities = Memmy_BackendCap_Read | Memmy_BackendCap_Write | Memmy_BackendCap_ListProcs |
-                                Memmy_BackendCap_ListModules | Memmy_BackendCap_ListRegions,
                 .list_processes = Test_MemmyBackend_ListProcesses,
                 .open_process = Test_MemmyBackend_OpenProcess,
                 .close_process = Test_MemmyBackend_CloseProcess,
@@ -225,7 +221,6 @@ void Test_MemmyBackend_Init(Test_MemmyBackend *backend)
         .read_call_count = 0,
         .open_call_count = 0,
         .last_open_pid = 0,
-        .last_open_access = 0,
         .min_read_addr = 0,
         .max_read_end = 0,
         .write_status = Memmy_Status_Ok,

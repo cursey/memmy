@@ -2,12 +2,7 @@
 
 Memmy_Status Memmy_Cli_RunProcs(Arena *arena, Memmy_CliOptions *options, String8 *out, Memmy_Error *error)
 {
-    Memmy_Status status = Memmy_Cli_RequireCap(Memmy_BackendCap_ListProcs, error);
-    if (status != Memmy_Status_Ok)
-    {
-        return status;
-    }
-    status = Memmy_Cli_RejectPokeOptions(options, String8_Lit("procs"), error);
+    Memmy_Status status = Memmy_Cli_RejectPokeOptions(options, String8_Lit("procs"), error);
     if (status != Memmy_Status_Ok)
     {
         return status;

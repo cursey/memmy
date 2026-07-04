@@ -383,7 +383,6 @@ typedef struct Memmy_Backend Memmy_Backend;
 struct Memmy_Backend
 {
     String8 name;
-    U32 capabilities;
 
     Memmy_Status (*list_processes)(Arena *arena,
                                    Memmy_ProcessList *out,
@@ -391,7 +390,6 @@ struct Memmy_Backend
 
     Memmy_Status (*open_process)(Arena *arena,
                                  U32 pid,
-                                 Memmy_ProcessAccess access,
                                  Memmy_Process **out,
                                  Memmy_Error *error);
 
@@ -423,19 +421,8 @@ struct Memmy_Backend
 };
 ```
 
-Capabilities:
-
-```c
-typedef U32 Memmy_BackendCap;
-enum
-{
-    Memmy_BackendCap_Read        = 1u << 0,
-    Memmy_BackendCap_Write       = 1u << 1,
-    Memmy_BackendCap_ListProcs   = 1u << 2,
-    Memmy_BackendCap_ListModules = 1u << 3,
-    Memmy_BackendCap_ListRegions = 1u << 4,
-};
-```
+Backends report unsupported operations by leaving optional callbacks null or by
+returning `Memmy_Status_Unsupported` from the callback.
 
 ## 10. Process, Module, and Region Types
 
@@ -446,16 +433,6 @@ enum
     Memmy_PointerWidth_Unknown,
     Memmy_PointerWidth_32,
     Memmy_PointerWidth_64,
-};
-```
-
-```c
-typedef U32 Memmy_ProcessAccess;
-enum
-{
-    Memmy_ProcessAccess_Read  = 1u << 0,
-    Memmy_ProcessAccess_Write = 1u << 1,
-    Memmy_ProcessAccess_Query = 1u << 2,
 };
 ```
 
@@ -544,7 +521,6 @@ Memmy_Status Memmy_ListProcesses(Arena *arena,
 
 Memmy_Status Memmy_Process_Open(Arena *arena,
                                 U32 pid,
-                                Memmy_ProcessAccess access,
                                 Memmy_Process **out,
                                 Memmy_Error *error);
 
@@ -996,44 +972,17 @@ perform interactive confirmation or REPL policy
 
 `memmy_exec` may require the caller to provide an already-open `Memmy_Process *`
 and any needed module or region lists. `memmy_cli` is responsible for opening
-the process and collecting those lists based on requirements derived from the
-parsed expression.
-
-`memmy_exec` exposes a requirement-derivation API so callers can parse first,
-open the process with the right access, and collect only the module or region
-data needed by the expression.
-
-```c
-typedef struct Memmy_ExecRequirements
-{
-    Memmy_BackendCap backend_caps;
-    Memmy_ProcessAccess process_access;
-    B32 needs_external_process;
-    B32 needs_modules;
-    B32 needs_regions;
-} Memmy_ExecRequirements;
-
-Memmy_Status Memmy_MemoryExpr_GetRequirements(Memmy_MemoryExpr *expr,
-                                              Memmy_ExecRequirements *out,
-                                              Memmy_Error *error);
-```
+the process with Memmy's standard process rights and collecting module or
+region lists when an expression shape needs them.
 
 Rules:
 
 ```txt
-needs_external_process is true when the expression has an absolute address or
-unqualified module target and no process selector inside the expression
-
-needs_modules is true when resolving any module target or module-relative range
-
-needs_regions is true for whole-process ranges
-
-process_access includes Read for peek, pointer-chain resolution, and scans
-
-process_access includes Write for poke
-
-memmy_exec never sets ListProcs; parsed process selectors are reported through
-the parsed expression so memmy_cli can resolve and open the target process
+module targets require a caller-provided module list
+whole-process ranges require a caller-provided region list
+peek, poke, scans, and pointer dereferences require a caller-provided process
+missing inputs return InvalidArgument
+unsupported backend operations return Unsupported at the attempted operation
 ```
 
 ## 14. Scanning
@@ -1088,22 +1037,22 @@ limit is a maximum result count
 result addresses are absolute
 ```
 
-`scan` and `pscan` require `Read`. Explicit v0 ranges do not require
-`ListRegions`. Expression scan requirements are derived from the parsed range:
+`scan` and `pscan` require a process. Explicit v0 ranges do not require a
+region list. Expression scan preparation is derived from the parsed range:
 
 ```txt
-whole-process range   requires ListRegions
-module range          requires ListModules
-address-sized range   requires ListModules only if its address_expr uses a module target
+whole-process range   needs a region list
+module range          needs a module list
+address-sized range   needs a module list only if its address_expr uses a module target
 absolute address-sized range requires no module or region listing
 ```
 
-Whole-process expression scans require `ListRegions` so that candidate ranges
-can be discovered.
+Whole-process expression scans require a region list so candidate ranges can be
+discovered.
 
-If `ListRegions` is available, scans may intersect requested ranges with
-committed readable regions to avoid impossible reads. If `ListRegions` is
-unavailable and the expression does not require a whole-process range, scans may
+If `list_regions` is implemented, scans may intersect requested ranges with
+committed readable regions to avoid impossible reads. If region listing is
+unsupported and the expression does not require a whole-process range, scans may
 attempt chunked reads directly within the requested range and report unreadable
 chunks according to scanner error rules.
 
@@ -1152,22 +1101,22 @@ Target options:
 
 `--name` fails with `Memmy_Status_Ambiguous` if it matches multiple processes.
 
-Command requirements:
+Command behavior:
 
 ```txt
-Command  Backend caps     Process access
-procs    ListProcs        none
-mods     ListModules      Query
-regions  ListRegions      Query
-peek     Read             Read
-poke     Read, Write      Read | Write
-scan     Read             Read
-pscan    Read             Read
+Command  Backend operations attempted
+procs    list_processes
+mods     open_process, list_modules
+regions  open_process, list_regions
+peek     open_process, read
+poke     open_process, read, write
+scan     open_process, read, optional list_regions
+pscan    open_process, read, optional list_regions
 --expr   depends on expression shape
 ```
 
-Expression process selection may add `ListProcs` when a process name is used in
-the expression.
+Expression process selection attempts `list_processes` when a process name is
+used in the expression.
 
 ### 15.1 `procs`
 
@@ -1368,23 +1317,23 @@ Qualified expressions may select the process inside the expression. Supplying
 both external and expression process selectors is invalid unless they resolve to
 the same PID.
 
-Top-level expression requirements:
+Top-level expression preparation:
 
 ```txt
-Expression form                 Backend caps          Process access
-absolute address                none                  none
-module address                  ListModules           Query
-absolute peek                   Read                  Read
-module peek                     Read, ListModules     Read | Query
-absolute poke                   Read, Write           Read | Write
-module poke                     Read, Write, ListModules Read | Write | Query
-module range scan               Read, ListModules     Read | Query
-absolute address-sized scan     Read                  Read
-module address-sized scan       Read, ListModules     Read | Query
-whole-process scan              Read, ListRegions     Read | Query
+Expression form                 Inputs / operations
+absolute address                none
+module address                  process, module list
+absolute peek                   process, read
+module peek                     process, module list, read
+absolute poke                   process, read, write
+module poke                     process, module list, read, write
+module range scan               process, module list, read
+absolute address-sized scan     process, read
+module address-sized scan       process, module list, read
+whole-process scan              process, region list, read
 ```
 
-Expression process-name selection also requires `ListProcs`.
+Expression process-name selection attempts process listing.
 
 Expression value scans are exact encoded-byte scans in v1.
 
@@ -1529,7 +1478,7 @@ operations.
 4. memmy_expr address expressions
 5. memmy_expr top-level memory expressions
 6. Add memmy_exec target and public header
-7. memmy_exec requirements derivation
+7. memmy_cli expression preparation
 8. memmy_exec module and absolute address resolution
 9. memmy_exec pointer-chain resolution
 10. memmy_cli top-level --expr address resolution
