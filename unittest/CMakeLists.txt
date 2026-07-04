@@ -11,6 +11,10 @@ if(CMAKE_CONFIGURATION_TYPES)
     file(WRITE ${memmy_test_ctest_include}
         "if(DEFINED CTEST_CONFIGURATION_TYPE AND NOT CTEST_CONFIGURATION_TYPE STREQUAL \"\")\n"
         "    include(\"${CMAKE_CURRENT_BINARY_DIR}/memmy_ctest_cases_\${CTEST_CONFIGURATION_TYPE}.cmake\" OPTIONAL)\n"
+        "elseif(EXISTS \"${CMAKE_CURRENT_BINARY_DIR}/memmy_ctest_cases_Debug.cmake\")\n"
+        "    include(\"${CMAKE_CURRENT_BINARY_DIR}/memmy_ctest_cases_Debug.cmake\")\n"
+        "elseif(EXISTS \"${CMAKE_CURRENT_BINARY_DIR}/memmy_ctest_cases_Release.cmake\")\n"
+        "    include(\"${CMAKE_CURRENT_BINARY_DIR}/memmy_ctest_cases_Release.cmake\")\n"
         "endif()\n"
     )
 else()
