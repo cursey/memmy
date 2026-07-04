@@ -226,6 +226,18 @@ B32 Memmy_Cli_ArgvHasJson(I32 argc, char **argv)
     return 0;
 }
 
+B32 Memmy_Cli_ArgvHasJsonl(I32 argc, char **argv)
+{
+    for (I32 i = 1; i < argc; i++)
+    {
+        if (String8_Eq(String8_FromCStr(argv[i]), String8_Lit("--jsonl")))
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 String8 Memmy_Cli_FormatAddress(Arena *arena, Memmy_PointerWidth pointer_width, Memmy_Addr address)
 {
     U32 width = pointer_width == Memmy_PointerWidth_32 ? 8 : 16;
@@ -307,6 +319,11 @@ String8 Memmy_Cli_FormatJsonError(Arena *arena, Memmy_Error *error)
                          (char *)message_json.data, (int)context_json.len, (char *)context_json.data,
                          (int)input_json.len, (char *)input_json.data, (unsigned long long)error->byte_offset,
                          (unsigned long long)error->byte_count, error->os_code);
+}
+
+String8 Memmy_Cli_FormatJsonlError(Arena *arena, Memmy_Error *error)
+{
+    return Memmy_Cli_FormatJsonError(arena, error);
 }
 
 static B32 Memmy_Cli_ContainsNoCase(String8 text, String8 needle)

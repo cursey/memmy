@@ -1733,6 +1733,10 @@ Test(Test_MemmyCliJsonHelpers)
                 String8_Lit("{\"ok\":false,\"error\":{\"status\":\"parse_error\",\"message\":\"bad "
                             "\\\"address\\\"\",\"context\":\"address\",\"input\":\"0x\",\"byte_offset\":2,"
                             "\"byte_count\":1,\"os_code\":5}}\n"));
+    AssertStrEq(Memmy_Cli_FormatJsonlError(arena, &error),
+                String8_Lit("{\"ok\":false,\"error\":{\"status\":\"parse_error\",\"message\":\"bad "
+                            "\\\"address\\\"\",\"context\":\"address\",\"input\":\"0x\",\"byte_offset\":2,"
+                            "\"byte_count\":1,\"os_code\":5}}\n"));
 
     Arena_Destroy(arena);
 }
