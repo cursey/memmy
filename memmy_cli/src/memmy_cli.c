@@ -170,7 +170,7 @@ void Memmy_Cli_PushLine(Arena *arena, String8List *list, char *fmt, ...)
 
 static B32 Memmy_Cli_OptionConsumesRawValue(String8 option)
 {
-    return String8_Eq(option, String8_Lit("--value"));
+    return String8_Eq(option, String8_Lit("--value")) || String8_Eq(option, String8_Lit("--expr"));
 }
 
 static B32 Memmy_Cli_OptionConsumesValue(String8 option)
@@ -685,6 +685,20 @@ static Memmy_Status Memmy_Cli_ParseOptions(Arena *arena, I32 argc, char **argv, 
             out->has_pattern = 1;
             i++;
         }
+        else if (String8_Eq(arg, String8_Lit("--expr")))
+        {
+            if (out->has_expr)
+            {
+                return Memmy_Cli_InvalidOption(error, String8_Lit("duplicate --expr"), arg);
+            }
+            Memmy_Status status = Memmy_Cli_ReadOptionValueRaw(argc, argv, i, arg, &out->expr_text, error);
+            if (status != Memmy_Status_Ok)
+            {
+                return status;
+            }
+            out->has_expr = 1;
+            i++;
+        }
         else if (Memmy_Cli_IsOption(argv[i]))
         {
             return Memmy_Cli_InvalidOption(error, String8_Lit("unknown option"), arg);
@@ -922,7 +936,21 @@ Memmy_Status Memmy_Cli_RunToString(Arena *arena, I32 argc, char **argv, String8 
         *out = String8_Copy(arena, String8_Lit("memmy 0.0.0\n"));
         return Memmy_Status_Ok;
     }
-    if (options.help || options.command.len == 0)
+    if (options.help)
+    {
+        *out = Memmy_Cli_Help(arena);
+        return Memmy_Status_Ok;
+    }
+    if (options.has_expr)
+    {
+        if (options.command.len != 0)
+        {
+            return Memmy_Cli_InvalidOption(error, String8_Lit("--expr is only valid at top level"),
+                                           String8_Lit("--expr"));
+        }
+        return Memmy_Cli_RunExpr(arena, &options, out, error);
+    }
+    if (options.command.len == 0)
     {
         *out = Memmy_Cli_Help(arena);
         return Memmy_Status_Ok;

@@ -43,6 +43,8 @@ struct Memmy_CliOptions
     B32 has_pattern;
     String8 pattern_text;
     Memmy_Pattern pattern;
+    B32 has_expr;
+    String8 expr_text;
 };
 
 void Memmy_Cli_PushLine(Arena *arena, String8List *list, char *fmt, ...);
@@ -68,6 +70,7 @@ Memmy_Status Memmy_Cli_RunScan(Arena *arena, Memmy_CliOptions *options, String8 
 Memmy_Status Memmy_Cli_RunPscan(Arena *arena, Memmy_CliOptions *options, String8 *out, Memmy_Error *error);
 Memmy_Status Memmy_Cli_RunMods(Arena *arena, Memmy_CliOptions *options, String8 *out, Memmy_Error *error);
 Memmy_Status Memmy_Cli_RunRegions(Arena *arena, Memmy_CliOptions *options, String8 *out, Memmy_Error *error);
+Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 *out, Memmy_Error *error);
 
 Memmy_Status Memmy_Cli_FormatValue(Arena *arena, Memmy_CliOptions *options, String8 bytes, String8 *out,
                                    Memmy_Error *error);

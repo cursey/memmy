@@ -44,6 +44,12 @@ Test(Test_MemmyCliRejectsV0NonGoalSyntax)
     Memmy_Error error = {0};
     char *addr_command[] = {"memmy", "addr", "--pid", "4242"};
     char *expr_option[] = {"memmy", "peek", "--pid", "4242", "--expr", "0x1000", "--type", "u8"};
+    char *poke_expr_option[] = {"memmy",  "poke", "--pid",   "4242", "--addr", "0x1000",
+                                "--type", "u8",   "--value", "1",    "--expr", "0x1000"};
+    char *scan_expr_option[] = {"memmy", "scan",   "--pid", "4242",    "--start", "0x1000", "--length",
+                                "0x10",  "--type", "u8",    "--value", "1",       "--expr", "0x1000"};
+    char *pscan_expr_option[] = {"memmy",    "pscan", "--pid",     "4242", "--start", "0x1000",
+                                 "--length", "0x10",  "--pattern", "90",   "--expr",  "0x1000"};
     char *module_addr[] = {"memmy", "peek", "--pid", "4242", "--addr", "client.dll", "--type", "u8"};
     char *pointer_chain[] = {"memmy", "peek", "--pid", "4242", "--addr", "0x1000->0x8", "--type", "u8"};
     char *range_option[] = {"memmy",          "scan",   "--pid", "4242",    "--range",
@@ -67,6 +73,9 @@ Test(Test_MemmyCliRejectsV0NonGoalSyntax)
     } cases[] = {
         {addr_command, (I32)ArrayCount(addr_command), Memmy_Status_ParseError, String8_Lit("cli")},
         {expr_option, (I32)ArrayCount(expr_option), Memmy_Status_InvalidArgument, String8_Lit("cli")},
+        {poke_expr_option, (I32)ArrayCount(poke_expr_option), Memmy_Status_InvalidArgument, String8_Lit("cli")},
+        {scan_expr_option, (I32)ArrayCount(scan_expr_option), Memmy_Status_InvalidArgument, String8_Lit("cli")},
+        {pscan_expr_option, (I32)ArrayCount(pscan_expr_option), Memmy_Status_InvalidArgument, String8_Lit("cli")},
         {module_addr, (I32)ArrayCount(module_addr), Memmy_Status_ParseError, String8_Lit("address")},
         {pointer_chain, (I32)ArrayCount(pointer_chain), Memmy_Status_ParseError, String8_Lit("address")},
         {range_option, (I32)ArrayCount(range_option), Memmy_Status_InvalidArgument, String8_Lit("cli")},

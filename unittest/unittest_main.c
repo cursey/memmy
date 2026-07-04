@@ -39,6 +39,7 @@ extern TestSuite suite_memmy_cli_peek;
 extern TestSuite suite_memmy_cli_poke;
 extern TestSuite suite_memmy_cli_scan;
 extern TestSuite suite_memmy_cli_pscan;
+extern TestSuite suite_memmy_cli_expr;
 extern TestSuite suite_memmy_win32_backend;
 
 int main(int argc, char **argv)
@@ -80,6 +81,7 @@ int main(int argc, char **argv)
         suite_memmy_cli_poke,
         suite_memmy_cli_scan,
         suite_memmy_cli_pscan,
+        suite_memmy_cli_expr,
         suite_memmy_win32_backend,
     };
 
