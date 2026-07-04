@@ -24,6 +24,14 @@ struct Memmy_Win32ProcessData
     HANDLE handle;
 };
 
+static B32 Memmy_Win32_IsNative64(void)
+{
+    SYSTEM_INFO sys_info;
+    GetNativeSystemInfo(&sys_info);
+    return sys_info.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64 ||
+           sys_info.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM64;
+}
+
 static void Memmy_Win32_SetLastError(Memmy_Error *error, Memmy_Status status, String8 context, String8 message)
 {
     Memmy_Error_Set(error, status, context, message);
@@ -40,12 +48,7 @@ static String8 Memmy_Win32_CopyCString(Arena *arena, char *text)
 
 static Memmy_PointerWidth Memmy_Win32_QueryPointerWidth(HANDLE process)
 {
-    SYSTEM_INFO sys_info;
-    GetNativeSystemInfo(&sys_info);
-
-    B32 native_64 = sys_info.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64 ||
-                    sys_info.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM64;
-    if (!native_64)
+    if (!Memmy_Win32_IsNative64())
     {
         return Memmy_PointerWidth_32;
     }
@@ -56,6 +59,11 @@ static Memmy_PointerWidth Memmy_Win32_QueryPointerWidth(HANDLE process)
         return Memmy_PointerWidth_32;
     }
     return Memmy_PointerWidth_64;
+}
+
+static B32 Memmy_Win32_IsUnsupportedCrossBitness(Memmy_PointerWidth target_width)
+{
+    return sizeof(void *) == 4 && Memmy_Win32_IsNative64() && target_width == Memmy_PointerWidth_64;
 }
 
 static Memmy_Status Memmy_Win32_ListProcesses(Arena *arena, Memmy_ProcessList *out, Memmy_Error *error)
@@ -152,6 +160,15 @@ static Memmy_Status Memmy_Win32_OpenProcess(Arena *arena, U32 pid, Memmy_Process
         return status;
     }
 
+    Memmy_PointerWidth pointer_width = Memmy_Win32_QueryPointerWidth(handle);
+    if (Memmy_Win32_IsUnsupportedCrossBitness(pointer_width))
+    {
+        CloseHandle(handle);
+        Memmy_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("win32"),
+                        String8_Lit("32-bit Memmy cannot inspect a 64-bit target process"));
+        return Memmy_Status_Unsupported;
+    }
+
     Memmy_Win32Backend *backend = ContainerOf(Memmy_Context_Get()->backend, Memmy_Win32Backend, backend);
     Memmy_Win32ProcessData *data = Arena_PushStruct(arena, Memmy_Win32ProcessData);
     data->handle = handle;
@@ -159,7 +176,7 @@ static Memmy_Status Memmy_Win32_OpenProcess(Arena *arena, U32 pid, Memmy_Process
     Memmy_Process *process = Arena_PushStruct(arena, Memmy_Process);
     process->backend = &backend->backend;
     process->pid = pid;
-    process->pointer_width = Memmy_Win32_QueryPointerWidth(handle);
+    process->pointer_width = pointer_width;
     process->backend_data = data;
     *out = process;
     return Memmy_Status_Ok;
