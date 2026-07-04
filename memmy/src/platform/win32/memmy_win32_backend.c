@@ -194,7 +194,19 @@ static Memmy_Status Memmy_Win32_Read(Memmy_Process *process, Memmy_Addr addr, vo
     if (!ok)
     {
         DWORD err = GetLastError();
-        Memmy_Status status = got > 0 ? Memmy_Status_PartialRead : Memmy_Status_Unreadable;
+        Memmy_Status status = Memmy_Status_PlatformError;
+        if (got > 0)
+        {
+            status = Memmy_Status_PartialRead;
+        }
+        else if (err == ERROR_ACCESS_DENIED)
+        {
+            status = Memmy_Status_AccessDenied;
+        }
+        else if (err == ERROR_PARTIAL_COPY || err == ERROR_INVALID_ADDRESS || err == ERROR_NOACCESS)
+        {
+            status = Memmy_Status_Unreadable;
+        }
         Memmy_Error_Set(error, status, String8_Lit("win32"), String8_Lit("ReadProcessMemory failed"));
         if (error != 0)
         {

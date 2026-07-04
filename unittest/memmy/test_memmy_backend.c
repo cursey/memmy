@@ -68,6 +68,12 @@ static Memmy_Status Test_MemmyBackend_Read(Memmy_Process *process, Memmy_Addr ad
     Test_MemmyBackend *backend = (Test_MemmyBackend *)process->backend_data;
     *bytes_read = 0;
 
+    if (backend->read_status != Memmy_Status_Ok)
+    {
+        Memmy_Error_Set(error, backend->read_status, String8_Lit("backend"), String8_Lit("test read failure"));
+        return backend->read_status;
+    }
+
     if (addr < backend->memory_base || addr - backend->memory_base >= TEST_MEMMY_BACKEND_MEMORY_SIZE)
     {
         Memmy_Error_Set(error, Memmy_Status_Unreadable, String8_Lit("backend"),
@@ -77,6 +83,10 @@ static Memmy_Status Test_MemmyBackend_Read(Memmy_Process *process, Memmy_Addr ad
 
     U64 offset = addr - backend->memory_base;
     U64 available = TEST_MEMMY_BACKEND_MEMORY_SIZE - offset;
+    if (backend->read_limit != 0)
+    {
+        available = Min(available, backend->read_limit);
+    }
     U64 to_read = Min(size, available);
     memcpy(buffer, backend->memory + offset, (size_t)to_read);
     *bytes_read = to_read;
@@ -179,6 +189,8 @@ void Test_MemmyBackend_Init(Test_MemmyBackend *backend)
                 .list_regions = Test_MemmyBackend_ListRegions,
             },
         .memory_base = 0x1000,
+        .read_status = Memmy_Status_Ok,
+        .read_limit = 0,
     };
 
     Test_MemmyBackend_AddProcess(backend, Test_MemmyBackend_Pid, String8_Lit("test-process"),
@@ -254,4 +266,19 @@ Test_MemmyBackendRegion *Test_MemmyBackend_AddRegion(Test_MemmyBackend *backend,
         .state = state,
     };
     return region;
+}
+
+void Test_MemmyBackend_SetMemoryBase(Test_MemmyBackend *backend, Memmy_Addr base)
+{
+    backend->memory_base = base;
+}
+
+void Test_MemmyBackend_SetReadStatus(Test_MemmyBackend *backend, Memmy_Status status)
+{
+    backend->read_status = status;
+}
+
+void Test_MemmyBackend_SetReadLimit(Test_MemmyBackend *backend, U64 limit)
+{
+    backend->read_limit = limit;
 }

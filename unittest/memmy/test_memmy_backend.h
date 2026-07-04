@@ -43,6 +43,8 @@ struct Test_MemmyBackend
     Memmy_Backend backend;
     Memmy_Addr memory_base;
     U8 memory[TEST_MEMMY_BACKEND_MEMORY_SIZE];
+    Memmy_Status read_status;
+    U64 read_limit;
     Test_MemmyBackendProcess processes[TEST_MEMMY_BACKEND_MAX_PROCESSES];
     U64 process_count;
     Test_MemmyBackendModule modules[TEST_MEMMY_BACKEND_MAX_MODULES];
@@ -60,5 +62,8 @@ Test_MemmyBackendModule *Test_MemmyBackend_AddModule(Test_MemmyBackend *backend,
 Test_MemmyBackendRegion *Test_MemmyBackend_AddRegion(Test_MemmyBackend *backend, U32 pid, Memmy_Addr base,
                                                      Memmy_Size size, Memmy_RegionAccess access,
                                                      Memmy_RegionState state);
+void Test_MemmyBackend_SetMemoryBase(Test_MemmyBackend *backend, Memmy_Addr base);
+void Test_MemmyBackend_SetReadStatus(Test_MemmyBackend *backend, Memmy_Status status);
+void Test_MemmyBackend_SetReadLimit(Test_MemmyBackend *backend, U64 limit);
 
 #endif // TEST_MEMMY_BACKEND_H
