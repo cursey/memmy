@@ -47,6 +47,7 @@ struct String8Slice
 #define Char8_IsDigit(c) ((c) >= '0' && (c) <= '9')
 #define Char8_IsAlpha(c) (((c) >= 'a' && (c) <= 'z') || ((c) >= 'A' && (c) <= 'Z'))
 #define Char8_IsAlnum(c) (Char8_IsAlpha(c) || Char8_IsDigit(c))
+#define Char8_IsPrint(c) ((c) >= 0x20 && (c) < 0x7f)
 
 // Construction
 String8 String8_Make(U8 *data, U64 len);

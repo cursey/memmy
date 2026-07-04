@@ -106,6 +106,107 @@ Test(Test_MemmyExecPeekExecutesPointerChainPeek)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyExecPeekReadsStringUntilTerminator)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    U8 text[] = {'h', 'e', 'l', 'l', 'o', 0, 'x'};
+    for (U64 i = 0; i < sizeof(text); i++)
+    {
+        backend.memory[0x40 + i] = text[i];
+    }
+
+    Memmy_Process process = Test_MemmyExecPeekPoke_Process(&backend);
+    Memmy_MemoryExpr expr = {0};
+    Test_MemmyExecPeekPoke_Parse(arena, "0x1040 : str", &expr);
+
+    Memmy_Error error = {0};
+    Memmy_ExecPeekResult result = {0};
+    AssertEq(Memmy_MemoryExpr_ExecutePeek(arena, &process, 0, &expr, &result, &error), Memmy_Status_Ok);
+    AssertStrEq(result.value.bytes, String8_Lit("hello"));
+
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyExecPeekReadsStringUntilNonPrintable)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    U8 text[] = {'a', 'b', '\n', 'c', 0};
+    for (U64 i = 0; i < sizeof(text); i++)
+    {
+        backend.memory[0x50 + i] = text[i];
+    }
+
+    Memmy_Process process = Test_MemmyExecPeekPoke_Process(&backend);
+    Memmy_MemoryExpr expr = {0};
+    Test_MemmyExecPeekPoke_Parse(arena, "0x1050 : str", &expr);
+
+    Memmy_Error error = {0};
+    Memmy_ExecPeekResult result = {0};
+    AssertEq(Memmy_MemoryExpr_ExecutePeek(arena, &process, 0, &expr, &result, &error), Memmy_Status_Ok);
+    AssertStrEq(result.value.bytes, String8_Lit("ab"));
+
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyExecPeekReadsUtf8String)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    U8 text[] = {'c', 'a', 'f', 0xc3, 0xa9, 0, 'x'};
+    for (U64 i = 0; i < sizeof(text); i++)
+    {
+        backend.memory[0x70 + i] = text[i];
+    }
+
+    Memmy_Process process = Test_MemmyExecPeekPoke_Process(&backend);
+    Memmy_MemoryExpr expr = {0};
+    Test_MemmyExecPeekPoke_Parse(arena, "0x1070 : str", &expr);
+
+    Memmy_Error error = {0};
+    Memmy_ExecPeekResult result = {0};
+    AssertEq(Memmy_MemoryExpr_ExecutePeek(arena, &process, 0, &expr, &result, &error), Memmy_Status_Ok);
+    AssertEq(result.value.bytes.len, 5);
+    AssertEq(result.value.bytes.data[0], 'c');
+    AssertEq(result.value.bytes.data[1], 'a');
+    AssertEq(result.value.bytes.data[2], 'f');
+    AssertEq(result.value.bytes.data[3], 0xc3);
+    AssertEq(result.value.bytes.data[4], 0xa9);
+
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyExecPeekReadsWStringUntilTerminator)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    U8 text[] = {'H', 0, 'i', 0, 0, 0, 'x', 0};
+    for (U64 i = 0; i < sizeof(text); i++)
+    {
+        backend.memory[0x60 + i] = text[i];
+    }
+
+    Memmy_Process process = Test_MemmyExecPeekPoke_Process(&backend);
+    Memmy_MemoryExpr expr = {0};
+    Test_MemmyExecPeekPoke_Parse(arena, "0x1060 : wstr", &expr);
+
+    Memmy_Error error = {0};
+    Memmy_ExecPeekResult result = {0};
+    AssertEq(Memmy_MemoryExpr_ExecutePeek(arena, &process, 0, &expr, &result, &error), Memmy_Status_Ok);
+    AssertEq(result.value.bytes.len, 4);
+    AssertEq(result.value.bytes.data[0], 'H');
+    AssertEq(result.value.bytes.data[1], 0);
+    AssertEq(result.value.bytes.data[2], 'i');
+    AssertEq(result.value.bytes.data[3], 0);
+
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyExecPokeExecutesAbsoluteAddressPoke)
 {
     Arena *arena = Arena_CreateDefault();
@@ -220,6 +321,9 @@ TestSuite suite_memmy_exec_peek_poke = TestSuite_Make(
     "Memmy Exec Peek Poke", TestCase_Make(Test_MemmyExecPeekExecutesAbsoluteAddressPeek),
     TestCase_Make(Test_MemmyExecPeekExecutesModuleAddressPeek),
     TestCase_Make(Test_MemmyExecPeekExecutesPointerChainPeek),
+    TestCase_Make(Test_MemmyExecPeekReadsStringUntilTerminator),
+    TestCase_Make(Test_MemmyExecPeekReadsStringUntilNonPrintable), TestCase_Make(Test_MemmyExecPeekReadsUtf8String),
+    TestCase_Make(Test_MemmyExecPeekReadsWStringUntilTerminator),
     TestCase_Make(Test_MemmyExecPokeExecutesAbsoluteAddressPoke),
     TestCase_Make(Test_MemmyExecPokeExecutesModuleAddressPoke),
     TestCase_Make(Test_MemmyExecPokeRejectsRhsAddressExpressions),

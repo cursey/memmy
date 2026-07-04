@@ -308,6 +308,42 @@ Test(Test_MemmyCliExprFormatsPeekJsonLikePeekCommand)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyCliExprFormatsVariableWidthStringPeek)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+    Test_MemmyBackend_SetMemoryBase(&test_backend, 0x1123);
+    U8 str[] = {'h', 'e', 'l', 'l', 'o', 0, 'x'};
+    U8 wstr[] = {'H', 0, 'i', 0, 0, 0, 'x', 0};
+    for (U64 i = 0; i < sizeof(str); i++)
+    {
+        test_backend.memory[i] = str[i];
+    }
+    for (U64 i = 0; i < sizeof(wstr); i++)
+    {
+        test_backend.memory[0x10 + i] = wstr[i];
+    }
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *str_argv[] = {"memmy", "--expr", "<game.exe!client.dll>+0x123 : str"};
+    char *wstr_argv[] = {"memmy", "--expr", "<game.exe!client.dll>+0x133 : wstr"};
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(str_argv), str_argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("0x0000000000001123: str \"hello\"\n"));
+
+    error = (Memmy_Error){0};
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(wstr_argv), wstr_argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("0x0000000000001133: wstr \"Hi\"\n"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyCliExprRejectsJsonlPeek)
 {
     Arena *arena = Arena_CreateDefault();
@@ -536,6 +572,7 @@ TestSuite suite_memmy_cli_expr = TestSuite_Make(
     TestCase_Make(Test_MemmyCliExprRejectsBareWholeProcessTargetOutsideScans),
     TestCase_Make(Test_MemmyCliExprFormatsPeekTextLikePeekCommand),
     TestCase_Make(Test_MemmyCliExprFormatsPeekJsonLikePeekCommand), TestCase_Make(Test_MemmyCliExprRejectsJsonlPeek),
+    TestCase_Make(Test_MemmyCliExprFormatsVariableWidthStringPeek),
     TestCase_Make(Test_MemmyCliExprFormatsPokeTextLikePokeCommand), TestCase_Make(Test_MemmyCliExprRejectsJsonlPoke),
     TestCase_Make(Test_MemmyCliExprFormatsPokeJsonLikePokeCommand),
     TestCase_Make(Test_MemmyCliExprFormatsPatternScanTextLikePscan),
