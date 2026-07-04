@@ -27,6 +27,8 @@ extern TestSuite suite_memmy_process;
 extern TestSuite suite_memmy_expr_target;
 extern TestSuite suite_memmy_expr_const;
 extern TestSuite suite_memmy_expr_address;
+extern TestSuite suite_memmy_expr_memory;
+extern TestSuite suite_memmy_expr_range;
 extern TestSuite suite_memmy_cli;
 extern TestSuite suite_memmy_cli_procs;
 extern TestSuite suite_memmy_cli_mods;
@@ -64,6 +66,8 @@ int main(int argc, char **argv)
         suite_memmy_expr_target,
         suite_memmy_expr_const,
         suite_memmy_expr_address,
+        suite_memmy_expr_memory,
+        suite_memmy_expr_range,
         suite_memmy_cli,
         suite_memmy_cli_procs,
         suite_memmy_cli_mods,

@@ -74,8 +74,52 @@ struct Memmy_AddressExpr
     List ops; // Memmy_AddressOp
 };
 
+typedef U32 Memmy_RangeExprKind;
+enum
+{
+    Memmy_RangeExprKind_Target,
+    Memmy_RangeExprKind_ModuleOffset,
+    Memmy_RangeExprKind_ModuleSized,
+    Memmy_RangeExprKind_AddressSized,
+};
+
+typedef struct Memmy_RangeExpr Memmy_RangeExpr;
+struct Memmy_RangeExpr
+{
+    Memmy_RangeExprKind kind;
+    Memmy_TargetExpr target;
+    I64 start_offset;
+    I64 end_offset;
+    Memmy_Size size;
+    Memmy_AddressExpr address;
+};
+
+typedef U32 Memmy_MemoryExprKind;
+enum
+{
+    Memmy_MemoryExprKind_Address,
+    Memmy_MemoryExprKind_Peek,
+    Memmy_MemoryExprKind_Poke,
+    Memmy_MemoryExprKind_PatternScan,
+    Memmy_MemoryExprKind_ValueScan,
+};
+
+typedef struct Memmy_MemoryExpr Memmy_MemoryExpr;
+struct Memmy_MemoryExpr
+{
+    Memmy_MemoryExprKind kind;
+    Memmy_AddressExpr address;
+    Memmy_RangeExpr range;
+    Memmy_Type type;
+    String8 value_text;
+    String8 pattern_text;
+    Memmy_Pattern pattern;
+};
+
 Memmy_Status Memmy_TargetExpr_Parse(String8 text, Memmy_TargetExpr *out, Memmy_Error *error);
 Memmy_Status Memmy_ConstExpr_Evaluate(String8 text, Memmy_ConstExpr *out, Memmy_Error *error);
 Memmy_Status Memmy_AddressExpr_Parse(Arena *arena, String8 text, Memmy_AddressExpr *out, Memmy_Error *error);
+Memmy_Status Memmy_RangeExpr_Parse(Arena *arena, String8 text, Memmy_RangeExpr *out, Memmy_Error *error);
+Memmy_Status Memmy_MemoryExpr_Parse(Arena *arena, String8 text, Memmy_MemoryExpr *out, Memmy_Error *error);
 
 #endif // MEMMY_EXPR_H
