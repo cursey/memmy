@@ -1,7 +1,20 @@
 #include <stdio.h>
 
+#include "base_os.h"
 #include "memmy.h"
 #include "memmy_cli.h"
+
+static void Memmy_Main_WriteError(Arena *arena, Memmy_Status status, Memmy_Error *error)
+{
+    String8 message = String8_PushF(arena, "memmy: %s", Memmy_Status_Name(status));
+    Os_WriteStderr(message);
+    if (error != 0 && error->message.len > 0)
+    {
+        String8 detail = String8_PushF(arena, ": %.*s", (int)error->message.len, (char *)error->message.data);
+        Os_WriteStderr(detail);
+    }
+    Os_WriteStderr(String8_Lit("\n"));
+}
 
 static Memmy_Status Memmy_Main_RunRepl(Arena *arena)
 {
@@ -15,16 +28,11 @@ static Memmy_Status Memmy_Main_RunRepl(Arena *arena)
         Memmy_Status status = Memmy_Cli_RunReplLine(scratch.arena, String8_FromCStr(line), &output, &error);
         if (output.len > 0)
         {
-            fwrite(output.data, 1, (size_t)output.len, stdout);
+            Os_WriteStdout(output);
         }
         if (status != Memmy_Status_Ok)
         {
-            fprintf(stderr, "memmy: %s", Memmy_Status_Name(status));
-            if (error.message.len > 0)
-            {
-                fprintf(stderr, ": %.*s", (int)error.message.len, (char *)error.message.data);
-            }
-            fprintf(stderr, "\n");
+            Memmy_Main_WriteError(scratch.arena, status, &error);
         }
         if (result == Memmy_Status_Ok && status != Memmy_Status_Ok)
         {
@@ -52,16 +60,12 @@ int main(int argc, char **argv)
         Memmy_Context_Set(&ctx);
     }
 
-    if (argc == 1)
+    B32 stdin_is_terminal = Os_StdinIsTerminal();
+    if (argc == 1 && stdin_is_terminal)
     {
         if (status != Memmy_Status_Ok)
         {
-            fprintf(stderr, "memmy: %s", Memmy_Status_Name(status));
-            if (error.message.len > 0)
-            {
-                fprintf(stderr, ": %.*s", (int)error.message.len, (char *)error.message.data);
-            }
-            fprintf(stderr, "\n");
+            Memmy_Main_WriteError(arena, status, &error);
         }
         else
         {
@@ -75,7 +79,26 @@ int main(int argc, char **argv)
     String8 output = {0};
     B32 json = Memmy_Cli_ArgvHasJson(argc, argv);
     B32 jsonl = Memmy_Cli_ArgvHasJsonl(argc, argv);
-    status = Memmy_Cli_RunToString(arena, argc, argv, &output, &error);
+    if (Memmy_Cli_ArgvHasHelp(argc, argv) || Memmy_Cli_ArgvHasVersion(argc, argv))
+    {
+        status = Memmy_Cli_RunToString(arena, argc, argv, &output, &error);
+    }
+    else if (!stdin_is_terminal)
+    {
+        String8 input = Os_ReadStdin(arena);
+        if (input.len > 0)
+        {
+            status = Memmy_Cli_RunInputString(arena, argc, argv, input, &output, &error);
+        }
+        else
+        {
+            status = Memmy_Cli_RunToString(arena, argc, argv, &output, &error);
+        }
+    }
+    else
+    {
+        status = Memmy_Cli_RunToString(arena, argc, argv, &output, &error);
+    }
     if (status != Memmy_Status_Ok && json)
     {
         output = Memmy_Cli_FormatJsonError(arena, &error);
@@ -86,17 +109,12 @@ int main(int argc, char **argv)
     }
     if (output.len > 0)
     {
-        fwrite(output.data, 1, (size_t)output.len, stdout);
+        Os_WriteStdout(output);
     }
 
     if (status != Memmy_Status_Ok && !json && !jsonl)
     {
-        fprintf(stderr, "memmy: %s", Memmy_Status_Name(status));
-        if (error.message.len > 0)
-        {
-            fprintf(stderr, ": %.*s", (int)error.message.len, (char *)error.message.data);
-        }
-        fprintf(stderr, "\n");
+        Memmy_Main_WriteError(arena, status, &error);
     }
 
     Memmy_Context_Set(0);

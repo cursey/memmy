@@ -38,6 +38,7 @@ void Os_DirIterEnd(Os_DirIter *it);
 // Standard streams
 // ---------------------------------------------------------------------------
 
+B32 Os_StdinIsTerminal(void);
 String8 Os_ReadStdin(Arena *a);
 void Os_WriteStdout(String8 s);
 void Os_WriteStderr(String8 s);

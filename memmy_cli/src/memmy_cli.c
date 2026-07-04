@@ -2,6 +2,8 @@
 
 #include <stdarg.h>
 
+#include "base_fs.h"
+
 static void Memmy_Cli_SetRangeError(Memmy_Error *error, String8 message)
 {
     Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("range"), message);
@@ -212,6 +214,16 @@ B32 Memmy_Cli_ArgvHasJson(I32 argc, char **argv)
 B32 Memmy_Cli_ArgvHasJsonl(I32 argc, char **argv)
 {
     return Memmy_Cli_ArgvHasFormatFlag(argc, argv, String8_Lit("--jsonl"));
+}
+
+B32 Memmy_Cli_ArgvHasHelp(I32 argc, char **argv)
+{
+    return Memmy_Cli_ArgvHasFormatFlag(argc, argv, String8_Lit("--help"));
+}
+
+B32 Memmy_Cli_ArgvHasVersion(I32 argc, char **argv)
+{
+    return Memmy_Cli_ArgvHasFormatFlag(argc, argv, String8_Lit("--version"));
 }
 
 String8 Memmy_Cli_FormatAddress(Arena *arena, Memmy_PointerWidth pointer_width, Memmy_Addr address)
@@ -722,13 +734,6 @@ static Memmy_Status Memmy_Cli_ParseOptions(Arena *arena, I32 argc, char **argv, 
     {
         return Memmy_Cli_InvalidOption(error, String8_Lit("use --json or --jsonl, not both"), String8_Lit("--jsonl"));
     }
-    if (out->jsonl && !out->has_expr && !String8_Eq(out->command, String8_Lit("scan")) &&
-        !String8_Eq(out->command, String8_Lit("pscan")))
-    {
-        return Memmy_Cli_InvalidOption(error, String8_Lit("--jsonl is only valid for scan and pscan"),
-                                       String8_Lit("--jsonl"));
-    }
-
     return Memmy_Status_Ok;
 }
 
@@ -857,38 +862,85 @@ Memmy_Status Memmy_Cli_RejectNonScanOptions(Memmy_CliOptions *options, Memmy_Err
 
 static String8 Memmy_Cli_Help(Arena *arena)
 {
-    return String8_Copy(
-        arena,
-        String8_Lit("memmy [global-options] <command> [command-options]\n"
-                    "memmy\n"
-                    "memmy [global-options] [--pid <pid>|--name <name>] --expr <memory-expr>\n"
-                    "\n"
-                    "Run without arguments to start a simple expression REPL.\n"
-                    "\n"
-                    "Commands:\n"
-                    "  procs\n"
-                    "  mods --pid <pid>|--name <name>\n"
-                    "  regions --pid <pid>|--name <name>\n"
-                    "  peek --pid <pid>|--name <name> --addr <addr> --type <type>\n"
-                    "  poke --pid <pid>|--name <name> --addr <addr> --type <type> --value <value>\n"
-                    "  scan --pid <pid>|--name <name> --start <addr> --end <addr> --type <type> --value <value>\n"
-                    "  scan --pid <pid>|--name <name> --start <addr> --length <size> --type <type> --value <value>\n"
-                    "  pscan --pid <pid>|--name <name> --start <addr> --end <addr> --pattern <pattern>\n"
-                    "  pscan --pid <pid>|--name <name> --start <addr> --length <size> --pattern <pattern>\n"
-                    "\n"
-                    "Global options:\n"
-                    "  --json\n"
-                    "  --jsonl  scan and pscan only\n"
-                    "  --help\n"
-                    "  --version\n"
-                    "\n"
-                    "Expression options:\n"
-                    "  --expr <memory-expr>\n"
-                    "  top-level --expr uses default scan settings; --limit and --chunk-size are only valid for scan "
-                    "and pscan\n"
-                    "\n"
-                    "Types: u8 i8 u16 i16 u32 i32 u64 i64 f32 f64 ptr bytes str wstr\n"
-                    "Patterns: two-digit hex bytes with ? or ?? wildcards for pscan\n"));
+    return String8_Copy(arena, String8_Lit("memmy\n"
+                                           "memmy [global-options] [--pid <pid>|--name <name>] --expr <memory-expr>\n"
+                                           "memmy [global-options] [--pid <pid>|--name <name>] <file>\n"
+                                           "<input> | memmy [global-options] [--pid <pid>|--name <name>]\n"
+                                           "\n"
+                                           "Run without arguments to start a simple expression REPL.\n"
+                                           "\n"
+                                           "Global options:\n"
+                                           "  --json\n"
+                                           "  --jsonl\n"
+                                           "  --help\n"
+                                           "  --version\n"
+                                           "\n"
+                                           "Expression options:\n"
+                                           "  --expr <memory-expr>\n"
+                                           "\n"
+                                           "Types: u8 i8 u16 i16 u32 i32 u64 i64 f32 f64 ptr bytes str wstr\n"
+                                           "Patterns: two-digit hex bytes with ? or ?? wildcards\n"));
+}
+
+static Memmy_Status Memmy_Cli_UseOneInputSource(Memmy_Error *error, String8 input)
+{
+    Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("cli"),
+                    String8_Lit("use exactly one input source"));
+    if (error != 0)
+    {
+        error->input = input;
+    }
+    return Memmy_Status_InvalidArgument;
+}
+
+static Memmy_Status Memmy_Cli_RunScriptString(Arena *arena, Memmy_CliOptions *options, String8 input, String8 *out,
+                                              Memmy_Error *error)
+{
+    Memmy_Status status = Memmy_Cli_RejectNonExprOptions(options, error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+    return Memmy_Cli_RunReplStringWithOptions(arena, options, input, out, error);
+}
+
+Memmy_Status Memmy_Cli_RunInputString(Arena *arena, I32 argc, char **argv, String8 input, String8 *out,
+                                      Memmy_Error *error)
+{
+    if (arena == 0 || out == 0)
+    {
+        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("cli"), String8_Lit("missing output"));
+        return Memmy_Status_InvalidArgument;
+    }
+
+    *out = (String8){0};
+    Memmy_CliOptions options = {0};
+    Memmy_Status status = Memmy_Cli_ParseOptions(arena, argc, argv, &options, error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+
+    if (options.version)
+    {
+        *out = String8_Copy(arena, String8_Lit("memmy 0.0.0\n"));
+        return Memmy_Status_Ok;
+    }
+    if (options.help)
+    {
+        *out = Memmy_Cli_Help(arena);
+        return Memmy_Status_Ok;
+    }
+    if (options.has_expr)
+    {
+        return Memmy_Cli_UseOneInputSource(error, String8_Lit("--expr"));
+    }
+    if (options.command.len != 0)
+    {
+        return Memmy_Cli_UseOneInputSource(error, options.command);
+    }
+
+    return Memmy_Cli_RunScriptString(arena, &options, input, out, error);
 }
 
 Memmy_Status Memmy_Cli_RunToString(Arena *arena, I32 argc, char **argv, String8 *out, Memmy_Error *error)
@@ -921,8 +973,7 @@ Memmy_Status Memmy_Cli_RunToString(Arena *arena, I32 argc, char **argv, String8 
     {
         if (options.command.len != 0)
         {
-            return Memmy_Cli_InvalidOption(error, String8_Lit("--expr is only valid at top level"),
-                                           String8_Lit("--expr"));
+            return Memmy_Cli_UseOneInputSource(error, String8_Lit("--expr"));
         }
         return Memmy_Cli_RunExpr(arena, &options, out, error);
     }
@@ -932,41 +983,23 @@ Memmy_Status Memmy_Cli_RunToString(Arena *arena, I32 argc, char **argv, String8 
         return Memmy_Status_Ok;
     }
 
-    if (String8_Eq(options.command, String8_Lit("procs")))
+    status = Memmy_Cli_RejectNonExprOptions(&options, error);
+    if (status != Memmy_Status_Ok)
     {
-        return Memmy_Cli_RunProcs(arena, &options, out, error);
-    }
-    if (String8_Eq(options.command, String8_Lit("mods")))
-    {
-        return Memmy_Cli_RunMods(arena, &options, out, error);
-    }
-    if (String8_Eq(options.command, String8_Lit("peek")))
-    {
-        return Memmy_Cli_RunPeek(arena, &options, out, error);
-    }
-    if (String8_Eq(options.command, String8_Lit("poke")))
-    {
-        return Memmy_Cli_RunPoke(arena, &options, out, error);
-    }
-    if (String8_Eq(options.command, String8_Lit("regions")))
-    {
-        return Memmy_Cli_RunRegions(arena, &options, out, error);
-    }
-    if (String8_Eq(options.command, String8_Lit("scan")))
-    {
-        return Memmy_Cli_RunScan(arena, &options, out, error);
-    }
-    if (String8_Eq(options.command, String8_Lit("pscan")))
-    {
-        return Memmy_Cli_RunPscan(arena, &options, out, error);
+        return status;
     }
 
-    Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("cli"), String8_Lit("unknown command"));
-    if (error != 0)
+    String8 input = {0};
+    if (!Fs_ReadFile(arena, options.command, &input))
     {
-        error->input = options.command;
+        Memmy_Error_Set(error, Memmy_Status_NotFound, String8_Lit("file"), String8_Lit("failed to read input file"));
+        if (error != 0)
+        {
+            error->input = options.command;
+        }
+        return Memmy_Status_NotFound;
     }
-    return Memmy_Status_ParseError;
+    return Memmy_Cli_RunScriptString(arena, &options, input, out, error);
 }
 
 I32 Memmy_Cli_ExitCodeFromStatus(Memmy_Status status)

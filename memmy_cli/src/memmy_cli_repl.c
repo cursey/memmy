@@ -10,7 +10,8 @@ static String8 Memmy_Cli_FormatTextError(Arena *arena, Memmy_Status status, Memm
     return String8_PushF(arena, "memmy: %s\n", Memmy_Status_Name(status));
 }
 
-Memmy_Status Memmy_Cli_RunReplLine(Arena *arena, String8 line, String8 *out, Memmy_Error *error)
+static Memmy_Status Memmy_Cli_RunReplLineWithOptions(Arena *arena, Memmy_CliOptions *base_options, String8 line,
+                                                     String8 *out, Memmy_Error *error)
 {
     if (arena == 0 || out == 0)
     {
@@ -25,14 +26,26 @@ Memmy_Status Memmy_Cli_RunReplLine(Arena *arena, String8 line, String8 *out, Mem
         return Memmy_Status_Ok;
     }
 
-    Memmy_CliOptions options = {
-        .has_expr = 1,
-        .expr_text = expr,
-    };
+    Memmy_CliOptions options = base_options != 0 ? *base_options : (Memmy_CliOptions){0};
+    options.has_expr = 1;
+    options.expr_text = expr;
     return Memmy_Cli_RunExpr(arena, &options, out, error);
 }
 
+Memmy_Status Memmy_Cli_RunReplLine(Arena *arena, String8 line, String8 *out, Memmy_Error *error)
+{
+    Memmy_CliOptions options = {0};
+    return Memmy_Cli_RunReplLineWithOptions(arena, &options, line, out, error);
+}
+
 Memmy_Status Memmy_Cli_RunReplString(Arena *arena, String8 input, String8 *out, Memmy_Error *error)
+{
+    Memmy_CliOptions options = {0};
+    return Memmy_Cli_RunReplStringWithOptions(arena, &options, input, out, error);
+}
+
+Memmy_Status Memmy_Cli_RunReplStringWithOptions(Arena *arena, Memmy_CliOptions *base_options, String8 input,
+                                                String8 *out, Memmy_Error *error)
 {
     if (arena == 0 || out == 0)
     {
@@ -66,7 +79,7 @@ Memmy_Status Memmy_Cli_RunReplString(Arena *arena, String8 input, String8 *out, 
 
         Memmy_Error line_error = {0};
         String8 line_out = {0};
-        Memmy_Status status = Memmy_Cli_RunReplLine(arena, line, &line_out, &line_error);
+        Memmy_Status status = Memmy_Cli_RunReplLineWithOptions(arena, base_options, line, &line_out, &line_error);
         if (status == Memmy_Status_Ok)
         {
             String8List_Push(arena, &parts, line_out);

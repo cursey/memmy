@@ -197,6 +197,18 @@ void Os_DirIterEnd(Os_DirIter *it)
     }
 }
 
+B32 Os_StdinIsTerminal(void)
+{
+    HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
+    if (h == 0 || h == INVALID_HANDLE_VALUE)
+    {
+        return 0;
+    }
+
+    DWORD mode = 0;
+    return GetConsoleMode(h, &mode) != 0;
+}
+
 String8 Os_ReadStdin(Arena *a)
 {
     HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
@@ -714,6 +726,11 @@ void Os_DirIterEnd(Os_DirIter *it)
         closedir(it->dir);
         it->dir = 0;
     }
+}
+
+B32 Os_StdinIsTerminal(void)
+{
+    return isatty(0) != 0;
 }
 
 String8 Os_ReadStdin(Arena *a)

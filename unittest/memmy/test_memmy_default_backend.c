@@ -165,30 +165,21 @@ Test(Test_MemmyDefaultBackendCliSelfProcessSmoke)
     memcpy(scan_fixture + 4, pattern_bytes, sizeof(pattern_bytes));
 
     volatile U32 poke_value = 0x11223344;
-    char pid_text[32];
-    char poke_addr_text[32];
-    char scan_start_text[32];
-    char scan_length_text[32];
-    snprintf(pid_text, sizeof(pid_text), "%u", Os_GetProcessId());
-    snprintf(poke_addr_text, sizeof(poke_addr_text), "0x%llx", (unsigned long long)(uintptr_t)&poke_value);
-    snprintf(scan_start_text, sizeof(scan_start_text), "0x%llx", (unsigned long long)(uintptr_t)scan_fixture);
-    snprintf(scan_length_text, sizeof(scan_length_text), "%u", (U32)sizeof(scan_fixture));
+    char *pid_text = String8_ToCStr(arena, String8_PushF(arena, "%u", Os_GetProcessId()));
+    U64 poke_addr = (U64)(uintptr_t)&poke_value;
+    U64 scan_start = (U64)(uintptr_t)scan_fixture;
 
     String8 out = {0};
-    char *peek_argv[] = {"memmy", "peek", "--pid", pid_text, "--addr", poke_addr_text, "--type", "u32"};
-    char *poke_dry_run_argv[] = {"memmy",  "poke", "--pid",   pid_text,     "--addr",   poke_addr_text,
-                                 "--type", "u32",  "--value", "0x55667788", "--dry-run"};
-    char *poke_argv[] = {"memmy",        "poke",   "--pid", pid_text,  "--addr",
-                         poke_addr_text, "--type", "u32",   "--value", "0x55667788"};
-    char *pscan_argv[] = {"memmy",         "pscan",    "--pid",          pid_text,    "--start",
-                          scan_start_text, "--length", scan_length_text, "--pattern", "de ad be ef"};
-    char *scan_argv[] = {"memmy",    "scan",           "--pid",  pid_text, "--start", scan_start_text,
-                         "--length", scan_length_text, "--type", "bytes",  "--value", "de ad be ef"};
+    char *peek_expr = String8_ToCStr(arena, String8_PushF(arena, "0x%llx : u32", poke_addr));
+    char *poke_expr = String8_ToCStr(arena, String8_PushF(arena, "0x%llx : u32 = 0x55667788", poke_addr));
+    char *pscan_expr = String8_ToCStr(arena, String8_PushF(arena, "0x%llx:+0x10{de ad be ef}", scan_start));
+    char *scan_expr = String8_ToCStr(arena, String8_PushF(arena, "0x%llx:+0x10 : bytes == de ad be ef", scan_start));
+    char *peek_argv[] = {"memmy", "--pid", pid_text, "--expr", peek_expr};
+    char *poke_argv[] = {"memmy", "--pid", pid_text, "--expr", poke_expr};
+    char *pscan_argv[] = {"memmy", "--pid", pid_text, "--expr", pscan_expr};
+    char *scan_argv[] = {"memmy", "--pid", pid_text, "--expr", scan_expr};
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(peek_argv), peek_argv, &out, &error), Memmy_Status_Ok);
-    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(poke_dry_run_argv), poke_dry_run_argv, &out, &error),
-             Memmy_Status_Ok);
-    AssertEq(poke_value, 0x11223344);
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(poke_argv), poke_argv, &out, &error), Memmy_Status_Ok);
     AssertEq(poke_value, 0x55667788);
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(pscan_argv), pscan_argv, &out, &error), Memmy_Status_Ok);

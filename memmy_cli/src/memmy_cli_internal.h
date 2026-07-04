@@ -83,6 +83,9 @@ Memmy_Status Memmy_Cli_ResolveScanRange(Memmy_CliOptions *options, String8 comma
                                         Memmy_Error *error);
 Memmy_Status Memmy_Cli_RejectNonPscanOptions(Memmy_CliOptions *options, Memmy_Error *error);
 Memmy_Status Memmy_Cli_RejectNonScanOptions(Memmy_CliOptions *options, Memmy_Error *error);
+Memmy_Status Memmy_Cli_RejectNonExprOptions(Memmy_CliOptions *options, Memmy_Error *error);
+Memmy_Status Memmy_Cli_RunReplStringWithOptions(Arena *arena, Memmy_CliOptions *base_options, String8 input,
+                                                String8 *out, Memmy_Error *error);
 
 Memmy_Status Memmy_Cli_RunProcs(Arena *arena, Memmy_CliOptions *options, String8 *out, Memmy_Error *error);
 Memmy_Status Memmy_Cli_RunPeek(Arena *arena, Memmy_CliOptions *options, String8 *out, Memmy_Error *error);

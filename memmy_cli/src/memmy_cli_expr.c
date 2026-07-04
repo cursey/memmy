@@ -2,16 +2,16 @@
 
 #include "memmy_exec.h"
 
-static Memmy_Status Memmy_Cli_RejectNonExprOptions(Memmy_CliOptions *options, Memmy_Error *error)
+Memmy_Status Memmy_Cli_RejectNonExprOptions(Memmy_CliOptions *options, Memmy_Error *error)
 {
     if (options->has_limit)
     {
-        return Memmy_Cli_InvalidOption(error, String8_Lit("--limit is only valid for scan and pscan"),
+        return Memmy_Cli_InvalidOption(error, String8_Lit("option is invalid for expression input"),
                                        String8_Lit("--limit"));
     }
     if (options->has_chunk_size)
     {
-        return Memmy_Cli_InvalidOption(error, String8_Lit("--chunk-size is only valid for scan and pscan"),
+        return Memmy_Cli_InvalidOption(error, String8_Lit("option is invalid for expression input"),
                                        String8_Lit("--chunk-size"));
     }
     if (options->has_filter || options->has_addr || options->has_type || options->has_count || options->has_value ||

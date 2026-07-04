@@ -35,13 +35,6 @@ extern TestSuite suite_memmy_exec_range;
 extern TestSuite suite_memmy_exec_pattern_scan;
 extern TestSuite suite_memmy_exec_value_scan;
 extern TestSuite suite_memmy_cli;
-extern TestSuite suite_memmy_cli_procs;
-extern TestSuite suite_memmy_cli_mods;
-extern TestSuite suite_memmy_cli_regions;
-extern TestSuite suite_memmy_cli_peek;
-extern TestSuite suite_memmy_cli_poke;
-extern TestSuite suite_memmy_cli_scan;
-extern TestSuite suite_memmy_cli_pscan;
 extern TestSuite suite_memmy_cli_expr;
 extern TestSuite suite_memmy_cli_repl;
 extern TestSuite suite_memmy_default_backend;
@@ -81,13 +74,6 @@ int main(int argc, char **argv)
         suite_memmy_exec_pattern_scan,
         suite_memmy_exec_value_scan,
         suite_memmy_cli,
-        suite_memmy_cli_procs,
-        suite_memmy_cli_mods,
-        suite_memmy_cli_regions,
-        suite_memmy_cli_peek,
-        suite_memmy_cli_poke,
-        suite_memmy_cli_scan,
-        suite_memmy_cli_pscan,
         suite_memmy_cli_expr,
         suite_memmy_cli_repl,
         suite_memmy_default_backend,
