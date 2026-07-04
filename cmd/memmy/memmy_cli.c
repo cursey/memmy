@@ -214,28 +214,50 @@ static void Memmy_Cli_PushLine(Arena *arena, String8List *list, char *fmt, ...)
     String8List_Push(arena, list, line);
 }
 
-B32 Memmy_Cli_ArgvHasJson(I32 argc, char **argv)
+static B32 Memmy_Cli_OptionConsumesRawValue(String8 option)
+{
+    return String8_Eq(option, String8_Lit("--value"));
+}
+
+static B32 Memmy_Cli_OptionConsumesValue(String8 option)
+{
+    return String8_Eq(option, String8_Lit("--pid")) || String8_Eq(option, String8_Lit("--name")) ||
+           String8_Eq(option, String8_Lit("--filter")) || String8_Eq(option, String8_Lit("--addr")) ||
+           String8_Eq(option, String8_Lit("--type")) || String8_Eq(option, String8_Lit("--count")) ||
+           String8_Eq(option, String8_Lit("--start")) || String8_Eq(option, String8_Lit("--end")) ||
+           String8_Eq(option, String8_Lit("--length")) || String8_Eq(option, String8_Lit("--limit")) ||
+           String8_Eq(option, String8_Lit("--chunk-size")) || String8_Eq(option, String8_Lit("--pattern"));
+}
+
+static B32 Memmy_Cli_ArgvHasFormatFlag(I32 argc, char **argv, String8 flag)
 {
     for (I32 i = 1; i < argc; i++)
     {
-        if (String8_Eq(String8_FromCStr(argv[i]), String8_Lit("--json")))
+        String8 arg = String8_FromCStr(argv[i]);
+        if (String8_Eq(arg, flag))
         {
             return 1;
+        }
+        if (Memmy_Cli_OptionConsumesRawValue(arg) && i + 1 < argc)
+        {
+            i++;
+        }
+        else if (Memmy_Cli_OptionConsumesValue(arg) && i + 1 < argc && !Memmy_Cli_IsOption(argv[i + 1]))
+        {
+            i++;
         }
     }
     return 0;
 }
 
+B32 Memmy_Cli_ArgvHasJson(I32 argc, char **argv)
+{
+    return Memmy_Cli_ArgvHasFormatFlag(argc, argv, String8_Lit("--json"));
+}
+
 B32 Memmy_Cli_ArgvHasJsonl(I32 argc, char **argv)
 {
-    for (I32 i = 1; i < argc; i++)
-    {
-        if (String8_Eq(String8_FromCStr(argv[i]), String8_Lit("--jsonl")))
-        {
-            return 1;
-        }
-    }
-    return 0;
+    return Memmy_Cli_ArgvHasFormatFlag(argc, argv, String8_Lit("--jsonl"));
 }
 
 String8 Memmy_Cli_FormatAddress(Arena *arena, Memmy_PointerWidth pointer_width, Memmy_Addr address)

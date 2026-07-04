@@ -6,7 +6,6 @@ This repository is a C11 memory introspection toolkit.
 - `memmy/` is the core Memmy library. Public project APIs use `Memmy_` names. Private/file-local helpers may use lowercase `memmy_` when a prefix is useful.
 - `cmd/memmy/` is the CLI executable. The CMake target is `cmd_memmy`; its output name is `memmy`.
 - `vendor/` contains third-party code. Avoid editing it unless the task is explicitly about vendored code.
-- `spec.md` is the product and API design reference. Keep it aligned with the actual repo layout and naming.
 
 ## Build
 

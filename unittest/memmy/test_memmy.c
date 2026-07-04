@@ -1714,11 +1714,19 @@ Test(Test_MemmyCliJsonHelpers)
 {
     Arena *arena = Arena_CreateDefault();
     U8 bytes[] = {0x00, 0x0a, 0xff};
+    char *json_flag[] = {"memmy", "--json", "procs"};
+    char *jsonl_flag[] = {"memmy", "scan", "--pid", "4242", "--type", "str", "--value", "needle", "--jsonl"};
+    char *json_value[] = {"memmy", "scan", "--pid", "4242", "--type", "str", "--value", "--json"};
+    char *jsonl_value[] = {"memmy", "scan", "--pid", "4242", "--type", "str", "--value", "--jsonl"};
 
     AssertStrEq(Memmy_Cli_FormatAddress(arena, Memmy_PointerWidth_64, 0x4242), String8_Lit("0x0000000000004242"));
     AssertStrEq(Memmy_Cli_FormatAddress(arena, Memmy_PointerWidth_32, 0x4242), String8_Lit("0x00004242"));
     AssertStrEq(Memmy_Cli_FormatHexBytes(arena, String8_Make(bytes, ArrayCount(bytes))), String8_Lit("00 0a ff"));
     AssertStrEq(Memmy_Cli_FormatJsonString(arena, String8_Lit("a\0b\n\"\\")), String8_Lit("\"a\\u0000b\\n\\\"\\\\\""));
+    AssertEq(Memmy_Cli_ArgvHasJson((I32)ArrayCount(json_flag), json_flag), 1);
+    AssertEq(Memmy_Cli_ArgvHasJsonl((I32)ArrayCount(jsonl_flag), jsonl_flag), 1);
+    AssertEq(Memmy_Cli_ArgvHasJson((I32)ArrayCount(json_value), json_value), 0);
+    AssertEq(Memmy_Cli_ArgvHasJsonl((I32)ArrayCount(jsonl_value), jsonl_value), 0);
 
     Memmy_Error error = {
         .status = Memmy_Status_ParseError,
