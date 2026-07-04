@@ -1,7 +1,7 @@
 #include "memmy_cli_internal.h"
 
-#include <math.h>
-#include <string.h>
+#include "base_math.h"
+#include "base_memory.h"
 
 static U64 Memmy_Cli_ReadLE(String8 bytes)
 {
@@ -247,13 +247,13 @@ static Memmy_Status Memmy_Cli_FormatPeekValue(Arena *arena, Memmy_CliValueFormat
     break;
     case Memmy_TypeKind_F32: {
         F32 value = 0;
-        memcpy(&value, bytes.data, sizeof(value));
+        Memory_Copy(&value, bytes.data, sizeof(value));
         Memmy_Cli_PushLine(arena, lines, "%g", (double)value);
     }
     break;
     case Memmy_TypeKind_F64: {
         F64 value = 0;
-        memcpy(&value, bytes.data, sizeof(value));
+        Memory_Copy(&value, bytes.data, sizeof(value));
         Memmy_Cli_PushLine(arena, lines, "%g", value);
     }
     break;
@@ -313,8 +313,8 @@ static Memmy_Status Memmy_Cli_FormatJsonValueFields(Arena *arena, Memmy_CliValue
     break;
     case Memmy_TypeKind_F32: {
         F32 value = 0;
-        memcpy(&value, bytes.data, sizeof(value));
-        if (isfinite((double)value))
+        Memory_Copy(&value, bytes.data, sizeof(value));
+        if (F32_IsFinite(value))
         {
             *out = String8_PushF(arena, "\"value\":%g", (double)value);
         }
@@ -326,8 +326,8 @@ static Memmy_Status Memmy_Cli_FormatJsonValueFields(Arena *arena, Memmy_CliValue
     break;
     case Memmy_TypeKind_F64: {
         F64 value = 0;
-        memcpy(&value, bytes.data, sizeof(value));
-        if (isfinite(value))
+        Memory_Copy(&value, bytes.data, sizeof(value));
+        if (F64_IsFinite(value))
         {
             *out = String8_PushF(arena, "\"value\":%g", value);
         }

@@ -1,8 +1,6 @@
 #include "memmy_value.h"
 
-#include <errno.h>
-#include <stdlib.h>
-#include <string.h>
+#include "base_memory.h"
 
 static B32 Memmy_IsWhitespace(U8 c)
 {
@@ -186,17 +184,13 @@ static Memmy_Status Memmy_EncodeSigned(Arena *arena, Memmy_Type type, String8 te
 static Memmy_Status Memmy_EncodeFloat(Arena *arena, Memmy_Type type, String8 text, U64 size, Memmy_Value *out,
                                       Memmy_Error *error)
 {
-    Scratch scratch = Scratch_Begin(&arena, 1);
-    char *cstr = String8_ToCStr(scratch.arena, text);
-    char *end = 0;
-    errno = 0;
-    double parsed = strtod(cstr, &end);
-    if (end == cstr || *end != 0 || errno == ERANGE)
+    F64 parsed = 0;
+    U64 error_offset = 0;
+    String8_ParseStatus parse_status = String8_ParseF64(text, &parsed, &error_offset);
+    if (parse_status != String8_ParseStatus_Ok)
     {
-        U64 offset = (end > cstr) ? (U64)(end - cstr) : 0;
-        Scratch_End(scratch);
         Memmy_Error_SetInput(error, Memmy_Status_ParseError, String8_Lit("value"), String8_Lit("invalid float"), text,
-                             offset, 1);
+                             error_offset, 1);
         return Memmy_Status_ParseError;
     }
 
@@ -204,15 +198,14 @@ static Memmy_Status Memmy_EncodeFloat(Arena *arena, Memmy_Type type, String8 tex
     if (size == 4)
     {
         F32 value = (F32)parsed;
-        memcpy(bytes, &value, sizeof(value));
+        Memory_Copy(bytes, &value, sizeof(value));
     }
     else
     {
         F64 value = parsed;
-        memcpy(bytes, &value, sizeof(value));
+        Memory_Copy(bytes, &value, sizeof(value));
     }
     *out = (Memmy_Value){.type = type, .bytes = String8_Make(bytes, size)};
-    Scratch_End(scratch);
     return Memmy_Status_Ok;
 }
 

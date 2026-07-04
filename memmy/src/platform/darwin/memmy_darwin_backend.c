@@ -13,7 +13,6 @@
 #include <mach-o/loader.h>
 #include <mach/mach.h>
 #include <mach/mach_vm.h>
-#include <string.h>
 
 typedef struct Memmy_DarwinBackend Memmy_DarwinBackend;
 struct Memmy_DarwinBackend

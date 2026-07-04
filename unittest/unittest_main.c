@@ -5,6 +5,8 @@
 
 extern TestSuite suite_arena;
 extern TestSuite suite_string;
+extern TestSuite suite_memory;
+extern TestSuite suite_math;
 extern TestSuite suite_string_split;
 extern TestSuite suite_bitset;
 extern TestSuite suite_sort;
@@ -44,6 +46,8 @@ int main(int argc, char **argv)
     TestSuite suites[] = {
         suite_arena,
         suite_string,
+        suite_memory,
+        suite_math,
         suite_string_split,
         suite_bitset,
         suite_sort,

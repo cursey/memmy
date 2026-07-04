@@ -39,6 +39,14 @@ struct String8Slice
     U64 count;
 };
 
+typedef U32 String8_ParseStatus;
+enum
+{
+    String8_ParseStatus_Ok = 0,
+    String8_ParseStatus_Invalid = 1,
+    String8_ParseStatus_Overflow = 2,
+};
+
 #define STRING8_NPOS ((U64) - 1)
 
 #define String8_Lit(s) ((String8){.data = (U8 *)(s), .len = sizeof(s) - 1})
@@ -89,5 +97,6 @@ String8 String8List_Join(Arena *a, String8List *list, String8 sep);
 // Conversion
 U64 String8_ToU64(String8 s, U32 base);
 I64 String8_ToI64(String8 s, U32 base);
+String8_ParseStatus String8_ParseF64(String8 s, F64 *out, U64 *out_error_offset);
 
 #endif // BASE_STRING_H

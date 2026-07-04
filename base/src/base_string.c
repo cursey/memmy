@@ -1,5 +1,7 @@
+#include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "base_arena.h"
@@ -444,4 +446,38 @@ I64 String8_ToI64(String8 s, U32 base)
     String8 digits = String8_Substr(s, start, s.len - start);
     U64 abs_val = String8_ToU64(digits, base);
     return neg ? -(I64)abs_val : (I64)abs_val;
+}
+
+String8_ParseStatus String8_ParseF64(String8 s, F64 *out, U64 *out_error_offset)
+{
+    Scratch scratch = Scratch_Begin(0, 0);
+    char *cstr = String8_ToCStr(scratch.arena, s);
+    char *end = 0;
+    errno = 0;
+    F64 value = strtod(cstr, &end);
+    U64 parsed_len = (end > cstr) ? (U64)(end - cstr) : 0;
+
+    String8_ParseStatus status = String8_ParseStatus_Ok;
+    U64 error_offset = 0;
+    if (parsed_len == 0 || parsed_len != s.len)
+    {
+        status = String8_ParseStatus_Invalid;
+        error_offset = parsed_len;
+    }
+    else if (errno == ERANGE)
+    {
+        status = String8_ParseStatus_Overflow;
+        error_offset = parsed_len;
+    }
+    else if (out != 0)
+    {
+        *out = value;
+    }
+
+    if (out_error_offset != 0)
+    {
+        *out_error_offset = error_offset;
+    }
+    Scratch_End(scratch);
+    return status;
 }

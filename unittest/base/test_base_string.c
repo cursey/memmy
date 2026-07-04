@@ -127,9 +127,58 @@ Test(Test_Str8ToI64)
     AssertEq(String8_ToI64(String8_Lit("0"), 10), 0);
 }
 
+Test(Test_Str8ParseF64AcceptsValidNumbers)
+{
+    F64 value = 0;
+    U64 offset = U64_MAX;
+
+    AssertEq(String8_ParseF64(String8_Lit("1.5"), &value, &offset), String8_ParseStatus_Ok);
+    AssertTrue(value == 1.5);
+    AssertEq(offset, 0);
+
+    AssertEq(String8_ParseF64(String8_Lit("-2.25"), &value, &offset), String8_ParseStatus_Ok);
+    AssertTrue(value == -2.25);
+
+    AssertEq(String8_ParseF64(String8_Lit("+1e3"), &value, &offset), String8_ParseStatus_Ok);
+    AssertTrue(value == 1000.0);
+}
+
+Test(Test_Str8ParseF64RejectsInvalidNumbers)
+{
+    F64 value = 123.0;
+    U64 offset = U64_MAX;
+    U8 embedded_nul[] = {'1', 0, 'x'};
+
+    AssertEq(String8_ParseF64(String8_Lit(""), &value, &offset), String8_ParseStatus_Invalid);
+    AssertEq(offset, 0);
+
+    AssertEq(String8_ParseF64(String8_Lit("abc"), &value, &offset), String8_ParseStatus_Invalid);
+    AssertEq(offset, 0);
+
+    AssertEq(String8_ParseF64(String8_Lit("1x"), &value, &offset), String8_ParseStatus_Invalid);
+    AssertEq(offset, 1);
+    AssertTrue(value == 123.0);
+
+    AssertEq(String8_ParseF64(String8_Make(embedded_nul, ArrayCount(embedded_nul)), &value, &offset),
+             String8_ParseStatus_Invalid);
+    AssertEq(offset, 1);
+    AssertTrue(value == 123.0);
+}
+
+Test(Test_Str8ParseF64RejectsRangeErrors)
+{
+    F64 value = 123.0;
+    U64 offset = 0;
+
+    AssertEq(String8_ParseF64(String8_Lit("1e9999"), &value, &offset), String8_ParseStatus_Overflow);
+    AssertEq(offset, 6);
+    AssertTrue(value == 123.0);
+}
+
 TestSuite suite_string = TestSuite_Make(
     "String", TestCase_Make(Test_Str8Eq), TestCase_Make(Test_Str8EqNocase), TestCase_Make(Test_Str8Cstr),
     TestCase_Make(Test_Str8Copy), TestCase_Make(Test_Str8Pushf), TestCase_Make(Test_Str8PrefixSuffix),
     TestCase_Make(Test_Str8Substr), TestCase_Make(Test_Str8TrimWhitespace), TestCase_Make(Test_Str8StartsEndsWith),
     TestCase_Make(Test_Str8ListJoin), TestCase_Make(Test_Str8ListJoinEmptySep), TestCase_Make(Test_Str8ToU64),
-    TestCase_Make(Test_Str8ToI64), );
+    TestCase_Make(Test_Str8ToI64), TestCase_Make(Test_Str8ParseF64AcceptsValidNumbers),
+    TestCase_Make(Test_Str8ParseF64RejectsInvalidNumbers), TestCase_Make(Test_Str8ParseF64RejectsRangeErrors), );

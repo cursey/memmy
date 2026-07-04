@@ -1,10 +1,9 @@
 #include "memmy_scan.h"
 
 #include "base_checked.h"
+#include "base_memory.h"
 #include "base_sort.h"
 #include "memmy_backend.h"
-
-#include <string.h>
 
 static B32 Memmy_Pattern_MatchesAt(Memmy_Pattern pattern, U8 *bytes)
 {
@@ -31,7 +30,7 @@ struct Memmy_ScanNeedle
 static B32 Memmy_Value_MatchesAt(void *user_data, U8 *bytes)
 {
     Memmy_Value *value = (Memmy_Value *)user_data;
-    return memcmp(value->bytes.data, bytes, (size_t)value->bytes.len) == 0;
+    return Memory_Equals(value->bytes.data, bytes, value->bytes.len);
 }
 
 static B32 Memmy_Pattern_MatchesAtUserData(void *user_data, U8 *bytes)
