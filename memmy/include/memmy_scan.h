@@ -30,6 +30,8 @@ struct Memmy_ScanResultList
 };
 
 Memmy_ScanResult *Memmy_ScanResultList_Push(Arena *arena, Memmy_ScanResultList *list);
+Memmy_Status Memmy_Process_ScanValue(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options,
+                                     Memmy_Value value, Memmy_ScanResultList *out, Memmy_Error *error);
 Memmy_Status Memmy_Process_ScanPattern(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options,
                                        Memmy_Pattern pattern, Memmy_ScanResultList *out, Memmy_Error *error);
 

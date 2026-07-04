@@ -1,6 +1,7 @@
 #include "memmy_scan.h"
 
 #include "base_checked.h"
+#include "base_sort.h"
 #include "memmy_backend.h"
 
 #include <string.h>
@@ -17,10 +18,57 @@ static B32 Memmy_Pattern_MatchesAt(Memmy_Pattern pattern, U8 *bytes)
     return 1;
 }
 
+typedef B32 Memmy_ScanMatchFn(void *user_data, U8 *bytes);
+
+typedef struct Memmy_ScanNeedle Memmy_ScanNeedle;
+struct Memmy_ScanNeedle
+{
+    U64 size;
+    Memmy_ScanMatchFn *match;
+    void *user_data;
+};
+
+static B32 Memmy_Value_MatchesAt(void *user_data, U8 *bytes)
+{
+    Memmy_Value *value = (Memmy_Value *)user_data;
+    return memcmp(value->bytes.data, bytes, (size_t)value->bytes.len) == 0;
+}
+
+static B32 Memmy_Pattern_MatchesAtUserData(void *user_data, U8 *bytes)
+{
+    Memmy_Pattern *pattern = (Memmy_Pattern *)user_data;
+    return Memmy_Pattern_MatchesAt(*pattern, bytes);
+}
+
 static B32 Memmy_Scan_IsReadableRegion(Memmy_Region *region)
 {
     return region->state == Memmy_RegionState_Committed && (region->access & Memmy_RegionAccess_Read) != 0 &&
            (region->access & Memmy_RegionAccess_Guard) == 0;
+}
+
+static I32 Memmy_ScanRange_Cmp(void *a, void *b, void *ctx)
+{
+    Unused(ctx);
+
+    Memmy_Range *range_a = (Memmy_Range *)a;
+    Memmy_Range *range_b = (Memmy_Range *)b;
+    if (range_a->start < range_b->start)
+    {
+        return -1;
+    }
+    if (range_a->start > range_b->start)
+    {
+        return 1;
+    }
+    if (range_a->end < range_b->end)
+    {
+        return -1;
+    }
+    if (range_a->end > range_b->end)
+    {
+        return 1;
+    }
+    return 0;
 }
 
 static Memmy_Status Memmy_Scan_PushMatch(Arena *arena, Memmy_ScanResultList *out, Memmy_Addr address,
@@ -42,14 +90,14 @@ static Memmy_Status Memmy_Scan_PushMatch(Arena *arena, Memmy_ScanResultList *out
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Process_ScanPatternRange(Arena *arena, Memmy_Process *process, Memmy_Range range,
-                                                   Memmy_ScanOptions *options, Memmy_Pattern pattern,
-                                                   Memmy_ScanResultList *out, B32 *any_read, B32 *out_stop,
-                                                   Memmy_Addr *last_match, B32 *has_last_match, Memmy_Error *error)
+static Memmy_Status Memmy_Process_ScanRange(Arena *arena, Memmy_Process *process, Memmy_Range range,
+                                            Memmy_ScanOptions *options, Memmy_ScanNeedle needle,
+                                            Memmy_ScanResultList *out, B32 *any_read, B32 *out_stop,
+                                            Memmy_Addr *last_match, B32 *has_last_match, Memmy_Error *error)
 {
     U64 chunk_size = options->chunk_size != 0 ? options->chunk_size : MEMMY_DEFAULT_SCAN_CHUNK_SIZE;
-    chunk_size = Max(chunk_size, pattern.count);
-    U64 overlap = pattern.count - 1;
+    chunk_size = Max(chunk_size, needle.size);
+    U64 overlap = needle.size - 1;
     U64 step = chunk_size - overlap;
     if (step == 0)
     {
@@ -71,16 +119,16 @@ static Memmy_Status Memmy_Process_ScanPatternRange(Arena *arena, Memmy_Process *
             if (bytes_read > 0)
             {
                 *any_read = 1;
-                if (bytes_read >= pattern.count)
+                if (bytes_read >= needle.size)
                 {
-                    for (U64 i = 0; i <= bytes_read - pattern.count; i++)
+                    for (U64 i = 0; i <= bytes_read - needle.size; i++)
                     {
                         Memmy_Addr match_addr = pos + i;
-                        if (match_addr < range.start || match_addr + pattern.count > range.end)
+                        if (match_addr < range.start || match_addr + needle.size > range.end)
                         {
                             continue;
                         }
-                        if (Memmy_Pattern_MatchesAt(pattern, buffer + i))
+                        if (needle.match(needle.user_data, buffer + i))
                         {
                             if (*has_last_match && match_addr <= *last_match)
                             {
@@ -136,8 +184,8 @@ Memmy_ScanResult *Memmy_ScanResultList_Push(Arena *arena, Memmy_ScanResultList *
     return result;
 }
 
-Memmy_Status Memmy_Process_ScanPattern(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options,
-                                       Memmy_Pattern pattern, Memmy_ScanResultList *out, Memmy_Error *error)
+static Memmy_Status Memmy_Process_ScanNeedle(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options,
+                                             Memmy_ScanNeedle needle, Memmy_ScanResultList *out, Memmy_Error *error)
 {
     if (arena == 0 || process == 0 || options == 0 || out == 0)
     {
@@ -156,9 +204,9 @@ Memmy_Status Memmy_Process_ScanPattern(Arena *arena, Memmy_Process *process, Mem
     {
         return Memmy_Status_Ok;
     }
-    if (pattern.count == 0 || pattern.bytes == 0)
+    if (needle.size == 0 || needle.match == 0)
     {
-        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("scan"), String8_Lit("scan pattern is empty"));
+        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("scan"), String8_Lit("scan needle is empty"));
         return Memmy_Status_InvalidArgument;
     }
 
@@ -179,6 +227,8 @@ Memmy_Status Memmy_Process_ScanPattern(Arena *arena, Memmy_Process *process, Mem
             return status;
         }
 
+        Memmy_Range *scan_ranges = Arena_PushArrayNoZero(scratch.arena, Memmy_Range, regions.list.count);
+        U64 scan_range_count = 0;
         List_ForEach(Memmy_Region, region, &regions.list, link)
         {
             if (!Memmy_Scan_IsReadableRegion(region))
@@ -201,8 +251,21 @@ Memmy_Status Memmy_Process_ScanPattern(Arena *arena, Memmy_Process *process, Mem
                 continue;
             }
 
-            status = Memmy_Process_ScanPatternRange(arena, process, scan_range, options, pattern, out, &any_read, &stop,
-                                                    &last_match, &has_last_match, error);
+            scan_ranges[scan_range_count++] = scan_range;
+        }
+
+        Sort(scan_ranges, scan_range_count, sizeof(scan_ranges[0]), Memmy_ScanRange_Cmp, 0);
+        for (U64 i = 0; i < scan_range_count && !stop;)
+        {
+            Memmy_Range merged_range = scan_ranges[i++];
+            while (i < scan_range_count && scan_ranges[i].start <= merged_range.end)
+            {
+                merged_range.end = Max(merged_range.end, scan_ranges[i].end);
+                i++;
+            }
+
+            status = Memmy_Process_ScanRange(arena, process, merged_range, options, needle, out, &any_read, &stop,
+                                             &last_match, &has_last_match, error);
             if (status != Memmy_Status_Ok || stop)
             {
                 Scratch_End(scratch);
@@ -220,8 +283,8 @@ Memmy_Status Memmy_Process_ScanPattern(Arena *arena, Memmy_Process *process, Mem
         return Memmy_Status_Ok;
     }
 
-    Memmy_Status status = Memmy_Process_ScanPatternRange(arena, process, options->range, options, pattern, out,
-                                                         &any_read, &stop, &last_match, &has_last_match, error);
+    Memmy_Status status = Memmy_Process_ScanRange(arena, process, options->range, options, needle, out, &any_read,
+                                                  &stop, &last_match, &has_last_match, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
@@ -232,4 +295,26 @@ Memmy_Status Memmy_Process_ScanPattern(Arena *arena, Memmy_Process *process, Mem
         return Memmy_Status_Unreadable;
     }
     return Memmy_Status_Ok;
+}
+
+Memmy_Status Memmy_Process_ScanValue(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options,
+                                     Memmy_Value value, Memmy_ScanResultList *out, Memmy_Error *error)
+{
+    Memmy_ScanNeedle needle = {
+        .size = value.bytes.len,
+        .match = value.bytes.data != 0 ? Memmy_Value_MatchesAt : 0,
+        .user_data = &value,
+    };
+    return Memmy_Process_ScanNeedle(arena, process, options, needle, out, error);
+}
+
+Memmy_Status Memmy_Process_ScanPattern(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options,
+                                       Memmy_Pattern pattern, Memmy_ScanResultList *out, Memmy_Error *error)
+{
+    Memmy_ScanNeedle needle = {
+        .size = pattern.count,
+        .match = pattern.bytes != 0 ? Memmy_Pattern_MatchesAtUserData : 0,
+        .user_data = &pattern,
+    };
+    return Memmy_Process_ScanNeedle(arena, process, options, needle, out, error);
 }
