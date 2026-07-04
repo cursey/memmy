@@ -450,6 +450,291 @@ Test(Test_MemmyCliParseRangeOptionsRejectsInvalidCombinations)
     }
 }
 
+static void Test_DisableListRegions(Test_MemmyBackend *backend)
+{
+    backend->backend.capabilities &= ~Memmy_BackendCap_ListRegions;
+    backend->backend.list_regions = 0;
+}
+
+static void Test_ParsePattern(Arena *arena, char *text, Memmy_Pattern *out)
+{
+    Memmy_Error error = {0};
+    AssertEq(Memmy_Pattern_Parse(arena, String8_FromCStr(text), Memmy_PatternParseFlag_AllowWildcards, out, &error),
+             Memmy_Status_Ok);
+}
+
+static void Test_OpenProcess(Arena *arena, Memmy_Process **out)
+{
+    Memmy_Error error = {0};
+    AssertEq(Memmy_Process_Open(arena, 4242, Memmy_ProcessAccess_Read, out, &error), Memmy_Status_Ok);
+}
+
+static void Test_AssertScanAddresses(Memmy_ScanResultList *results, Memmy_Addr *addresses, U64 count)
+{
+    AssertEq(results->list.count, count);
+    U64 index = 0;
+    List_ForEach(Memmy_ScanResult, result, &results->list, link)
+    {
+        AssertTrue(index < count);
+        AssertEq(result->address, addresses[index]);
+        index++;
+    }
+}
+
+Test(Test_MemmyScanFindsBeginningMiddleAndEnd)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    U8 pattern_bytes[] = {0xaa, 0xbb, 0xcc};
+    memcpy(test_backend.memory + 0, pattern_bytes, sizeof(pattern_bytes));
+    memcpy(test_backend.memory + 0x40, pattern_bytes, sizeof(pattern_bytes));
+    memcpy(test_backend.memory + 0xfd, pattern_bytes, sizeof(pattern_bytes));
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+    Memmy_Process *process = 0;
+    Test_OpenProcess(arena, &process);
+    Memmy_Pattern pattern = {0};
+    Test_ParsePattern(arena, "aa bb cc", &pattern);
+    Memmy_ScanOptions options = {.range = {.start = 0x1000, .end = 0x1100}, .chunk_size = 0x20};
+    Memmy_ScanResultList results = {0};
+    Memmy_Error error = {0};
+
+    AssertEq(Memmy_Process_ScanPattern(arena, process, &options, pattern, &results, &error), Memmy_Status_Ok);
+    Memmy_Addr expected[] = {0x1000, 0x1040, 0x10fd};
+    Test_AssertScanAddresses(&results, expected, ArrayCount(expected));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyScanDoesNotReadOutsideRequestedRangeAndAllowsZeroLength)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+    Memmy_Process *process = 0;
+    Test_OpenProcess(arena, &process);
+    Memmy_Pattern pattern = {0};
+    Test_ParsePattern(arena, "10 11", &pattern);
+    Memmy_Error error = {0};
+    Memmy_ScanResultList results = {0};
+    Memmy_ScanOptions options = {.range = {.start = 0x1010, .end = 0x1030}, .chunk_size = 7};
+
+    AssertEq(Memmy_Process_ScanPattern(arena, process, &options, pattern, &results, &error), Memmy_Status_Ok);
+    AssertTrue(test_backend.min_read_addr >= options.range.start);
+    AssertTrue(test_backend.max_read_end <= options.range.end);
+
+    test_backend.read_call_count = 0;
+    Test_ParsePattern(arena, "10 11 12", &pattern);
+    options = (Memmy_ScanOptions){.range = {.start = 0x1010, .end = 0x1012}, .chunk_size = 8};
+    AssertEq(Memmy_Process_ScanPattern(arena, process, &options, pattern, &results, &error), Memmy_Status_Ok);
+    AssertEq(results.list.count, 0);
+    AssertTrue(test_backend.read_call_count > 0);
+
+    test_backend.read_call_count = 0;
+    options.range.end = options.range.start;
+    AssertEq(Memmy_Process_ScanPattern(arena, process, &options, pattern, &results, &error), Memmy_Status_Ok);
+    AssertEq(results.list.count, 0);
+    AssertEq(test_backend.read_call_count, 0);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyScanFindsChunkBoundaryMatchesAndHonorsLimit)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    U8 boundary[] = {0xde, 0xad, 0xbe};
+    memcpy(test_backend.memory + 3, boundary, sizeof(boundary));
+    test_backend.memory[0x20] = 0xfa;
+    test_backend.memory[0x22] = 0xfa;
+    test_backend.memory[0x24] = 0xfa;
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+    Memmy_Process *process = 0;
+    Test_OpenProcess(arena, &process);
+    Memmy_Pattern pattern = {0};
+    Test_ParsePattern(arena, "de ad be", &pattern);
+    Memmy_ScanOptions options = {.range = {.start = 0x1000, .end = 0x1008}, .chunk_size = 4};
+    Memmy_ScanResultList results = {0};
+    Memmy_Error error = {0};
+
+    AssertEq(Memmy_Process_ScanPattern(arena, process, &options, pattern, &results, &error), Memmy_Status_Ok);
+    Memmy_Addr boundary_expected[] = {0x1003};
+    Test_AssertScanAddresses(&results, boundary_expected, ArrayCount(boundary_expected));
+
+    Test_ParsePattern(arena, "fa", &pattern);
+    options = (Memmy_ScanOptions){.range = {.start = 0x1020, .end = 0x1028}, .limit = 2, .chunk_size = 3};
+    AssertEq(Memmy_Process_ScanPattern(arena, process, &options, pattern, &results, &error), Memmy_Status_Ok);
+    Memmy_Addr limit_expected[] = {0x1020, 0x1022};
+    Test_AssertScanAddresses(&results, limit_expected, ArrayCount(limit_expected));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyScanUsesRegionIntersectionWhenAvailable)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    test_backend.region_count = 0;
+    Test_MemmyBackend_AddRegion(&test_backend, 4242, 0x1020, 0x10, Memmy_RegionAccess_Read,
+                                Memmy_RegionState_Committed);
+    test_backend.memory[0x10] = 0xcc;
+    test_backend.memory[0x22] = 0xcc;
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+    Memmy_Process *process = 0;
+    Test_OpenProcess(arena, &process);
+    Memmy_Pattern pattern = {0};
+    Test_ParsePattern(arena, "cc", &pattern);
+    Memmy_ScanOptions options = {.range = {.start = 0x1010, .end = 0x1030}, .chunk_size = 8};
+    Memmy_ScanResultList results = {0};
+    Memmy_Error error = {0};
+
+    AssertEq(Memmy_Process_ScanPattern(arena, process, &options, pattern, &results, &error), Memmy_Status_Ok);
+    Memmy_Addr expected[] = {0x1022};
+    Test_AssertScanAddresses(&results, expected, ArrayCount(expected));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyScanDirectReadsWithoutListRegions)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    Test_DisableListRegions(&test_backend);
+    test_backend.region_count = 0;
+    test_backend.memory[0x10] = 0xcc;
+    test_backend.memory[0x22] = 0xcc;
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+    Memmy_Process *process = 0;
+    Test_OpenProcess(arena, &process);
+    Memmy_Pattern pattern = {0};
+    Test_ParsePattern(arena, "cc", &pattern);
+    Memmy_ScanOptions options = {.range = {.start = 0x1010, .end = 0x1030}, .chunk_size = 8};
+    Memmy_ScanResultList results = {0};
+    Memmy_Error error = {0};
+
+    AssertEq(Memmy_Process_ScanPattern(arena, process, &options, pattern, &results, &error), Memmy_Status_Ok);
+    Memmy_Addr expected[] = {0x1010, 0x1022};
+    Test_AssertScanAddresses(&results, expected, ArrayCount(expected));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyScanSkipsUnreadableHolesAndReportsFullyUnreadableRange)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    Test_DisableListRegions(&test_backend);
+    Test_MemmyBackend_AddUnreadableRange(&test_backend, 0x1040, 0x1050);
+    test_backend.memory[0x32] = 0xab;
+    test_backend.memory[0x52] = 0xab;
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+    Memmy_Process *process = 0;
+    Test_OpenProcess(arena, &process);
+    Memmy_Pattern pattern = {0};
+    Test_ParsePattern(arena, "ab", &pattern);
+    Memmy_ScanOptions options = {.range = {.start = 0x1030, .end = 0x1060}, .chunk_size = 16};
+    Memmy_ScanResultList results = {0};
+    Memmy_Error error = {0};
+
+    AssertEq(Memmy_Process_ScanPattern(arena, process, &options, pattern, &results, &error), Memmy_Status_Ok);
+    Memmy_Addr expected[] = {0x1032, 0x1052};
+    Test_AssertScanAddresses(&results, expected, ArrayCount(expected));
+
+    test_backend.unreadable_range_count = 0;
+    Test_MemmyBackend_AddUnreadableRange(&test_backend, 0x1030, 0x1060);
+    AssertEq(Memmy_Process_ScanPattern(arena, process, &options, pattern, &results, &error), Memmy_Status_Unreadable);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyScanScansPartialReads)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    Test_DisableListRegions(&test_backend);
+    Test_MemmyBackend_SetReadLimit(&test_backend, 3);
+    U8 bytes[] = {0x80, 0x81};
+    memcpy(test_backend.memory + 1, bytes, sizeof(bytes));
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+    Memmy_Process *process = 0;
+    Test_OpenProcess(arena, &process);
+    Memmy_Pattern pattern = {0};
+    Test_ParsePattern(arena, "80 81", &pattern);
+    Memmy_ScanOptions options = {.range = {.start = 0x1000, .end = 0x1008}, .chunk_size = 4};
+    Memmy_ScanResultList results = {0};
+    Memmy_Error error = {0};
+
+    AssertEq(Memmy_Process_ScanPattern(arena, process, &options, pattern, &results, &error), Memmy_Status_Ok);
+    Memmy_Addr expected[] = {0x1001};
+    Test_AssertScanAddresses(&results, expected, ArrayCount(expected));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyScanSkipsNonReadableRegions)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    test_backend.region_count = 0;
+    Test_MemmyBackend_AddRegion(&test_backend, 4242, 0x1010, 0x10, Memmy_RegionAccess_Read, Memmy_RegionState_Free);
+    Test_MemmyBackend_AddRegion(&test_backend, 4242, 0x1020, 0x10, Memmy_RegionAccess_Read, Memmy_RegionState_Reserved);
+    Test_MemmyBackend_AddRegion(&test_backend, 4242, 0x1030, 0x10, Memmy_RegionAccess_Read | Memmy_RegionAccess_Guard,
+                                Memmy_RegionState_Committed);
+    Test_MemmyBackend_AddRegion(&test_backend, 4242, 0x1040, 0x10, 0, Memmy_RegionState_Committed);
+    Test_MemmyBackend_AddRegion(&test_backend, 4242, 0x1050, 0x10, Memmy_RegionAccess_Read,
+                                Memmy_RegionState_Committed);
+    test_backend.memory[0x10] = 0xee;
+    test_backend.memory[0x20] = 0xee;
+    test_backend.memory[0x30] = 0xee;
+    test_backend.memory[0x40] = 0xee;
+    test_backend.memory[0x50] = 0xee;
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+    Memmy_Process *process = 0;
+    Test_OpenProcess(arena, &process);
+    Memmy_Pattern pattern = {0};
+    Test_ParsePattern(arena, "ee", &pattern);
+    Memmy_ScanOptions options = {.range = {.start = 0x1010, .end = 0x1060}, .chunk_size = 8};
+    Memmy_ScanResultList results = {0};
+    Memmy_Error error = {0};
+
+    AssertEq(Memmy_Process_ScanPattern(arena, process, &options, pattern, &results, &error), Memmy_Status_Ok);
+    Memmy_Addr expected[] = {0x1050};
+    Test_AssertScanAddresses(&results, expected, ArrayCount(expected));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyContextSetPushPop)
 {
     Memmy_Context ctx_a = {0};
@@ -923,6 +1208,41 @@ Test(Test_MemmyCliPokeValidation)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyCliPscanTextOutputRangeFormsAndWildcard)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    U8 bytes[] = {0x48, 0x8b, 0x11, 0x89};
+    memcpy(test_backend.memory + 0x20, bytes, sizeof(bytes));
+    memcpy(test_backend.memory + 0x30, bytes, sizeof(bytes));
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *end_argv[] = {"memmy",  "pscan", "--pid",  "4242",      "--start",
+                        "0x1020", "--end", "0x1030", "--pattern", "48 8b ?? 89"};
+    char *length_argv[] = {"memmy",  "pscan",    "--pid", "4242",      "--start",
+                           "0x1020", "--length", "0x20",  "--pattern", "48 8b ?? 89"};
+    char *jsonl_argv[] = {"memmy",    "pscan", "--pid",     "4242",        "--start", "0x1020",
+                          "--length", "0x20",  "--pattern", "48 8b ?? 89", "--jsonl"};
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(end_argv), end_argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("ADDRESS\n0x0000000000001020\n"));
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(length_argv), length_argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("ADDRESS\n0x0000000000001020\n0x0000000000001030\n"));
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(jsonl_argv), jsonl_argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("{\"address\":\"0x0000000000001020\"}\n"
+                                 "{\"address\":\"0x0000000000001030\"}\n"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyCliRejectsPokeOptionsOnOtherCommands)
 {
     Arena *arena = Arena_CreateDefault();
@@ -936,6 +1256,7 @@ Test(Test_MemmyCliRejectsPokeOptionsOnOtherCommands)
     Memmy_Error error = {0};
     char *procs_value[] = {"memmy", "procs", "--value", "ignored"};
     char *peek_dry_run[] = {"memmy", "peek", "--pid", "4242", "--addr", "0x1000", "--type", "u8", "--dry-run"};
+    char *peek_jsonl[] = {"memmy", "peek", "--pid", "4242", "--addr", "0x1000", "--type", "u8", "--jsonl"};
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(procs_value), procs_value, &out, &error),
              Memmy_Status_ParseError);
@@ -944,6 +1265,10 @@ Test(Test_MemmyCliRejectsPokeOptionsOnOtherCommands)
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(peek_dry_run), peek_dry_run, &out, &error),
              Memmy_Status_ParseError);
     AssertEq(error.status, Memmy_Status_ParseError);
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(peek_jsonl), peek_jsonl, &out, &error),
+             Memmy_Status_Unsupported);
+    AssertEq(error.status, Memmy_Status_Unsupported);
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -1146,9 +1471,16 @@ TestSuite suite_memmy = TestSuite_Make(
     TestCase_Make(Test_MemmyProcessReadDispatchAndFailureMapping),
     TestCase_Make(Test_MemmyProcessWriteDispatchAndFailureMapping),
     TestCase_Make(Test_MemmyTestBackendConfiguredInventory), TestCase_Make(Test_MemmyCliPeekTextOutput),
-    TestCase_Make(Test_MemmyCliPeekCountAndAddressValidation),
+    TestCase_Make(Test_MemmyCliPeekCountAndAddressValidation), TestCase_Make(Test_MemmyScanFindsBeginningMiddleAndEnd),
+    TestCase_Make(Test_MemmyScanDoesNotReadOutsideRequestedRangeAndAllowsZeroLength),
+    TestCase_Make(Test_MemmyScanFindsChunkBoundaryMatchesAndHonorsLimit),
+    TestCase_Make(Test_MemmyScanUsesRegionIntersectionWhenAvailable),
+    TestCase_Make(Test_MemmyScanDirectReadsWithoutListRegions),
+    TestCase_Make(Test_MemmyScanSkipsUnreadableHolesAndReportsFullyUnreadableRange),
+    TestCase_Make(Test_MemmyScanScansPartialReads), TestCase_Make(Test_MemmyScanSkipsNonReadableRegions),
     TestCase_Make(Test_MemmyCliPokeDryRunLeavesMemoryUnchanged),
     TestCase_Make(Test_MemmyCliPokeWritesRepresentativeValues), TestCase_Make(Test_MemmyCliPokeValidation),
+    TestCase_Make(Test_MemmyCliPscanTextOutputRangeFormsAndWildcard),
     TestCase_Make(Test_MemmyCliRejectsPokeOptionsOnOtherCommands), TestCase_Make(Test_MemmyCliHelpAndVersion),
     TestCase_Make(Test_MemmyCliProcsModsRegionsTextOutput), TestCase_Make(Test_MemmyCliNameAmbiguityAndRegionOverflow),
     TestCase_Make(Test_MemmyCliExitCodeMapping), TestCase_Make(Test_MemmyDefaultContextWin32ReadWriteCallbacks),

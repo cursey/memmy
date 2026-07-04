@@ -7,6 +7,7 @@
 #define TEST_MEMMY_BACKEND_MAX_PROCESSES 16
 #define TEST_MEMMY_BACKEND_MAX_MODULES 32
 #define TEST_MEMMY_BACKEND_MAX_REGIONS 32
+#define TEST_MEMMY_BACKEND_MAX_UNREADABLE_RANGES 16
 
 typedef struct Test_MemmyBackendProcess Test_MemmyBackendProcess;
 struct Test_MemmyBackendProcess
@@ -37,6 +38,13 @@ struct Test_MemmyBackendRegion
     Memmy_RegionState state;
 };
 
+typedef struct Test_MemmyBackendUnreadableRange Test_MemmyBackendUnreadableRange;
+struct Test_MemmyBackendUnreadableRange
+{
+    Memmy_Addr start;
+    Memmy_Addr end;
+};
+
 typedef struct Test_MemmyBackend Test_MemmyBackend;
 struct Test_MemmyBackend
 {
@@ -45,6 +53,9 @@ struct Test_MemmyBackend
     U8 memory[TEST_MEMMY_BACKEND_MEMORY_SIZE];
     Memmy_Status read_status;
     U64 read_limit;
+    U64 read_call_count;
+    Memmy_Addr min_read_addr;
+    Memmy_Addr max_read_end;
     Memmy_Status write_status;
     U64 write_limit;
     Test_MemmyBackendProcess processes[TEST_MEMMY_BACKEND_MAX_PROCESSES];
@@ -53,6 +64,8 @@ struct Test_MemmyBackend
     U64 module_count;
     Test_MemmyBackendRegion regions[TEST_MEMMY_BACKEND_MAX_REGIONS];
     U64 region_count;
+    Test_MemmyBackendUnreadableRange unreadable_ranges[TEST_MEMMY_BACKEND_MAX_UNREADABLE_RANGES];
+    U64 unreadable_range_count;
 };
 
 void Test_MemmyBackend_Init(Test_MemmyBackend *backend);
@@ -64,6 +77,8 @@ Test_MemmyBackendModule *Test_MemmyBackend_AddModule(Test_MemmyBackend *backend,
 Test_MemmyBackendRegion *Test_MemmyBackend_AddRegion(Test_MemmyBackend *backend, U32 pid, Memmy_Addr base,
                                                      Memmy_Size size, Memmy_RegionAccess access,
                                                      Memmy_RegionState state);
+Test_MemmyBackendUnreadableRange *Test_MemmyBackend_AddUnreadableRange(Test_MemmyBackend *backend, Memmy_Addr start,
+                                                                       Memmy_Addr end);
 void Test_MemmyBackend_SetMemoryBase(Test_MemmyBackend *backend, Memmy_Addr base);
 void Test_MemmyBackend_SetReadStatus(Test_MemmyBackend *backend, Memmy_Status status);
 void Test_MemmyBackend_SetReadLimit(Test_MemmyBackend *backend, U64 limit);

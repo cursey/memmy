@@ -67,6 +67,9 @@ static Memmy_Status Test_MemmyBackend_Read(Memmy_Process *process, Memmy_Addr ad
 {
     Test_MemmyBackend *backend = (Test_MemmyBackend *)process->backend_data;
     *bytes_read = 0;
+    backend->read_call_count++;
+    backend->min_read_addr = backend->min_read_addr == 0 ? addr : Min(backend->min_read_addr, addr);
+    backend->max_read_end = Max(backend->max_read_end, addr + size);
 
     if (backend->read_status != Memmy_Status_Ok)
     {
@@ -83,6 +86,22 @@ static Memmy_Status Test_MemmyBackend_Read(Memmy_Process *process, Memmy_Addr ad
 
     U64 offset = addr - backend->memory_base;
     U64 available = TEST_MEMMY_BACKEND_MEMORY_SIZE - offset;
+    Memmy_Addr readable_end = backend->memory_base + TEST_MEMMY_BACKEND_MEMORY_SIZE;
+    Memmy_Addr request_end = addr + Min(size, readable_end - addr);
+    for (U64 i = 0; i < backend->unreadable_range_count; i++)
+    {
+        Test_MemmyBackendUnreadableRange *range = &backend->unreadable_ranges[i];
+        if (addr >= range->start && addr < range->end)
+        {
+            Memmy_Error_Set(error, Memmy_Status_Unreadable, String8_Lit("backend"),
+                            String8_Lit("test address is in an unreadable range"));
+            return Memmy_Status_Unreadable;
+        }
+        if (range->start > addr && range->start < request_end)
+        {
+            available = Min(available, range->start - addr);
+        }
+    }
     if (backend->read_limit != 0)
     {
         available = Min(available, backend->read_limit);
@@ -201,6 +220,9 @@ void Test_MemmyBackend_Init(Test_MemmyBackend *backend)
         .memory_base = 0x1000,
         .read_status = Memmy_Status_Ok,
         .read_limit = 0,
+        .read_call_count = 0,
+        .min_read_addr = 0,
+        .max_read_end = 0,
         .write_status = Memmy_Status_Ok,
         .write_limit = 0,
     };
@@ -278,6 +300,22 @@ Test_MemmyBackendRegion *Test_MemmyBackend_AddRegion(Test_MemmyBackend *backend,
         .state = state,
     };
     return region;
+}
+
+Test_MemmyBackendUnreadableRange *Test_MemmyBackend_AddUnreadableRange(Test_MemmyBackend *backend, Memmy_Addr start,
+                                                                       Memmy_Addr end)
+{
+    if (backend->unreadable_range_count >= TEST_MEMMY_BACKEND_MAX_UNREADABLE_RANGES)
+    {
+        return 0;
+    }
+
+    Test_MemmyBackendUnreadableRange *range = &backend->unreadable_ranges[backend->unreadable_range_count++];
+    *range = (Test_MemmyBackendUnreadableRange){
+        .start = start,
+        .end = end,
+    };
+    return range;
 }
 
 void Test_MemmyBackend_SetMemoryBase(Test_MemmyBackend *backend, Memmy_Addr base)
