@@ -1388,6 +1388,10 @@ Expression process-name selection also requires `ListProcs`.
 
 Expression value scans are exact encoded-byte scans in v1.
 
+Top-level `--expr` scans use default scan options in v1. `--expr` does not
+accept scan tweakables such as `--limit` or `--chunk-size`; those remain scoped
+to explicit `scan` and `pscan` subcommands.
+
 Shell quoting is required for most expressions because `<`, `>`, `{`, `}`, `*`,
 and spaces have shell-specific meanings.
 
