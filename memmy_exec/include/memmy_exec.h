@@ -15,5 +15,9 @@ struct Memmy_ExecRequirements
 };
 
 Memmy_Status Memmy_MemoryExpr_GetRequirements(Memmy_MemoryExpr *expr, Memmy_ExecRequirements *out, Memmy_Error *error);
+Memmy_Status Memmy_AddressExpr_Resolve(Memmy_Process *process, Memmy_ModuleList *modules, Memmy_AddressExpr *expr,
+                                       Memmy_Addr *out, Memmy_Error *error);
+Memmy_Status Memmy_MemoryExpr_ResolveAddress(Memmy_Process *process, Memmy_ModuleList *modules, Memmy_MemoryExpr *expr,
+                                             Memmy_Addr *out, Memmy_Error *error);
 
 #endif // MEMMY_EXEC_H

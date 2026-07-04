@@ -30,6 +30,7 @@ extern TestSuite suite_memmy_expr_address;
 extern TestSuite suite_memmy_expr_memory;
 extern TestSuite suite_memmy_expr_range;
 extern TestSuite suite_memmy_exec_requirements;
+extern TestSuite suite_memmy_exec_address;
 extern TestSuite suite_memmy_cli;
 extern TestSuite suite_memmy_cli_procs;
 extern TestSuite suite_memmy_cli_mods;
@@ -70,6 +71,7 @@ int main(int argc, char **argv)
         suite_memmy_expr_memory,
         suite_memmy_expr_range,
         suite_memmy_exec_requirements,
+        suite_memmy_exec_address,
         suite_memmy_cli,
         suite_memmy_cli_procs,
         suite_memmy_cli_mods,
