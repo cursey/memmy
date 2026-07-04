@@ -3,7 +3,15 @@ file(GLOB_RECURSE MEMMY_TEST_SOURCES CONFIGURE_DEPENDS *.c)
 add_executable(memmy_test ${MEMMY_TEST_SOURCES})
 target_compile_definitions(memmy_test PRIVATE BUILD_TEST)
 target_include_directories(memmy_test PRIVATE . ../cmd/memmy)
-target_sources(memmy_test PRIVATE ../cmd/memmy/memmy_cli.c)
+target_sources(memmy_test PRIVATE
+    ../cmd/memmy/memmy_cli.c
+    ../cmd/memmy/memmy_cli_procs.c
+    ../cmd/memmy/memmy_cli_peek.c
+    ../cmd/memmy/memmy_cli_poke.c
+    ../cmd/memmy/memmy_cli_scan.c
+    ../cmd/memmy/memmy_cli_mods.c
+    ../cmd/memmy/memmy_cli_regions.c
+)
 target_link_libraries(memmy_test PRIVATE memmy base)
 
 add_test(
