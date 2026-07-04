@@ -1,0 +1,195 @@
+(* Memmy v1 memory expression grammar.
+
+   This grammar is based on spec-v1.md section 12 and the current memmy_expr
+   parser implementation. It describes the syntax parsed by memmy_expr, plus
+   semantic constraints that are enforced during parsing but are awkward to
+   express as context-free productions.
+
+   Notation:
+     "x"        literal text
+     A | B      alternatives
+     [ A ]      optional
+     { A }      zero or more repetitions
+     A - B      lexical set difference
+
+   Unless a production explicitly includes ws, whitespace is not allowed.
+*)
+
+memory_expr        = ws_opt,
+                     ( pattern_scan_expr
+                     | typed_expr
+                     | address_expr ),
+                     ws_opt ;
+
+typed_expr         = ( poke_expr | value_scan_expr | peek_expr ) ;
+
+peek_expr          = address_expr, ws_opt, ":", ws_opt, type ;
+
+poke_expr          = address_expr, ws_opt, ":", ws_opt, type,
+                     ws_opt, "=", ws_opt, value_text ;
+
+value_scan_expr    = range_expr, ws_opt, ":", ws_opt, type,
+                     ws_opt, "==", ws_opt, value_text ;
+
+pattern_scan_expr  = range_expr, ws_opt, "{", ws_opt, pattern, ws_opt, "}" ;
+
+
+(* Target references. *)
+
+target_ref         = "<", module_name, ">"
+                   | "<", process_selector, "!", module_name, ">"
+                   | "<", process_selector, "!", ">" ;
+
+process_selector   = pid | process_name ;
+
+pid                = decimal_integer ;
+
+module_name        = name_part ;
+process_name       = name_part ;
+
+name_part          = name_char, { name_char } ;
+name_char          = any_char - "<" - ">" - "!" ;
+any_char           = ? any input character ? ;
+
+
+(* Address expressions. *)
+
+address_expr       = address_base, { address_op } ;
+
+address_base       = integer | module_target_ref ;
+
+address_op         = add | sub | deref_offset | deref ;
+
+add                = "+", offset ;
+sub                = "-", offset ;
+deref              = "->" ;
+deref_offset       = "->", offset ;
+
+offset             = integer | "(", const_expr, ")" ;
+
+
+(* Range expressions. *)
+
+range_expr         = module_offset_range
+                   | module_sized_range
+                   | address_sized_range
+                   | target_ref ;
+
+module_offset_range = module_target_ref, "[", const_expr, "..", const_expr, "]" ;
+
+module_sized_range = module_target_ref, "[", const_expr, ":+", const_expr, "]" ;
+
+address_sized_range = address_expr, ":+", size ;
+
+module_target_ref  = target_ref ;
+
+size               = integer | "(", const_expr, ")" ;
+
+
+(* Constant expressions. Whitespace is allowed between tokens here. *)
+
+const_expr         = sum ;
+
+sum                = product, { ws_opt, ("+" | "-"), ws_opt, product } ;
+
+product            = unary, { ws_opt, ("*" | "/" | "%"), ws_opt, unary } ;
+
+unary              = ws_opt, ( ("+" | "-"), unary | primary ) ;
+
+primary            = integer | "(", const_expr, ")" ;
+
+
+(* Types, values, and patterns. *)
+
+type               = "u8" | "i8"
+                   | "u16" | "i16"
+                   | "u32" | "i32"
+                   | "u64" | "i64"
+                   | "f32" | "f64"
+                   | "ptr"
+                   | "bytes"
+                   | "str"
+                   | "wstr" ;
+
+value_text         = nonempty_text_trimmed_by_context ;
+
+nonempty_text_trimmed_by_context = value_char, { value_char } ;
+
+pattern            = pattern_token, { ws, pattern_token } ;
+
+pattern_token      = byte_token | wildcard ;
+
+byte_token         = hex_digit, hex_digit ;
+
+wildcard           = "?" | "??" ;
+
+
+(* Integer tokens. *)
+
+integer            = hex_integer | decimal_integer ;
+
+hex_integer        = ("0x" | "0X"), hex_digit, { hex_digit } ;
+
+decimal_integer    = digit, { digit } ;
+
+hex_digit          = digit | "a" | "b" | "c" | "d" | "e" | "f"
+                           | "A" | "B" | "C" | "D" | "E" | "F" ;
+
+digit              = "0" | "1" | "2" | "3" | "4"
+                   | "5" | "6" | "7" | "8" | "9" ;
+
+value_char         = ? any input character, after surrounding whitespace is trimmed ? ;
+
+
+(* Whitespace. *)
+
+ws                 = ws_char, { ws_char } ;
+
+ws_opt             = { ws_char } ;
+
+ws_char            = " " | "\t" | "\n" | "\r" ;
+
+
+(* Semantic and parser constraints.
+
+   1. Top-level memory_expr input is trimmed before parsing.
+
+   2. module_target_ref means target_ref whose parsed target kind is Module.
+      Whole-process targets such as <game.exe!> and <123!> are valid range
+      targets for scans, but are not valid address bases or module bracket
+      range bases.
+
+   3. target_ref name parts are non-empty and must not have leading or trailing
+      whitespace. Interior whitespace is preserved as part of the name.
+
+   4. <123> is an unqualified module named "123". Numeric process selectors
+      require a bang, as in <123!> or <123!client.dll>.
+
+   5. The lexer must recognize "==" before "=" at the top level.
+      "=" is valid only for poke_expr. "==" is valid only for value_scan_expr.
+      Ordering comparisons <, <=, >, and >= are not v1 syntax.
+
+   6. Whitespace is allowed around top-level ":", "=", "==", and pattern
+      braces, inside patterns, and inside const_expr. It is not allowed inside
+      address_expr or range_expr except inside parenthesized const_expr.
+
+   7. address_expr ".." address_expr ranges are explicitly rejected in v1.
+      Supported scan ranges are target_ref, module bracket ranges, and
+      address-sized ranges using ":+ size".
+
+   8. address-sized range size accepts an unsigned integer or a parenthesized
+      const_expr. Module sized range size is a const_expr and must evaluate to
+      a non-negative value.
+
+   9. const_expr evaluates with I64 arithmetic. Integer literal overflow,
+      arithmetic overflow, division by zero, and modulo by zero are parse-time
+      failures. Offsets must evaluate to I64.
+
+  10. pattern is parsed with wildcards enabled for pattern_scan_expr. byte_token
+      is exactly two hexadecimal digits. wildcard is "?" or "??".
+
+  11. value_text is the trimmed non-empty remainder after "=" or "==". Its
+      concrete syntax is type-dependent and is validated later by
+      Memmy_Value_Parse. For poke_expr, memmy_expr rejects value_text that
+      parses as an address expression with a target base or address operations.
+*)
