@@ -5,8 +5,16 @@
 Memmy v1 is a small native CLI and C library for inspecting and modifying
 memory in local processes.
 
-v1 keeps the v0 command model and adds memory expressions. The main goal is to
-support module-relative addresses, pointer chains, process-qualified targets,
+The current repository implements the v0 command model: explicit process,
+module, region, peek, poke, scan, and pattern-scan commands over numeric
+addresses and ranges. It is already split into a reusable core library
+(`memmy`), a CLI library (`memmy_cli`), and a thin executable (`cmd_memmy`).
+
+v1 keeps that model and adds two new libraries: `memmy_expr` for memory
+expression parsing and `memmy_exec` for resolving and executing parsed
+expressions. Top-level `--expr` in `memmy_cli` should be a thin dispatcher over
+those libraries. The main goal is to support absolute addresses,
+module-relative addresses, pointer chains, process-qualified targets,
 module-relative ranges, whole-process ranges, typed peeks, typed pokes, pattern
 scans, and exact value scans through one expression grammar.
 
@@ -22,6 +30,7 @@ memmy poke  --pid 1234 --addr 0x000001d856780004 --type u32 --value 1337
 memmy scan  --pid 1234 --start 0x00007ff800000000 --end 0x00007ff8001a4000 --type u32 --value 1337
 memmy pscan --pid 1234 --start 0x00007ff800000000 --length 0x1a4000 --pattern "48 8B ?? ?? 89"
 
+memmy --pid 1234 --expr "0x000001d856780004 : u32"
 memmy --expr "<game.exe!client.dll>+0x123 : i32"
 memmy --expr "<game.exe!client.dll>+0x123 : i32 = 77"
 memmy --expr "<game.exe!client.dll>[0x1000:+0x4000]{48 8b ?? ?? 89}"
@@ -46,6 +55,7 @@ copying values between addresses
 ordering comparisons in value scans
 array views
 typed value constructors
+address_expr..address_expr ranges
 quoted process or module names inside target refs
 symbol loading
 PDB/DWARF support
@@ -64,21 +74,76 @@ operators are reserved for future versions.
 
 ## 3. Project Shape
 
+Current repository shape:
+
 ```txt
 base/
-  Shared foundation library.
+  Shared foundation library. Target: base.
 
 memmy/
-  Core library: process model, numeric parsing, memory expression parsing and
-  resolution, typed values, patterns, scanning, formatting, errors, and backend
-  dispatch.
+  Core Memmy library. Target: memmy. Public headers live in memmy/include.
+  Owns process, backend, numeric range, value, pattern, and scan APIs.
+  Platform backend code lives under memmy/src/platform/<os>/.
+
+memmy_expr/
+  Memory expression library. Target: memmy_expr. Public headers live in
+  memmy_expr/include. Owns expression parsing and expression data structures
+  only. It does not enumerate processes, open processes, read memory, write
+  memory, scan memory, or format output.
+
+memmy_exec/
+  Expression execution library. Target: memmy_exec. Public headers live in
+  memmy_exec/include. Owns process-relative target/address/range resolution and
+  execution of parsed expressions over the core memmy APIs. It is independent
+  of CLI argv parsing and output formatting.
+
+memmy_cli/
+  CLI library. Target: memmy_cli. This owns command-line parsing, command
+  dispatch, process selection policy, text/JSON/JSONL formatting, and
+  CLI-facing helpers. The executable links this library instead of implementing
+  command behavior directly.
 
 cmd/memmy/
-  CLI executable.
+  Thin CLI executable. Target: cmd_memmy. Output name: memmy.
+
+unittest/
+  Test executable and test framework. Target: memmy_test. Tests are split by
+  subsystem under unittest/base and unittest/memmy, including separate CLI
+  command tests and core-library tests.
 
 vendor/
   Third-party code.
 ```
+
+Top-level CMake adds these subdirectories in dependency order:
+
+```txt
+vendor
+base
+memmy
+memmy_expr
+memmy_exec
+memmy_cli
+cmd
+unittest
+```
+
+v1 should preserve this split:
+
+```txt
+memmy       owns reusable process, memory, value, scan, and range APIs
+memmy_expr  owns reusable expression parsing and parsed expression structures
+memmy_exec  owns reusable expression resolution and execution APIs
+memmy_cli   owns CLI option parsing, top-level --expr dispatch, and output formatting
+cmd_memmy   remains a small main() wrapper around memmy_cli
+```
+
+Expression parsing and target-independent expression data structures belong in
+`memmy_expr`. Process-relative resolution and execution helpers belong in
+`memmy_exec`. Process selection from `--pid`, `--name`, or process-qualified
+expression targets belongs in `memmy_cli`, because it requires process
+enumeration and opening policy. `memmy_expr` may define selector data
+structures, but it should not enumerate or open processes as part of parsing.
 
 ## 4. Naming and Style
 
@@ -97,7 +162,42 @@ backend code.
 Public project APIs use `Memmy_` names. Functions use `PascalCase`. Variables
 and fields use `snake_case`. Allocation goes through `Arena`.
 
-## 5. Address and Size Input
+## 5. Build and Test
+
+Configure and build:
+
+```txt
+cmake -S . -B build
+cmake --build build
+```
+
+Current and v1 targets:
+
+```txt
+base        shared foundation library, current
+memmy       core library, current
+memmy_expr  memory expression library, new in v1
+memmy_exec  expression execution library, new in v1
+memmy_cli   CLI library, current
+cmd_memmy   executable target, output name memmy, current
+memmy_test  unit test executable, current
+```
+
+On multi-config Windows generators, the CLI executable is emitted under:
+
+```txt
+build/cmd/memmy/<config>/memmy.exe
+```
+
+Tests are built into `memmy_test`. CTest cases are discovered after
+`memmy_test` builds through `unittest/discover_memmy_tests.cmake`, which emits
+CTest include files in the build tree. Run tests with:
+
+```txt
+ctest --test-dir build
+```
+
+## 6. Address and Size Input
 
 The v0 numeric address and size parsers remain available. An address or size
 input is one unsigned integer token.
@@ -135,7 +235,7 @@ Memmy_Status Memmy_ParseSize(String8 text,
                              Memmy_Error *error);
 ```
 
-## 6. Ranges
+## 7. Ranges
 
 A range is one half-open interval:
 
@@ -184,7 +284,7 @@ Memmy_Status Memmy_Range_FromStartLength(Memmy_Addr start,
                                          Memmy_Error *error);
 ```
 
-## 7. Error Model
+## 8. Error Model
 
 ```c
 typedef U32 Memmy_Status;
@@ -266,7 +366,7 @@ JSON failures use this shape:
 }
 ```
 
-## 8. Backend Boundary
+## 9. Backend Boundary
 
 Platform SDK headers and native OS calls belong under
 `memmy/src/platform/<os>/` only.
@@ -337,7 +437,7 @@ enum
 };
 ```
 
-## 9. Process, Module, and Region Types
+## 10. Process, Module, and Region Types
 
 ```c
 typedef U32 Memmy_PointerWidth;
@@ -476,7 +576,7 @@ Memmy_Status Memmy_Process_Write(Memmy_Process *process,
                                  Memmy_Error *error);
 ```
 
-## 10. Types, Values, and Patterns
+## 11. Types, Values, and Patterns
 
 Required value types:
 
@@ -564,7 +664,7 @@ Memmy_Status Memmy_Pattern_Parse(Arena *arena,
 `Memmy_PatternParseFlag_AllowWildcards`. Parsing a `bytes` value for `peek`,
 `poke`, or `scan` rejects wildcards.
 
-## 11. Memory Expressions
+## 12. Memory Expressions
 
 Memory expressions are the primary v1 addition. They are parsed independently
 from command execution so that the CLI can dispatch top-level `memmy --expr`.
@@ -572,6 +672,7 @@ from command execution so that the CLI can dispatch top-level `memmy --expr`.
 Required examples:
 
 ```txt
+0x000001d856780004 : u32
 <client.dll>+0x123
 <client.dll>+0x123->0x8
 <game.exe!client.dll>+0x123 : i32
@@ -580,11 +681,11 @@ Required examples:
 <game.exe!> : i32 == 42
 ```
 
-The first two examples are process-relative address expressions. They are valid
-when the caller already has a `Memmy_Process *` or when top-level `memmy --expr`
-is paired with `--pid` or `--name`.
+The unqualified module examples are process-relative. They are valid when the
+caller already has a `Memmy_Process *` or when top-level `memmy --expr` is
+paired with `--pid` or `--name`.
 
-### 11.1 Expression Kinds
+### 12.1 Expression Kinds
 
 ```c
 typedef U32 Memmy_MemoryExprKind;
@@ -610,7 +711,7 @@ range_expr : type == value   exact value scan
 
 The only v1 value-scan operator is `==`.
 
-### 11.2 Target References
+### 12.2 Target References
 
 Targets identify either a module in the selected process or the whole selected
 process.
@@ -660,12 +761,15 @@ Process-name selection uses the same semantics as CLI `--name`: exactly one
 matching process is required. Multiple matches return `Memmy_Status_Ambiguous`.
 No matches return `Memmy_Status_NotFound`.
 
-### 11.3 Address Expressions
+### 12.3 Address Expressions
 
 Address expressions resolve one remote address.
 
 ```txt
-address_expr := target_ref address_op*
+address_expr := address_base address_op*
+
+address_base := integer
+              | target_ref
 
 address_op   := add
               | sub
@@ -682,6 +786,12 @@ offset       := integer
 ```
 
 Semantics:
+
+```txt
+0x000001d856780004
+```
+
+means the absolute remote address `0x000001d856780004` in the selected process.
 
 ```txt
 <client.dll>+0x123
@@ -717,11 +827,11 @@ Pointer reads use the target process pointer width. For 32-bit targets,
 `ReadPtr` reads `U32` and zero-extends to `Memmy_Addr`. For 64-bit targets,
 `ReadPtr` reads `U64`.
 
-Only target-based address expressions are required in v1. Bare absolute address
-expressions remain available through v0 `--addr`, `--start`, and `--end`
-options, but are not required in the memory expression grammar.
+Absolute address expressions require a selected process for any operation that
+reads, writes, scans, or dereferences through remote memory. Top-level
+`memmy --expr` supplies that process with `--pid` or `--name`.
 
-### 11.4 Constant Expressions
+### 12.4 Constant Expressions
 
 Constant expressions are used only inside parentheses and module-relative
 range brackets.
@@ -749,7 +859,7 @@ Integer literal overflow, division by zero, and modulo by zero are parse-time
 failures. Constant expressions used as address offsets must evaluate to a value
 representable as `I64`.
 
-### 11.5 Range Expressions
+### 12.5 Range Expressions
 
 Range expressions resolve one scan range in v1.
 
@@ -792,7 +902,7 @@ Examples:
 For v1, whole-process ranges are allowed only for scans. They are invalid as
 standalone address expressions and invalid for peek or poke.
 
-### 11.6 Top-Level Grammar
+### 12.6 Top-Level Grammar
 
 ```txt
 memory_expr :=
@@ -809,7 +919,7 @@ pattern_scan_expr := range_expr ws? '{' pattern '}'
 ```
 
 Parsing chooses the longest valid top-level form. `=` is valid only for poke.
-`==` is valid only for value scan.
+`==` is valid only for value scan. Lexing must recognize `==` before `=`.
 
 Whitespace rules:
 
@@ -820,11 +930,11 @@ whitespace is allowed between bytes inside patterns
 whitespace is not otherwise allowed inside address_expr or range_expr
 ```
 
-### 11.7 Parsed Representation
+### 12.7 Parsed Representation
 
-The exact struct layout may evolve during implementation, but the public parser
-must expose the expression kind and enough parsed text to resolve and execute
-the expression without reparsing command-line arguments.
+The exact struct layout may evolve during implementation, but `memmy_expr` must
+expose the expression kind and enough parsed data for `memmy_exec` to resolve
+and execute the expression without reparsing command-line arguments.
 
 Required parser:
 
@@ -837,7 +947,7 @@ Memmy_Status Memmy_MemoryExpr_Parse(Arena *arena,
                                     Memmy_Error *error);
 ```
 
-Recommended internal layering:
+Recommended parsed expression layering:
 
 ```txt
 Memmy_TargetExpr
@@ -853,11 +963,80 @@ Memmy_MemoryExpr
   top-level dispatch expression
 ```
 
-Process enumeration and process opening may remain CLI-owned. The core parser
-should parse process selectors but should not need to enumerate processes while
-parsing.
+Process enumeration and process opening remain CLI-owned. `memmy_expr` should
+parse process selectors but should not enumerate processes, open processes, read
+memory, write memory, or scan memory.
 
-## 12. Scanning
+## 13. Expression Execution
+
+`memmy_exec` consumes parsed `Memmy_MemoryExpr` values from `memmy_expr` and
+core process/module/region data from `memmy`. It owns process-relative
+resolution and execution mechanics, but not CLI process selection or output
+formatting.
+
+Responsibilities:
+
+```txt
+resolve module targets against Memmy_ModuleList
+resolve address expressions, including pointer-chain reads
+resolve range expressions, including module and whole-process ranges
+lower peek/poke/scan expressions into core memmy read/write/scan calls
+return structured results and Memmy_Error values
+```
+
+Non-responsibilities:
+
+```txt
+parse argv
+select a process by --pid or --name
+resolve process names or process-qualified targets by enumerating processes
+format text, JSON, or JSONL output
+perform interactive confirmation or REPL policy
+```
+
+`memmy_exec` may require the caller to provide an already-open `Memmy_Process *`
+and any needed module or region lists. `memmy_cli` is responsible for opening
+the process and collecting those lists based on requirements derived from the
+parsed expression.
+
+`memmy_exec` exposes a requirement-derivation API so callers can parse first,
+open the process with the right access, and collect only the module or region
+data needed by the expression.
+
+```c
+typedef struct Memmy_ExecRequirements
+{
+    Memmy_BackendCap backend_caps;
+    Memmy_ProcessAccess process_access;
+    B32 needs_external_process;
+    B32 needs_modules;
+    B32 needs_regions;
+} Memmy_ExecRequirements;
+
+Memmy_Status Memmy_MemoryExpr_GetRequirements(Memmy_MemoryExpr *expr,
+                                              Memmy_ExecRequirements *out,
+                                              Memmy_Error *error);
+```
+
+Rules:
+
+```txt
+needs_external_process is true when the expression has an absolute address or
+unqualified module target and no process selector inside the expression
+
+needs_modules is true when resolving any module target or module-relative range
+
+needs_regions is true for whole-process ranges
+
+process_access includes Read for peek, pointer-chain resolution, and scans
+
+process_access includes Write for poke
+
+memmy_exec never sets ListProcs; parsed process selectors are reported through
+the parsed expression so memmy_cli can resolve and open the target process
+```
+
+## 14. Scanning
 
 Scans operate on either one caller-provided v0 range or one v1 expression
 range. Whole-process expression scans operate over all candidate readable
@@ -910,9 +1089,17 @@ result addresses are absolute
 ```
 
 `scan` and `pscan` require `Read`. Explicit v0 ranges do not require
-`ListRegions`. Whole-process expression scans require `ListRegions` so that
-candidate ranges can be discovered. Module expression scans require
-`ListModules`.
+`ListRegions`. Expression scan requirements are derived from the parsed range:
+
+```txt
+whole-process range   requires ListRegions
+module range          requires ListModules
+address-sized range   requires ListModules only if its address_expr uses a module target
+absolute address-sized range requires no module or region listing
+```
+
+Whole-process expression scans require `ListRegions` so that candidate ranges
+can be discovered.
 
 If `ListRegions` is available, scans may intersect requested ranges with
 committed readable regions to avoid impossible reads. If `ListRegions` is
@@ -920,7 +1107,7 @@ unavailable and the expression does not require a whole-process range, scans may
 attempt chunked reads directly within the requested range and report unreadable
 chunks according to scanner error rules.
 
-## 13. CLI
+## 15. CLI
 
 Global form:
 
@@ -982,7 +1169,7 @@ pscan    Read             Read
 Expression process selection may add `ListProcs` when a process name is used in
 the expression.
 
-### 13.1 `procs`
+### 15.1 `procs`
 
 ```txt
 memmy procs
@@ -1010,7 +1197,7 @@ JSON:
 ]
 ```
 
-### 13.2 `mods`
+### 15.2 `mods`
 
 ```txt
 memmy mods --pid 1234
@@ -1025,7 +1212,7 @@ BASE                SIZE        NAME
 0x00007ff800000000  0x1a4000    game.exe
 ```
 
-### 13.3 `regions`
+### 15.3 `regions`
 
 ```txt
 memmy regions --pid 1234
@@ -1056,7 +1243,7 @@ JSON:
 `END` is computed as `base + size`. If backend or test data would overflow,
 the command reports `Memmy_Status_Overflow` instead of wrapping.
 
-### 13.4 `peek`
+### 15.4 `peek`
 
 ```txt
 memmy peek --pid 1234 --addr <addr> --type <type>
@@ -1085,7 +1272,7 @@ JSON:
 }
 ```
 
-### 13.5 `poke`
+### 15.5 `poke`
 
 ```txt
 memmy poke --pid 1234 --addr <addr> --type <type> --value <value>
@@ -1109,7 +1296,7 @@ would write:
   new:     1337 / 0x00000539
 ```
 
-### 13.6 `scan`
+### 15.6 `scan`
 
 ```txt
 memmy scan --pid 1234 --start <addr> --end <addr> --type <type> --value <value>
@@ -1121,7 +1308,7 @@ memmy scan --pid 1234 --start <addr> --length <size> --chunk-size <bytes> --type
 `scan` does not accept `--expr`. Use top-level `memmy --expr` for expression
 value scans.
 
-### 13.7 `pscan`
+### 15.7 `pscan`
 
 ```txt
 memmy pscan --pid 1234 --start <addr> --end <addr> --pattern <pattern>
@@ -1148,7 +1335,7 @@ Scan JSONL:
 {"address":"0x00007ff800007abc"}
 ```
 
-### 13.8 Top-Level `--expr`
+### 15.8 Top-Level `--expr`
 
 Top-level `memmy --expr <memory-expr>` dispatches by expression kind:
 
@@ -1159,6 +1346,11 @@ poke expression         write one typed value
 pattern scan expression run pattern scan
 value scan expression   run exact value scan
 ```
+
+`memmy_cli` parses CLI options and resolves the target process. It delegates
+expression parsing to `memmy_expr`, then delegates address/range resolution and
+expression execution to `memmy_exec`. `memmy_cli` remains responsible for text,
+JSON, and JSONL formatting.
 
 Examples:
 
@@ -1179,13 +1371,17 @@ the same PID.
 Top-level expression requirements:
 
 ```txt
-Expression kind     Backend caps              Process access
-address             ListModules               Query
-peek                Read, ListModules         Read | Query
-poke                Read, Write, ListModules  Read | Write | Query
-pattern scan        Read, ListModules         Read | Query
-value scan          Read, ListModules         Read | Query
-whole-process scan  Read, ListRegions         Read | Query
+Expression form                 Backend caps          Process access
+absolute address                none                  none
+module address                  ListModules           Query
+absolute peek                   Read                  Read
+module peek                     Read, ListModules     Read | Query
+absolute poke                   Read, Write           Read | Write
+module poke                     Read, Write, ListModules Read | Write | Query
+module range scan               Read, ListModules     Read | Query
+absolute address-sized scan     Read                  Read
+module address-sized scan       Read, ListModules     Read | Query
+whole-process scan              Read, ListRegions     Read | Query
 ```
 
 Expression process-name selection also requires `ListProcs`.
@@ -1195,7 +1391,7 @@ Expression value scans are exact encoded-byte scans in v1.
 Shell quoting is required for most expressions because `<`, `>`, `{`, `}`, `*`,
 and spaces have shell-specific meanings.
 
-## 14. Output Formatting
+## 16. Output Formatting
 
 Addresses are fixed-width lowercase hex:
 
@@ -1228,7 +1424,12 @@ Top-level address-expression JSON output:
 }
 ```
 
-## 15. Windows Backend
+Top-level peek, poke, pattern scan, and value scan expressions reuse the v0
+command-shaped text, JSON, and JSONL output formats for `peek`, `poke`,
+`pscan`, and `scan`. Implementations may include expression-specific fields in
+JSON only if the v0 fields remain stable.
+
+## 17. Windows Backend
 
 Initial Windows backend APIs may include:
 
@@ -1249,24 +1450,50 @@ v1 must support same-bitness targets and 64-bit hosts inspecting 64-bit or
 WOW64 32-bit targets. Other cross-bitness cases may return
 `Memmy_Status_Unsupported`.
 
-## 16. Testing
+## 18. Testing
+
+Current test layout:
+
+```txt
+unittest/test_framework.*       small test framework
+unittest/unittest_main.c        test runner entry point
+unittest/base/                  base library tests
+unittest/memmy/                 memmy, memmy_expr, memmy_exec, and memmy_cli tests
+unittest/memmy/test_memmy_expr_*.c expression parser tests
+unittest/memmy/test_memmy_exec_*.c expression resolution/execution tests
+unittest/memmy/test_memmy_cli_*.c separate CLI command tests
+unittest/memmy/test_memmy_backend.* fake backend for core and CLI tests
+```
+
+The `memmy_test` target links `memmy_cli`, `memmy_exec`, `memmy_expr`, `memmy`,
+and `base` so CLI and expression behavior can be tested without invoking the
+`cmd_memmy` executable. v1 should continue to test most behavior at the library
+boundary and reserve executable-level tests for smoke coverage.
 
 Important v1 tests:
 
 ```txt
 all v0 tests
+memmy_expr parser tests
+memmy_exec address and range resolution tests
+memmy_exec expression execution tests
+memmy_cli top-level --expr option parsing
 target ref parsing
 qualified and unqualified process selection
+external --pid/--name conflict with process-qualified expressions
 ambiguous process-name handling inside expressions
+absolute address expressions
 module name lookup for address expressions
 address expression add and sub
 pointer-chain resolution with target pointer width
 constant expression parsing for offsets
 module-relative range expression parsing
+absolute address-sized range expression parsing
 module-relative pattern scan expression dispatch
 whole-process value scan expression dispatch
 peek expression dispatch
 poke expression dispatch
+lex == before =
 top-level --expr validation
 subcommands reject --expr
 expression parse errors with byte offsets
@@ -1276,6 +1503,7 @@ JSON output for top-level address expressions
 Required acceptance examples:
 
 ```txt
+0x000001d856780004 : u32
 <client.dll>+0x123
 <client.dll>+0x123->0x8
 <game.exe!client.dll>+0x123 : i32
@@ -1288,18 +1516,25 @@ The test backend should provide a fixed memory buffer, fake process metadata,
 fake modules, fake regions, configurable pointer width, and read/write
 operations.
 
-## 17. Milestones
+## 19. Milestones
 
 ```txt
 1. Preserve v0 behavior and tests
-2. Target and memory expression parser
-3. Module lookup and address expression resolution
-4. Pointer-chain resolution
-5. Top-level --expr address resolution
-6. Top-level --expr peek and poke
-7. Module-relative range expression resolution
-8. Top-level --expr pattern scan
-9. Whole-process expression ranges
-10. Top-level --expr value scan
-11. Agent output: --json, --jsonl, stable expression errors
+2. Add memmy_expr target and public header
+3. memmy_expr target refs and constant expressions
+4. memmy_expr address expressions
+5. memmy_expr top-level memory expressions
+6. Add memmy_exec target and public header
+7. memmy_exec requirements derivation
+8. memmy_exec module and absolute address resolution
+9. memmy_exec pointer-chain resolution
+10. memmy_cli top-level --expr address resolution
+11. memmy_exec peek and poke execution
+12. memmy_cli top-level --expr peek and poke
+13. memmy_exec module and address-sized range resolution
+14. memmy_cli top-level --expr pattern scan
+15. memmy_exec whole-process expression ranges
+16. memmy_cli top-level --expr value scan
+17. Agent output: --json, --jsonl, stable expression errors
+18. Final v1 audit
 ```
