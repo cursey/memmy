@@ -105,44 +105,10 @@ Return whether you are satisfied. If not, list remaining findings with severity 
 
 ## Current Handoff State
 
-As of the last session:
+As of chunk 10, the v0 chunk sequence targets `spec-v0.md`, not the broader
+future design in `spec.md`.
 
-- `chunk-1.md` through `chunk-6.md` are complete.
-- `chunk-6.md` was reviewed by a separate reviewer and accepted after fixes.
-- Current active chunk is `chunk-7.md` / **Explicit-Range Pattern Scan**.
-- Current working copy is a child change on top of `Implement chunk-6.md`.
-- Chunk 7 is partially implemented, not complete, not tested, and not reviewed.
-
-Current partial chunk-7 files:
-
-- `cmd/memmy/memmy_cli.c`
-- `memmy/include/memmy.h`
-- `memmy/include/memmy_scan.h`
-- `memmy/src/memmy_scan.c`
-
-Current partial chunk-7 work includes:
-
-- Added `Memmy_ScanOptions`, `Memmy_ScanResult`, `Memmy_ScanResultList`.
-- Added `Memmy_Process_ScanPattern`.
-- Added chunked scan logic with overlap and optional readable-region intersection.
-- Started CLI parsing for `pscan` options:
-  - `--start`
-  - `--end`
-  - `--length`
-  - `--limit`
-  - `--chunk-size`
-  - `--pattern`
-- Started command validation so pscan-only options are rejected by other commands.
-
-Remaining chunk-7 work:
-
-- Finish `memmy pscan` command execution and output formatting.
-- Add scan tests required by `chunk-7.md`.
-- Build and run tests.
-- Run the worker/reviewer loop for chunk 7.
-- When accepted, run:
-  ```powershell
-  jj describe -m "Implement chunk-7.md"
-  jj new
-  ```
-
+- `chunk-1.md` through `chunk-9.md` are complete.
+- Current active chunk is `chunk-10.md` / **Final v0 Audit And Spec Alignment**.
+- Chunk 10 records requirement traceability in `docs/v0-traceability.md`.
+- After chunk 10 is reviewed and accepted, the v0 sequence is complete.

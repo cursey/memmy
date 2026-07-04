@@ -1559,6 +1559,63 @@ Test(Test_MemmyCliRejectsPokeOptionsOnOtherCommands)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyCliRejectsV0NonGoalSyntax)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *addr_command[] = {"memmy", "addr", "--pid", "4242"};
+    char *expr_option[] = {"memmy", "peek", "--pid", "4242", "--expr", "0x1000", "--type", "u8"};
+    char *module_addr[] = {"memmy", "peek", "--pid", "4242", "--addr", "client.dll", "--type", "u8"};
+    char *pointer_chain[] = {"memmy", "peek", "--pid", "4242", "--addr", "0x1000->0x8", "--type", "u8"};
+    char *range_option[] = {"memmy",          "scan",   "--pid", "4242",    "--range",
+                            "0x1000..0x1010", "--type", "u8",    "--value", "1"};
+    char *readable_option[] = {"memmy", "scan",   "--pid", "4242",    "--start", "0x1000",    "--length",
+                               "0x10",  "--type", "u8",    "--value", "1",       "--readable"};
+    char *writable_option[] = {"memmy", "scan",   "--pid", "4242",    "--start", "0x1000",    "--length",
+                               "0x10",  "--type", "u8",    "--value", "1",       "--writable"};
+    char *executable_option[] = {"memmy", "scan",   "--pid", "4242",    "--start", "0x1000",      "--length",
+                                 "0x10",  "--type", "u8",    "--value", "1",       "--executable"};
+    char *implicit_scan[] = {"memmy", "scan", "--pid", "4242", "--type", "u8", "--value", "1"};
+    char *duplicate_range[] = {"memmy", "pscan",  "--pid",   "4242",   "--start",   "0x1000",
+                               "--end", "0x1010", "--start", "0x1020", "--pattern", "90"};
+
+    struct
+    {
+        char **argv;
+        I32 argc;
+        Memmy_Status status;
+        String8 context;
+    } cases[] = {
+        {addr_command, (I32)ArrayCount(addr_command), Memmy_Status_ParseError, String8_Lit("cli")},
+        {expr_option, (I32)ArrayCount(expr_option), Memmy_Status_InvalidArgument, String8_Lit("cli")},
+        {module_addr, (I32)ArrayCount(module_addr), Memmy_Status_ParseError, String8_Lit("address")},
+        {pointer_chain, (I32)ArrayCount(pointer_chain), Memmy_Status_ParseError, String8_Lit("address")},
+        {range_option, (I32)ArrayCount(range_option), Memmy_Status_InvalidArgument, String8_Lit("cli")},
+        {readable_option, (I32)ArrayCount(readable_option), Memmy_Status_InvalidArgument, String8_Lit("cli")},
+        {writable_option, (I32)ArrayCount(writable_option), Memmy_Status_InvalidArgument, String8_Lit("cli")},
+        {executable_option, (I32)ArrayCount(executable_option), Memmy_Status_InvalidArgument, String8_Lit("cli")},
+        {implicit_scan, (I32)ArrayCount(implicit_scan), Memmy_Status_ParseError, String8_Lit("scan")},
+        {duplicate_range, (I32)ArrayCount(duplicate_range), Memmy_Status_InvalidArgument, String8_Lit("cli")},
+    };
+
+    for (U64 i = 0; i < ArrayCount(cases); i++)
+    {
+        error = (Memmy_Error){0};
+        AssertEq(Memmy_Cli_RunToString(arena, cases[i].argc, cases[i].argv, &out, &error), cases[i].status);
+        AssertStrEq(error.context, cases[i].context);
+    }
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyCliHelpAndVersion)
 {
     Arena *arena = Arena_CreateDefault();
@@ -2131,11 +2188,11 @@ TestSuite suite_memmy = TestSuite_Make(
     TestCase_Make(Test_MemmyCliPscanTextOutputRangeFormsAndWildcard),
     TestCase_Make(Test_MemmyCliScanTextOutputRangeFormsAndValues),
     TestCase_Make(Test_MemmyCliRejectsPokeOptionsOnOtherCommands), TestCase_Make(Test_MemmyCliHelpAndVersion),
-    TestCase_Make(Test_MemmyCliProcsModsRegionsTextOutput), TestCase_Make(Test_MemmyCliNameAmbiguityAndRegionOverflow),
-    TestCase_Make(Test_MemmyCliJsonHelpers), TestCase_Make(Test_MemmyCliJsonSuccessOutput),
-    TestCase_Make(Test_MemmyCliJsonNonFiniteFloatValuesAreValidJson), TestCase_Make(Test_MemmyCliProcessAccessRequests),
-    TestCase_Make(Test_MemmyCliInvalidOptionsAndNameNotFound), TestCase_Make(Test_MemmyCliExitCodeMapping),
-    TestCase_Make(Test_MemmyDefaultContextWin32ReadWriteCallbacks),
+    TestCase_Make(Test_MemmyCliRejectsV0NonGoalSyntax), TestCase_Make(Test_MemmyCliProcsModsRegionsTextOutput),
+    TestCase_Make(Test_MemmyCliNameAmbiguityAndRegionOverflow), TestCase_Make(Test_MemmyCliJsonHelpers),
+    TestCase_Make(Test_MemmyCliJsonSuccessOutput), TestCase_Make(Test_MemmyCliJsonNonFiniteFloatValuesAreValidJson),
+    TestCase_Make(Test_MemmyCliProcessAccessRequests), TestCase_Make(Test_MemmyCliInvalidOptionsAndNameNotFound),
+    TestCase_Make(Test_MemmyCliExitCodeMapping), TestCase_Make(Test_MemmyDefaultContextWin32ReadWriteCallbacks),
     TestCase_Make(Test_MemmyDefaultContextWin32ReadWriteSelfProcess),
     TestCase_Make(Test_MemmyDefaultContextWin32SelfProcessInventoryAndScan),
     TestCase_Make(Test_MemmyDefaultContextWin32CliSelfProcessSmoke), );
