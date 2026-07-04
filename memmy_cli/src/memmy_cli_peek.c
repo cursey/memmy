@@ -426,6 +426,80 @@ static Memmy_Status Memmy_Cli_FormatJsonValueFields(Arena *arena, Memmy_CliOptio
     return Memmy_Status_Ok;
 }
 
+String8 Memmy_Cli_TypeString(Memmy_Type type)
+{
+    switch (type.kind)
+    {
+    case Memmy_TypeKind_U8:
+        return String8_Lit("u8");
+    case Memmy_TypeKind_I8:
+        return String8_Lit("i8");
+    case Memmy_TypeKind_U16:
+        return String8_Lit("u16");
+    case Memmy_TypeKind_I16:
+        return String8_Lit("i16");
+    case Memmy_TypeKind_U32:
+        return String8_Lit("u32");
+    case Memmy_TypeKind_I32:
+        return String8_Lit("i32");
+    case Memmy_TypeKind_U64:
+        return String8_Lit("u64");
+    case Memmy_TypeKind_I64:
+        return String8_Lit("i64");
+    case Memmy_TypeKind_F32:
+        return String8_Lit("f32");
+    case Memmy_TypeKind_F64:
+        return String8_Lit("f64");
+    case Memmy_TypeKind_Ptr:
+        return String8_Lit("ptr");
+    case Memmy_TypeKind_Bytes:
+        return String8_Lit("bytes");
+    case Memmy_TypeKind_Str:
+        return String8_Lit("str");
+    case Memmy_TypeKind_WStr:
+        return String8_Lit("wstr");
+    }
+    return String8_Lit("?");
+}
+
+Memmy_Status Memmy_Cli_FormatPeekOutput(Arena *arena, Memmy_CliPeekOutput *peek, B32 json, String8 *out,
+                                        Memmy_Error *error)
+{
+    Memmy_CliOptions format_options = {
+        .type = peek->type,
+        .type_text = peek->type_text.len != 0 ? peek->type_text : Memmy_Cli_TypeString(peek->type),
+    };
+    String8 address = Memmy_Cli_FormatAddress(arena, peek->pointer_width, peek->address);
+    if (json)
+    {
+        String8 value_fields = {0};
+        Memmy_Status status =
+            Memmy_Cli_FormatJsonValueFields(arena, &format_options, peek->bytes, &value_fields, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        String8 type_json = Memmy_Cli_FormatJsonString(arena, format_options.type_text);
+        *out =
+            String8_PushF(arena, "{\"address\":\"%.*s\",\"type\":%.*s,%.*s}\n", (int)address.len, (char *)address.data,
+                          (int)type_json.len, (char *)type_json.data, (int)value_fields.len, (char *)value_fields.data);
+    }
+    else
+    {
+        String8List lines = {0};
+        Memmy_Cli_PushLine(arena, &lines, "%.*s: %.*s ", (int)address.len, (char *)address.data,
+                           (int)format_options.type_text.len, (char *)format_options.type_text.data);
+        Memmy_Status status = Memmy_Cli_FormatPeekValue(arena, &format_options, peek->bytes, &lines, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        String8List_Push(arena, &lines, String8_Lit("\n"));
+        *out = String8List_Join(arena, &lines, (String8){0});
+    }
+    return Memmy_Status_Ok;
+}
+
 Memmy_Status Memmy_Cli_RunPeek(Arena *arena, Memmy_CliOptions *options, String8 *out, Memmy_Error *error)
 {
     Memmy_Status status = Memmy_Cli_RequireCap(Memmy_BackendCap_Read, error);
@@ -495,34 +569,14 @@ Memmy_Status Memmy_Cli_RunPeek(Arena *arena, Memmy_CliOptions *options, String8 
         return Memmy_Status_PartialRead;
     }
 
-    String8 address = Memmy_Cli_FormatAddress(arena, pointer_width, options->addr);
-    if (options->json)
-    {
-        String8 value_fields = {0};
-        status = Memmy_Cli_FormatJsonValueFields(arena, options, String8_Make(buffer, read_size), &value_fields, error);
-        if (status != Memmy_Status_Ok)
-        {
-            return status;
-        }
-        String8 type_json = Memmy_Cli_FormatJsonString(arena, options->type_text);
-        *out =
-            String8_PushF(arena, "{\"address\":\"%.*s\",\"type\":%.*s,%.*s}\n", (int)address.len, (char *)address.data,
-                          (int)type_json.len, (char *)type_json.data, (int)value_fields.len, (char *)value_fields.data);
-    }
-    else
-    {
-        String8List lines = {0};
-        Memmy_Cli_PushLine(arena, &lines, "%.*s: %.*s ", (int)address.len, (char *)address.data,
-                           (int)options->type_text.len, (char *)options->type_text.data);
-        status = Memmy_Cli_FormatPeekValue(arena, options, String8_Make(buffer, read_size), &lines, error);
-        if (status != Memmy_Status_Ok)
-        {
-            return status;
-        }
-        String8List_Push(arena, &lines, String8_Lit("\n"));
-        *out = String8List_Join(arena, &lines, (String8){0});
-    }
-    return Memmy_Status_Ok;
+    Memmy_CliPeekOutput peek = {
+        .pointer_width = pointer_width,
+        .address = options->addr,
+        .type = options->type,
+        .type_text = options->type_text,
+        .bytes = String8_Make(buffer, read_size),
+    };
+    return Memmy_Cli_FormatPeekOutput(arena, &peek, options->json, out, error);
 }
 
 Memmy_Status Memmy_Cli_FormatValue(Arena *arena, Memmy_CliOptions *options, String8 bytes, String8 *out,

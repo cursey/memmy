@@ -14,10 +14,31 @@ struct Memmy_ExecRequirements
     B32 needs_regions;
 };
 
+typedef struct Memmy_ExecPeekResult Memmy_ExecPeekResult;
+struct Memmy_ExecPeekResult
+{
+    Memmy_Addr address;
+    Memmy_Type type;
+    Memmy_Value value;
+};
+
+typedef struct Memmy_ExecPokeResult Memmy_ExecPokeResult;
+struct Memmy_ExecPokeResult
+{
+    Memmy_Addr address;
+    Memmy_Type type;
+    Memmy_Value old_value;
+    Memmy_Value new_value;
+};
+
 Memmy_Status Memmy_MemoryExpr_GetRequirements(Memmy_MemoryExpr *expr, Memmy_ExecRequirements *out, Memmy_Error *error);
 Memmy_Status Memmy_AddressExpr_Resolve(Memmy_Process *process, Memmy_ModuleList *modules, Memmy_AddressExpr *expr,
                                        Memmy_Addr *out, Memmy_Error *error);
 Memmy_Status Memmy_MemoryExpr_ResolveAddress(Memmy_Process *process, Memmy_ModuleList *modules, Memmy_MemoryExpr *expr,
                                              Memmy_Addr *out, Memmy_Error *error);
+Memmy_Status Memmy_MemoryExpr_ExecutePeek(Arena *arena, Memmy_Process *process, Memmy_ModuleList *modules,
+                                          Memmy_MemoryExpr *expr, Memmy_ExecPeekResult *out, Memmy_Error *error);
+Memmy_Status Memmy_MemoryExpr_ExecutePoke(Arena *arena, Memmy_Process *process, Memmy_ModuleList *modules,
+                                          Memmy_MemoryExpr *expr, Memmy_ExecPokeResult *out, Memmy_Error *error);
 
 #endif // MEMMY_EXEC_H

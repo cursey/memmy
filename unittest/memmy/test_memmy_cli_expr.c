@@ -158,9 +158,110 @@ Test(Test_MemmyCliExprFormatsJsonAddress)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyCliExprFormatsPeekTextLikePeekCommand)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+    Test_MemmyBackend_SetMemoryBase(&test_backend, 0x1123);
+    Test_MemmyCliExpr_WriteU64LE(&test_backend, 0x1123, 1337);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy", "--expr", "<game.exe!client.dll>+0x123 : u32"};
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("0x0000000000001123: u32 1337  0x00000539\n"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliExprFormatsPeekJsonLikePeekCommand)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+    Test_MemmyCliExpr_WriteU64LE(&test_backend, 0x1010, 42);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy", "--json", "--pid", "1234", "--expr", "0x1010 : u32"};
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("{\"address\":\"0x0000000000001010\",\"type\":\"u32\",\"value\":42,"
+                                 "\"hex\":\"0x0000002a\"}\n"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliExprFormatsPokeTextLikePokeCommand)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+    Test_MemmyCliExpr_WriteU64LE(&test_backend, 0x1020, 100);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy", "--pid", "1234", "--expr", "0x1020 : u32 = 1337"};
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("wrote:\n"
+                                 "  process: 1234\n"
+                                 "  address: 0x0000000000001020\n"
+                                 "  type:    u32\n"
+                                 "  old:     100  0x00000064\n"
+                                 "  new:     1337  0x00000539\n"));
+    AssertEq(test_backend.memory[0x20], 0x39);
+    AssertEq(test_backend.memory[0x21], 0x05);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliExprFormatsPokeJsonLikePokeCommand)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+    Test_MemmyBackend_SetMemoryBase(&test_backend, 0x1123);
+    Test_MemmyCliExpr_WriteU64LE(&test_backend, 0x1123, 9);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy", "--json", "--expr", "<game.exe!client.dll>+0x123 : i32 = 77"};
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("{\"process\":1234,\"address\":\"0x0000000000001123\",\"type\":\"i32\","
+                                 "\"old\":\"9  0x00000009\",\"new\":\"77  0x0000004d\",\"dry_run\":false}\n"));
+    AssertEq(test_backend.memory[0], 0x4d);
+    AssertEq(test_backend.memory[1], 0x00);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
 TestSuite suite_memmy_cli_expr = TestSuite_Make(
     "Memmy CLI Expr", TestCase_Make(Test_MemmyCliExprResolvesModuleAddressByPid),
     TestCase_Make(Test_MemmyCliExprResolvesPointerChainByPid),
     TestCase_Make(Test_MemmyCliExprResolvesQualifiedProcessName),
     TestCase_Make(Test_MemmyCliExprRejectsExternalPidConflict),
-    TestCase_Make(Test_MemmyCliExprRejectsExternalNameConflict), TestCase_Make(Test_MemmyCliExprFormatsJsonAddress), );
+    TestCase_Make(Test_MemmyCliExprRejectsExternalNameConflict), TestCase_Make(Test_MemmyCliExprFormatsJsonAddress),
+    TestCase_Make(Test_MemmyCliExprFormatsPeekTextLikePeekCommand),
+    TestCase_Make(Test_MemmyCliExprFormatsPeekJsonLikePeekCommand),
+    TestCase_Make(Test_MemmyCliExprFormatsPokeTextLikePokeCommand),
+    TestCase_Make(Test_MemmyCliExprFormatsPokeJsonLikePokeCommand), );

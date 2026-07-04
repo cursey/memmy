@@ -16,7 +16,9 @@ static Memmy_Status Memmy_Cli_RejectNonExprOptions(Memmy_CliOptions *options, Me
 static Memmy_ProcessSelector Memmy_Cli_ExprProcessSelector(Memmy_MemoryExpr *expr)
 {
     Memmy_ProcessSelector selector = {0};
-    if (expr->kind == Memmy_MemoryExprKind_Address && expr->address.base_kind == Memmy_AddressExprBaseKind_Target)
+    if ((expr->kind == Memmy_MemoryExprKind_Address || expr->kind == Memmy_MemoryExprKind_Peek ||
+         expr->kind == Memmy_MemoryExprKind_Poke) &&
+        expr->address.base_kind == Memmy_AddressExprBaseKind_Target)
     {
         selector = expr->address.target.process;
     }
@@ -156,10 +158,11 @@ Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 
     {
         return status;
     }
-    if (expr.kind != Memmy_MemoryExprKind_Address)
+    if (expr.kind != Memmy_MemoryExprKind_Address && expr.kind != Memmy_MemoryExprKind_Peek &&
+        expr.kind != Memmy_MemoryExprKind_Poke)
     {
         Memmy_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("expr"),
-                        String8_Lit("only address expressions are implemented"));
+                        String8_Lit("only address, peek, and poke expressions are implemented"));
         return Memmy_Status_Unsupported;
     }
 
@@ -218,25 +221,83 @@ Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 
         modules_ptr = &modules;
     }
 
-    Memmy_Addr address = 0;
-    status = Memmy_MemoryExpr_ResolveAddress(process, modules_ptr, &expr, &address, error);
-    if (process != 0)
+    if (expr.kind == Memmy_MemoryExprKind_Address)
     {
-        Memmy_Process_Close(process);
-    }
-    if (status != Memmy_Status_Ok)
-    {
-        return status;
-    }
+        Memmy_Addr address = 0;
+        status = Memmy_MemoryExpr_ResolveAddress(process, modules_ptr, &expr, &address, error);
+        if (process != 0)
+        {
+            Memmy_Process_Close(process);
+        }
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
 
-    String8 address_text = Memmy_Cli_FormatAddress(arena, pointer_width, address);
-    if (options->json)
+        String8 address_text = Memmy_Cli_FormatAddress(arena, pointer_width, address);
+        if (options->json)
+        {
+            *out = String8_PushF(arena, "{\"address\":\"%.*s\"}\n", (int)address_text.len, (char *)address_text.data);
+        }
+        else
+        {
+            *out = String8_PushF(arena, "%.*s\n", (int)address_text.len, (char *)address_text.data);
+        }
+    }
+    else if (expr.kind == Memmy_MemoryExprKind_Peek)
     {
-        *out = String8_PushF(arena, "{\"address\":\"%.*s\"}\n", (int)address_text.len, (char *)address_text.data);
+        Memmy_ExecPeekResult result = {0};
+        status = Memmy_MemoryExpr_ExecutePeek(arena, process, modules_ptr, &expr, &result, error);
+        if (process != 0)
+        {
+            Memmy_Process_Close(process);
+        }
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+
+        Memmy_CliPeekOutput peek = {
+            .pointer_width = pointer_width,
+            .address = result.address,
+            .type = result.type,
+            .type_text = Memmy_Cli_TypeString(result.type),
+            .bytes = result.value.bytes,
+        };
+        status = Memmy_Cli_FormatPeekOutput(arena, &peek, options->json, out, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
     }
     else
     {
-        *out = String8_PushF(arena, "%.*s\n", (int)address_text.len, (char *)address_text.data);
+        Memmy_ExecPokeResult result = {0};
+        status = Memmy_MemoryExpr_ExecutePoke(arena, process, modules_ptr, &expr, &result, error);
+        if (process != 0)
+        {
+            Memmy_Process_Close(process);
+        }
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+
+        Memmy_CliPokeOutput poke = {
+            .pid = pid,
+            .pointer_width = pointer_width,
+            .address = result.address,
+            .type = result.type,
+            .type_text = Memmy_Cli_TypeString(result.type),
+            .old_bytes = result.old_value.bytes,
+            .new_bytes = result.new_value.bytes,
+            .dry_run = 0,
+        };
+        status = Memmy_Cli_FormatPokeOutput(arena, &poke, options->json, out, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
     }
     return Memmy_Status_Ok;
 }
