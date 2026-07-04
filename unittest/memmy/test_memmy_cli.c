@@ -107,6 +107,9 @@ Test(Test_MemmyCliHelpAndVersion)
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(help_argv), help_argv, &out, &error), Memmy_Status_Ok);
     AssertTrue(String8_Find(out, String8_Lit("procs"), 0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("--expr <memory-expr>"), 0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("--limit and --chunk-size are only valid for scan and pscan"), 0) !=
+               STRING8_NPOS);
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(version_argv), version_argv, &out, &error), Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("memmy 0.0.0\n"));

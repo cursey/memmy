@@ -894,6 +894,7 @@ static String8 Memmy_Cli_Help(Arena *arena)
     return String8_Copy(
         arena,
         String8_Lit("memmy [global-options] <command> [command-options]\n"
+                    "memmy [global-options] [--pid <pid>|--name <name>] --expr <memory-expr>\n"
                     "\n"
                     "Commands:\n"
                     "  procs\n"
@@ -911,6 +912,11 @@ static String8 Memmy_Cli_Help(Arena *arena)
                     "  --jsonl  scan and pscan only\n"
                     "  --help\n"
                     "  --version\n"
+                    "\n"
+                    "Expression options:\n"
+                    "  --expr <memory-expr>\n"
+                    "  top-level --expr uses default scan settings; --limit and --chunk-size are only valid for scan "
+                    "and pscan\n"
                     "\n"
                     "Types: u8 i8 u16 i16 u32 i32 u64 i64 f32 f64 ptr bytes str wstr\n"
                     "Patterns: two-digit hex bytes with ? or ?? wildcards for pscan\n"));
