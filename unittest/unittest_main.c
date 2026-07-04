@@ -23,6 +23,13 @@ extern TestSuite suite_memmy_scan;
 extern TestSuite suite_memmy_context;
 extern TestSuite suite_memmy_process;
 extern TestSuite suite_memmy_cli;
+extern TestSuite suite_memmy_cli_procs;
+extern TestSuite suite_memmy_cli_mods;
+extern TestSuite suite_memmy_cli_regions;
+extern TestSuite suite_memmy_cli_peek;
+extern TestSuite suite_memmy_cli_poke;
+extern TestSuite suite_memmy_cli_scan;
+extern TestSuite suite_memmy_cli_pscan;
 extern TestSuite suite_memmy_win32_backend;
 
 int main(int argc, char **argv)
@@ -53,6 +60,13 @@ int main(int argc, char **argv)
         suite_memmy_context,
         suite_memmy_process,
         suite_memmy_cli,
+        suite_memmy_cli_procs,
+        suite_memmy_cli_mods,
+        suite_memmy_cli_regions,
+        suite_memmy_cli_peek,
+        suite_memmy_cli_poke,
+        suite_memmy_cli_scan,
+        suite_memmy_cli_pscan,
         suite_memmy_win32_backend,
     };
 
