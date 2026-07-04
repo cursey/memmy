@@ -4,6 +4,8 @@
 #include "memmy.h"
 
 Memmy_Status Memmy_Cli_ParseRangeOptions(I32 argc, char **argv, Memmy_Range *out, Memmy_Error *error);
+Memmy_Status Memmy_Cli_RunReplLine(Arena *arena, String8 line, String8 *out, Memmy_Error *error);
+Memmy_Status Memmy_Cli_RunReplString(Arena *arena, String8 input, String8 *out, Memmy_Error *error);
 Memmy_Status Memmy_Cli_RunToString(Arena *arena, I32 argc, char **argv, String8 *out, Memmy_Error *error);
 I32 Memmy_Cli_ExitCodeFromStatus(Memmy_Status status);
 B32 Memmy_Cli_ArgvHasJson(I32 argc, char **argv);

@@ -894,7 +894,10 @@ static String8 Memmy_Cli_Help(Arena *arena)
     return String8_Copy(
         arena,
         String8_Lit("memmy [global-options] <command> [command-options]\n"
+                    "memmy\n"
                     "memmy [global-options] [--pid <pid>|--name <name>] --expr <memory-expr>\n"
+                    "\n"
+                    "Run without arguments to start a simple expression REPL.\n"
                     "\n"
                     "Commands:\n"
                     "  procs\n"
