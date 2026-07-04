@@ -41,7 +41,41 @@ struct Memmy_ConstExpr
     I64 value;
 };
 
+typedef U32 Memmy_AddressExprBaseKind;
+enum
+{
+    Memmy_AddressExprBaseKind_Absolute,
+    Memmy_AddressExprBaseKind_Target,
+};
+
+typedef U32 Memmy_AddressOpKind;
+enum
+{
+    Memmy_AddressOpKind_Add,
+    Memmy_AddressOpKind_Sub,
+    Memmy_AddressOpKind_Deref,
+    Memmy_AddressOpKind_DerefOffset,
+};
+
+typedef struct Memmy_AddressOp Memmy_AddressOp;
+struct Memmy_AddressOp
+{
+    ListLink link;
+    Memmy_AddressOpKind kind;
+    I64 offset;
+};
+
+typedef struct Memmy_AddressExpr Memmy_AddressExpr;
+struct Memmy_AddressExpr
+{
+    Memmy_AddressExprBaseKind base_kind;
+    Memmy_Addr absolute;
+    Memmy_TargetExpr target;
+    List ops; // Memmy_AddressOp
+};
+
 Memmy_Status Memmy_TargetExpr_Parse(String8 text, Memmy_TargetExpr *out, Memmy_Error *error);
 Memmy_Status Memmy_ConstExpr_Evaluate(String8 text, Memmy_ConstExpr *out, Memmy_Error *error);
+Memmy_Status Memmy_AddressExpr_Parse(Arena *arena, String8 text, Memmy_AddressExpr *out, Memmy_Error *error);
 
 #endif // MEMMY_EXPR_H
