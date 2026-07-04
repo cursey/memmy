@@ -44,7 +44,7 @@ extern TestSuite suite_memmy_cli_poke;
 extern TestSuite suite_memmy_cli_scan;
 extern TestSuite suite_memmy_cli_pscan;
 extern TestSuite suite_memmy_cli_expr;
-extern TestSuite suite_memmy_win32_backend;
+extern TestSuite suite_memmy_default_backend;
 
 int main(int argc, char **argv)
 {
@@ -90,7 +90,7 @@ int main(int argc, char **argv)
         suite_memmy_cli_scan,
         suite_memmy_cli_pscan,
         suite_memmy_cli_expr,
-        suite_memmy_win32_backend,
+        suite_memmy_default_backend,
     };
 
     if (argc == 2 && strcmp(argv[1], "--list-cases") == 0)

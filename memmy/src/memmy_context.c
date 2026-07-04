@@ -2,6 +2,8 @@
 
 #if OS_WINDOWS
 #include "platform/win32/memmy_win32_backend.h"
+#elif OS_MACOS
+#include "platform/darwin/memmy_darwin_backend.h"
 #endif
 
 static THREAD_LOCAL Memmy_Context *memmy_tls_context;
@@ -40,6 +42,10 @@ Memmy_Status Memmy_Context_InitDefault(Arena *arena, Memmy_Context *ctx, Memmy_E
     *ctx = (Memmy_Context){0};
 #if OS_WINDOWS
     ctx->backend = Memmy_Win32Backend_Create(arena);
+#elif OS_MACOS
+    ctx->backend = Memmy_DarwinBackend_Create(arena);
+#endif
+#if OS_WINDOWS || OS_MACOS
     if (error != 0)
     {
         *error = (Memmy_Error){0};

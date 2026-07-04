@@ -1,13 +1,13 @@
 #include "test_memmy_common.h"
 
-Test(Test_MemmyDefaultContextWin32ReadWriteCallbacks)
+Test(Test_MemmyDefaultBackendReadWriteCallbacks)
 {
     Arena *arena = Arena_CreateDefault();
     Memmy_Context ctx = {0};
     Memmy_Error error = {0};
 
     Memmy_Status status = Memmy_Context_InitDefault(arena, &ctx, &error);
-#if OS_WINDOWS
+#if OS_WINDOWS || OS_MACOS
     AssertEq(status, Memmy_Status_Ok);
     AssertTrue(ctx.backend != 0);
     AssertTrue(Memmy_Backend_HasCapability(ctx.backend, Memmy_BackendCap_Read));
@@ -21,14 +21,14 @@ Test(Test_MemmyDefaultContextWin32ReadWriteCallbacks)
     Arena_Destroy(arena);
 }
 
-Test(Test_MemmyDefaultContextWin32ReadWriteSelfProcess)
+Test(Test_MemmyDefaultBackendReadWriteSelfProcess)
 {
     Arena *arena = Arena_CreateDefault();
     Memmy_Context ctx = {0};
     Memmy_Error error = {0};
 
     Memmy_Status status = Memmy_Context_InitDefault(arena, &ctx, &error);
-#if OS_WINDOWS
+#if OS_WINDOWS || OS_MACOS
     AssertEq(status, Memmy_Status_Ok);
     Memmy_Context *old_ctx = Memmy_Context_Push(&ctx);
 
@@ -62,14 +62,14 @@ Test(Test_MemmyDefaultContextWin32ReadWriteSelfProcess)
     Arena_Destroy(arena);
 }
 
-Test(Test_MemmyDefaultContextWin32SelfProcessInventoryAndScan)
+Test(Test_MemmyDefaultBackendSelfProcessInventoryAndScan)
 {
     Arena *arena = Arena_CreateDefault();
     Memmy_Context ctx = {0};
     Memmy_Error error = {0};
 
     Memmy_Status status = Memmy_Context_InitDefault(arena, &ctx, &error);
-#if OS_WINDOWS
+#if OS_WINDOWS || OS_MACOS
     AssertEq(status, Memmy_Status_Ok);
     Memmy_Context *old_ctx = Memmy_Context_Push(&ctx);
 
@@ -96,6 +96,11 @@ Test(Test_MemmyDefaultContextWin32SelfProcessInventoryAndScan)
         }
     }
     AssertTrue(saw_module_metadata);
+
+#if OS_MACOS
+    Memmy_Module *main_module = ContainerOf(modules.list.first, Memmy_Module, link);
+    AssertTrue(main_module->size < Gigabytes(1));
+#endif
 
     Memmy_RegionList regions = {0};
     AssertEq(Memmy_Process_ListRegions(arena, process, &regions, &error), Memmy_Status_Ok);
@@ -150,14 +155,14 @@ Test(Test_MemmyDefaultContextWin32SelfProcessInventoryAndScan)
     Arena_Destroy(arena);
 }
 
-Test(Test_MemmyDefaultContextWin32CliSelfProcessSmoke)
+Test(Test_MemmyDefaultBackendCliSelfProcessSmoke)
 {
     Arena *arena = Arena_CreateDefault();
     Memmy_Context ctx = {0};
     Memmy_Error error = {0};
 
     Memmy_Status status = Memmy_Context_InitDefault(arena, &ctx, &error);
-#if OS_WINDOWS
+#if OS_WINDOWS || OS_MACOS
     AssertEq(status, Memmy_Status_Ok);
     Memmy_Context *old_ctx = Memmy_Context_Push(&ctx);
 
@@ -202,8 +207,8 @@ Test(Test_MemmyDefaultContextWin32CliSelfProcessSmoke)
 
     Arena_Destroy(arena);
 }
-TestSuite suite_memmy_win32_backend =
-    TestSuite_Make("Memmy Win32 Backend", TestCase_Make(Test_MemmyDefaultContextWin32ReadWriteCallbacks),
-                   TestCase_Make(Test_MemmyDefaultContextWin32ReadWriteSelfProcess),
-                   TestCase_Make(Test_MemmyDefaultContextWin32SelfProcessInventoryAndScan),
-                   TestCase_Make(Test_MemmyDefaultContextWin32CliSelfProcessSmoke), );
+TestSuite suite_memmy_default_backend =
+    TestSuite_Make("Memmy Default Backend", TestCase_Make(Test_MemmyDefaultBackendReadWriteCallbacks),
+                   TestCase_Make(Test_MemmyDefaultBackendReadWriteSelfProcess),
+                   TestCase_Make(Test_MemmyDefaultBackendSelfProcessInventoryAndScan),
+                   TestCase_Make(Test_MemmyDefaultBackendCliSelfProcessSmoke), );
