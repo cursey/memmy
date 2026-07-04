@@ -195,7 +195,8 @@ Test(Test_MemmyCliInvalidOptions)
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(invalid_script_option), invalid_script_option, &out, &error),
              Memmy_Status_InvalidArgument);
     AssertStrEq(error.context, String8_Lit("cli"));
-    AssertStrEq(error.message, String8_Lit("option is invalid for --expr"));
+    AssertStrEq(error.input, String8_Lit("--addr"));
+    AssertStrEq(error.message, String8_Lit("unknown option"));
 
     Arena_Destroy(arena);
 }

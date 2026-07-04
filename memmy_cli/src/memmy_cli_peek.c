@@ -219,68 +219,10 @@ static void Memmy_Cli_PushHexBytes(Arena *arena, String8List *lines, String8 byt
     }
 }
 
-static Memmy_Status Memmy_Cli_ResolveReadSize(Memmy_Process *process, Memmy_CliOptions *options, U64 *out_size,
-                                              Memmy_Error *error)
-{
-    Memmy_Type type = options->type;
-    if (type.kind == Memmy_TypeKind_Ptr)
-    {
-        if (options->has_count)
-        {
-            Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("peek"), String8_Lit("ptr rejects --count"));
-            return Memmy_Status_ParseError;
-        }
-        if (process->pointer_width == Memmy_PointerWidth_32)
-        {
-            *out_size = 4;
-            return Memmy_Status_Ok;
-        }
-        if (process->pointer_width == Memmy_PointerWidth_64)
-        {
-            *out_size = 8;
-            return Memmy_Status_Ok;
-        }
-        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("peek"),
-                        String8_Lit("unknown process pointer width"));
-        return Memmy_Status_InvalidArgument;
-    }
-    if (type.kind == Memmy_TypeKind_Bytes || type.kind == Memmy_TypeKind_Str || type.kind == Memmy_TypeKind_WStr)
-    {
-        if (!options->has_count)
-        {
-            Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("peek"),
-                            String8_Lit("variable-width type requires --count"));
-            return Memmy_Status_ParseError;
-        }
-        if (type.kind == Memmy_TypeKind_WStr)
-        {
-            if (options->count > U64_MAX / 2)
-            {
-                Memmy_Error_Set(error, Memmy_Status_Overflow, String8_Lit("peek"), String8_Lit("wstr count overflow"));
-                return Memmy_Status_Overflow;
-            }
-            *out_size = options->count * 2;
-        }
-        else
-        {
-            *out_size = options->count;
-        }
-        return Memmy_Status_Ok;
-    }
-    if (options->has_count)
-    {
-        Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("peek"),
-                        String8_Lit("fixed-width type rejects --count"));
-        return Memmy_Status_ParseError;
-    }
-    *out_size = type.fixed_size;
-    return Memmy_Status_Ok;
-}
-
-static Memmy_Status Memmy_Cli_FormatPeekValue(Arena *arena, Memmy_CliOptions *options, String8 bytes,
+static Memmy_Status Memmy_Cli_FormatPeekValue(Arena *arena, Memmy_CliValueFormat *format, String8 bytes,
                                               String8List *lines, Memmy_Error *error)
 {
-    Memmy_Type type = options->type;
+    Memmy_Type type = format->type;
     switch (type.kind)
     {
     case Memmy_TypeKind_U8:
@@ -343,10 +285,10 @@ static Memmy_Status Memmy_Cli_FormatPeekValue(Arena *arena, Memmy_CliOptions *op
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Cli_FormatJsonValueFields(Arena *arena, Memmy_CliOptions *options, String8 bytes,
+static Memmy_Status Memmy_Cli_FormatJsonValueFields(Arena *arena, Memmy_CliValueFormat *format, String8 bytes,
                                                     String8 *out, Memmy_Error *error)
 {
-    Memmy_Type type = options->type;
+    Memmy_Type type = format->type;
     switch (type.kind)
     {
     case Memmy_TypeKind_U8:
@@ -465,7 +407,7 @@ String8 Memmy_Cli_TypeString(Memmy_Type type)
 Memmy_Status Memmy_Cli_FormatPeekOutput(Arena *arena, Memmy_CliPeekOutput *peek, B32 json, String8 *out,
                                         Memmy_Error *error)
 {
-    Memmy_CliOptions format_options = {
+    Memmy_CliValueFormat format = {
         .type = peek->type,
         .type_text = peek->type_text.len != 0 ? peek->type_text : Memmy_Cli_TypeString(peek->type),
     };
@@ -473,13 +415,12 @@ Memmy_Status Memmy_Cli_FormatPeekOutput(Arena *arena, Memmy_CliPeekOutput *peek,
     if (json)
     {
         String8 value_fields = {0};
-        Memmy_Status status =
-            Memmy_Cli_FormatJsonValueFields(arena, &format_options, peek->bytes, &value_fields, error);
+        Memmy_Status status = Memmy_Cli_FormatJsonValueFields(arena, &format, peek->bytes, &value_fields, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
-        String8 type_json = Memmy_Cli_FormatJsonString(arena, format_options.type_text);
+        String8 type_json = Memmy_Cli_FormatJsonString(arena, format.type_text);
         *out =
             String8_PushF(arena, "{\"address\":\"%.*s\",\"type\":%.*s,%.*s}\n", (int)address.len, (char *)address.data,
                           (int)type_json.len, (char *)type_json.data, (int)value_fields.len, (char *)value_fields.data);
@@ -488,8 +429,8 @@ Memmy_Status Memmy_Cli_FormatPeekOutput(Arena *arena, Memmy_CliPeekOutput *peek,
     {
         String8List lines = {0};
         Memmy_Cli_PushLine(arena, &lines, "%.*s: %.*s ", (int)address.len, (char *)address.data,
-                           (int)format_options.type_text.len, (char *)format_options.type_text.data);
-        Memmy_Status status = Memmy_Cli_FormatPeekValue(arena, &format_options, peek->bytes, &lines, error);
+                           (int)format.type_text.len, (char *)format.type_text.data);
+        Memmy_Status status = Memmy_Cli_FormatPeekValue(arena, &format, peek->bytes, &lines, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -500,85 +441,11 @@ Memmy_Status Memmy_Cli_FormatPeekOutput(Arena *arena, Memmy_CliPeekOutput *peek,
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_Cli_RunPeek(Arena *arena, Memmy_CliOptions *options, String8 *out, Memmy_Error *error)
-{
-    Memmy_Status status = Memmy_Cli_RejectPokeOptions(options, String8_Lit("peek"), error);
-    if (status != Memmy_Status_Ok)
-    {
-        return status;
-    }
-    status = Memmy_Cli_RejectScanOptions(options, String8_Lit("peek"), error);
-    if (status != Memmy_Status_Ok)
-    {
-        return status;
-    }
-    if (options->has_filter)
-    {
-        return Memmy_Cli_InvalidOption(error, String8_Lit("option is invalid for peek"), String8_Lit("--filter"));
-    }
-
-    U32 pid = 0;
-    status = Memmy_Cli_ResolveTarget(arena, options, &pid, error);
-    if (status != Memmy_Status_Ok)
-    {
-        return status;
-    }
-    if (!options->has_addr)
-    {
-        Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("peek"), String8_Lit("peek requires --addr"));
-        return Memmy_Status_ParseError;
-    }
-    if (!options->has_type)
-    {
-        Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("peek"), String8_Lit("peek requires --type"));
-        return Memmy_Status_ParseError;
-    }
-
-    Memmy_Process *process = 0;
-    status = Memmy_Process_Open(arena, pid, &process, error);
-    if (status != Memmy_Status_Ok)
-    {
-        return status;
-    }
-
-    U64 read_size = 0;
-    status = Memmy_Cli_ResolveReadSize(process, options, &read_size, error);
-    if (status != Memmy_Status_Ok)
-    {
-        Memmy_Process_Close(process);
-        return status;
-    }
-
-    U8 *buffer = Arena_PushArrayNoZero(arena, U8, read_size);
-    U64 bytes_read = 0;
-    Memmy_PointerWidth pointer_width = process->pointer_width;
-    status = Memmy_Process_Read(process, options->addr, buffer, read_size, &bytes_read, error);
-    Memmy_Process_Close(process);
-    if (status != Memmy_Status_Ok)
-    {
-        return status;
-    }
-    if (bytes_read != read_size)
-    {
-        Memmy_Error_Set(error, Memmy_Status_PartialRead, String8_Lit("peek"), String8_Lit("partial read"));
-        return Memmy_Status_PartialRead;
-    }
-
-    Memmy_CliPeekOutput peek = {
-        .pointer_width = pointer_width,
-        .address = options->addr,
-        .type = options->type,
-        .type_text = options->type_text,
-        .bytes = String8_Make(buffer, read_size),
-    };
-    return Memmy_Cli_FormatPeekOutput(arena, &peek, options->json, out, error);
-}
-
-Memmy_Status Memmy_Cli_FormatValue(Arena *arena, Memmy_CliOptions *options, String8 bytes, String8 *out,
+Memmy_Status Memmy_Cli_FormatValue(Arena *arena, Memmy_CliValueFormat *format, String8 bytes, String8 *out,
                                    Memmy_Error *error)
 {
     String8List parts = {0};
-    Memmy_Status status = Memmy_Cli_FormatPeekValue(arena, options, bytes, &parts, error);
+    Memmy_Status status = Memmy_Cli_FormatPeekValue(arena, format, bytes, &parts, error);
     if (status != Memmy_Status_Ok)
     {
         return status;

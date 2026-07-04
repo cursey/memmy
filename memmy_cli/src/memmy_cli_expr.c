@@ -2,26 +2,6 @@
 
 #include "memmy_exec.h"
 
-Memmy_Status Memmy_Cli_RejectNonExprOptions(Memmy_CliOptions *options, Memmy_Error *error)
-{
-    if (options->has_limit)
-    {
-        return Memmy_Cli_InvalidOption(error, String8_Lit("option is invalid for expression input"),
-                                       String8_Lit("--limit"));
-    }
-    if (options->has_chunk_size)
-    {
-        return Memmy_Cli_InvalidOption(error, String8_Lit("option is invalid for expression input"),
-                                       String8_Lit("--chunk-size"));
-    }
-    if (options->has_filter || options->has_addr || options->has_type || options->has_count || options->has_value ||
-        options->dry_run || options->has_start || options->has_end || options->has_length || options->has_pattern)
-    {
-        return Memmy_Cli_InvalidOption(error, String8_Lit("option is invalid for --expr"), (String8){0});
-    }
-    return Memmy_Status_Ok;
-}
-
 static Memmy_ProcessSelector Memmy_Cli_ExprProcessSelector(Memmy_MemoryExpr *expr)
 {
     Memmy_ProcessSelector selector = {0};
@@ -242,14 +222,8 @@ static Memmy_Status Memmy_Cli_SelectExprProcess(Arena *arena, Memmy_CliOptions *
 
 Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 *out, Memmy_Error *error)
 {
-    Memmy_Status status = Memmy_Cli_RejectNonExprOptions(options, error);
-    if (status != Memmy_Status_Ok)
-    {
-        return status;
-    }
-
     Memmy_MemoryExpr expr = {0};
-    status = Memmy_MemoryExpr_Parse(arena, options->expr_text, &expr, error);
+    Memmy_Status status = Memmy_MemoryExpr_Parse(arena, options->expr_text, &expr, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
