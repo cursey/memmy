@@ -1,6 +1,7 @@
 #include "memmy_exec.h"
 
 #include "base_checked.h"
+#include "base_sort.h"
 
 static Memmy_Status Memmy_Exec_TargetCheckProcess(Memmy_Process *process, Memmy_TargetExpr *target, Memmy_Error *error)
 {
@@ -83,6 +84,150 @@ static Memmy_Status Memmy_Exec_AddOffset(Memmy_Addr base, I64 offset, Memmy_Addr
     return Memmy_Status_Ok;
 }
 
+static B32 Memmy_Exec_IsReadableRegion(Memmy_Region *region)
+{
+    return region->state == Memmy_RegionState_Committed && (region->access & Memmy_RegionAccess_Read) != 0 &&
+           (region->access & Memmy_RegionAccess_Guard) == 0;
+}
+
+static I32 Memmy_Exec_ScanRange_Cmp(void *a, void *b, void *ctx)
+{
+    Unused(ctx);
+
+    Memmy_Range *range_a = (Memmy_Range *)a;
+    Memmy_Range *range_b = (Memmy_Range *)b;
+    if (range_a->start < range_b->start)
+    {
+        return -1;
+    }
+    if (range_a->start > range_b->start)
+    {
+        return 1;
+    }
+    if (range_a->end < range_b->end)
+    {
+        return -1;
+    }
+    if (range_a->end > range_b->end)
+    {
+        return 1;
+    }
+    return 0;
+}
+
+static Memmy_Status Memmy_Exec_WholeProcessRange_Check(Memmy_Process *process, Memmy_RangeExpr *expr,
+                                                       Memmy_RegionList *regions, Memmy_Error *error)
+{
+    if (process == 0)
+    {
+        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("range"),
+                        String8_Lit("missing selected process for whole-process range"));
+        return Memmy_Status_InvalidArgument;
+    }
+    if (regions == 0)
+    {
+        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("range"),
+                        String8_Lit("missing region list for whole-process range"));
+        return Memmy_Status_InvalidArgument;
+    }
+    return Memmy_Exec_TargetCheckProcess(process, &expr->target, error);
+}
+
+typedef Memmy_Status Memmy_ExecScanFn(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options, void *needle,
+                                      Memmy_ScanResultList *out, Memmy_Error *error);
+
+static Memmy_Status Memmy_Exec_ScanPattern(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options,
+                                           void *needle, Memmy_ScanResultList *out, Memmy_Error *error)
+{
+    return Memmy_Process_ScanPattern(arena, process, options, *(Memmy_Pattern *)needle, out, error);
+}
+
+static Memmy_Status Memmy_Exec_ScanValue(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options, void *needle,
+                                         Memmy_ScanResultList *out, Memmy_Error *error)
+{
+    return Memmy_Process_ScanValue(arena, process, options, *(Memmy_Value *)needle, out, error);
+}
+
+static Memmy_Status Memmy_Exec_ScanRange(Arena *arena, Memmy_Process *process, Memmy_Range range,
+                                         Memmy_ExecScanFn *scan, void *needle, Memmy_ScanResultList *out,
+                                         Memmy_Error *error)
+{
+    Memmy_ScanOptions options = {
+        .range = range,
+        .limit = 0,
+        .chunk_size = 0,
+    };
+    return scan(arena, process, &options, needle, out, error);
+}
+
+static Memmy_Status Memmy_Exec_ScanWholeProcess(Arena *arena, Memmy_Process *process, Memmy_RangeExpr *range_expr,
+                                                Memmy_RegionList *regions, Memmy_ExecScanFn *scan, void *needle,
+                                                Memmy_ScanResultList *out, Memmy_Error *error)
+{
+    Memmy_Status status = Memmy_Exec_WholeProcessRange_Check(process, range_expr, regions, error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+
+    *out = (Memmy_ScanResultList){0};
+    Scratch scratch = Scratch_Begin(&arena, 1);
+    Memmy_Range *scan_ranges = Arena_PushArrayNoZero(scratch.arena, Memmy_Range, regions->list.count);
+    U64 scan_range_count = 0;
+    List_ForEach(Memmy_Region, region, &regions->list, link)
+    {
+        if (!Memmy_Exec_IsReadableRegion(region))
+        {
+            continue;
+        }
+
+        Memmy_Range range = {0};
+        status = Memmy_Range_FromStartLength(region->base, region->size, &range, error);
+        if (status != Memmy_Status_Ok)
+        {
+            Scratch_End(scratch);
+            return status;
+        }
+
+        scan_ranges[scan_range_count++] = range;
+    }
+
+    if (scan_range_count == 0)
+    {
+        Scratch_End(scratch);
+        Memmy_Error_Set(error, Memmy_Status_Unreadable, String8_Lit("scan"), String8_Lit("scan range is unreadable"));
+        return Memmy_Status_Unreadable;
+    }
+
+    Sort(scan_ranges, scan_range_count, sizeof(scan_ranges[0]), Memmy_Exec_ScanRange_Cmp, 0);
+    for (U64 i = 0; i < scan_range_count;)
+    {
+        Memmy_Range merged_range = scan_ranges[i++];
+        while (i < scan_range_count && scan_ranges[i].start <= merged_range.end)
+        {
+            merged_range.end = Max(merged_range.end, scan_ranges[i].end);
+            i++;
+        }
+
+        Memmy_ScanResultList region_results = {0};
+        status = Memmy_Exec_ScanRange(arena, process, merged_range, scan, needle, &region_results, error);
+        if (status != Memmy_Status_Ok)
+        {
+            Scratch_End(scratch);
+            return status;
+        }
+
+        List_ForEach(Memmy_ScanResult, result, &region_results.list, link)
+        {
+            Memmy_ScanResult *copy = Memmy_ScanResultList_Push(arena, out);
+            copy->address = result->address;
+        }
+    }
+
+    Scratch_End(scratch);
+    return Memmy_Status_Ok;
+}
+
 Memmy_Status Memmy_RangeExpr_Resolve(Memmy_Process *process, Memmy_ModuleList *modules, Memmy_RangeExpr *expr,
                                      Memmy_Range *out, Memmy_Error *error)
 {
@@ -151,7 +296,8 @@ Memmy_Status Memmy_RangeExpr_Resolve(Memmy_Process *process, Memmy_ModuleList *m
 }
 
 Memmy_Status Memmy_MemoryExpr_ExecutePatternScan(Arena *arena, Memmy_Process *process, Memmy_ModuleList *modules,
-                                                 Memmy_MemoryExpr *expr, Memmy_ScanResultList *out, Memmy_Error *error)
+                                                 Memmy_RegionList *regions, Memmy_MemoryExpr *expr,
+                                                 Memmy_ScanResultList *out, Memmy_Error *error)
 {
     if (expr == 0 || out == 0)
     {
@@ -166,6 +312,12 @@ Memmy_Status Memmy_MemoryExpr_ExecutePatternScan(Arena *arena, Memmy_Process *pr
         return Memmy_Status_InvalidArgument;
     }
 
+    if (expr->range.kind == Memmy_RangeExprKind_Target && expr->range.target.kind == Memmy_TargetExprKind_WholeProcess)
+    {
+        return Memmy_Exec_ScanWholeProcess(arena, process, &expr->range, regions, Memmy_Exec_ScanPattern,
+                                           &expr->pattern, out, error);
+    }
+
     Memmy_Range range = {0};
     Memmy_Status status = Memmy_RangeExpr_Resolve(process, modules, &expr->range, &range, error);
     if (status != Memmy_Status_Ok)
@@ -173,10 +325,51 @@ Memmy_Status Memmy_MemoryExpr_ExecutePatternScan(Arena *arena, Memmy_Process *pr
         return status;
     }
 
-    Memmy_ScanOptions options = {
-        .range = range,
-        .limit = 0,
-        .chunk_size = 0,
-    };
-    return Memmy_Process_ScanPattern(arena, process, &options, expr->pattern, out, error);
+    return Memmy_Exec_ScanRange(arena, process, range, Memmy_Exec_ScanPattern, &expr->pattern, out, error);
+}
+
+Memmy_Status Memmy_MemoryExpr_ExecuteValueScan(Arena *arena, Memmy_Process *process, Memmy_ModuleList *modules,
+                                               Memmy_RegionList *regions, Memmy_MemoryExpr *expr,
+                                               Memmy_ScanResultList *out, Memmy_Error *error)
+{
+    if (expr == 0 || out == 0)
+    {
+        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("expr"),
+                        String8_Lit("missing memory expression or scan result output"));
+        return Memmy_Status_InvalidArgument;
+    }
+    if (expr->kind != Memmy_MemoryExprKind_ValueScan)
+    {
+        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("expr"),
+                        String8_Lit("memory expression is not a value scan"));
+        return Memmy_Status_InvalidArgument;
+    }
+    if (process == 0)
+    {
+        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("scan"),
+                        String8_Lit("missing selected process for value scan"));
+        return Memmy_Status_InvalidArgument;
+    }
+
+    Memmy_Value value = {0};
+    Memmy_Status status = Memmy_Value_Parse(arena, expr->type, process->pointer_width, expr->value_text, &value, error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+
+    if (expr->range.kind == Memmy_RangeExprKind_Target && expr->range.target.kind == Memmy_TargetExprKind_WholeProcess)
+    {
+        return Memmy_Exec_ScanWholeProcess(arena, process, &expr->range, regions, Memmy_Exec_ScanValue, &value, out,
+                                           error);
+    }
+
+    Memmy_Range range = {0};
+    status = Memmy_RangeExpr_Resolve(process, modules, &expr->range, &range, error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+
+    return Memmy_Exec_ScanRange(arena, process, range, Memmy_Exec_ScanValue, &value, out, error);
 }

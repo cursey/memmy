@@ -172,15 +172,16 @@ Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 
         return status;
     }
     if (expr.kind != Memmy_MemoryExprKind_Address && expr.kind != Memmy_MemoryExprKind_Peek &&
-        expr.kind != Memmy_MemoryExprKind_Poke && expr.kind != Memmy_MemoryExprKind_PatternScan)
+        expr.kind != Memmy_MemoryExprKind_Poke && expr.kind != Memmy_MemoryExprKind_PatternScan &&
+        expr.kind != Memmy_MemoryExprKind_ValueScan)
     {
         Memmy_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("expr"),
-                        String8_Lit("only address, peek, poke, and pattern scan expressions are implemented"));
+                        String8_Lit("only address, peek, poke, and scan expressions are implemented"));
         return Memmy_Status_Unsupported;
     }
-    if (options->jsonl && expr.kind != Memmy_MemoryExprKind_PatternScan)
+    if (options->jsonl && expr.kind != Memmy_MemoryExprKind_PatternScan && expr.kind != Memmy_MemoryExprKind_ValueScan)
     {
-        return Memmy_Cli_InvalidOption(error, String8_Lit("--jsonl is only valid for pattern scan expressions"),
+        return Memmy_Cli_InvalidOption(error, String8_Lit("--jsonl is only valid for scan expressions"),
                                        String8_Lit("--jsonl"));
     }
 
@@ -237,6 +238,19 @@ Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 
             return status;
         }
         modules_ptr = &modules;
+    }
+
+    Memmy_RegionList regions = {0};
+    Memmy_RegionList *regions_ptr = 0;
+    if (requirements.needs_regions)
+    {
+        status = Memmy_Process_ListRegions(arena, process, &regions, error);
+        if (status != Memmy_Status_Ok)
+        {
+            Memmy_Process_Close(process);
+            return status;
+        }
+        regions_ptr = &regions;
     }
 
     if (expr.kind == Memmy_MemoryExprKind_Address)
@@ -317,10 +331,25 @@ Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 
             return status;
         }
     }
+    else if (expr.kind == Memmy_MemoryExprKind_PatternScan)
+    {
+        Memmy_ScanResultList results = {0};
+        status = Memmy_MemoryExpr_ExecutePatternScan(arena, process, modules_ptr, regions_ptr, &expr, &results, error);
+        if (process != 0)
+        {
+            Memmy_Process_Close(process);
+        }
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+
+        *out = Memmy_Cli_FormatScanResults(arena, &results, pointer_width, options->json, options->jsonl);
+    }
     else
     {
         Memmy_ScanResultList results = {0};
-        status = Memmy_MemoryExpr_ExecutePatternScan(arena, process, modules_ptr, &expr, &results, error);
+        status = Memmy_MemoryExpr_ExecuteValueScan(arena, process, modules_ptr, regions_ptr, &expr, &results, error);
         if (process != 0)
         {
             Memmy_Process_Close(process);

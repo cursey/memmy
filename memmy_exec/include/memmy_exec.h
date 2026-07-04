@@ -43,6 +43,10 @@ Memmy_Status Memmy_MemoryExpr_ExecutePeek(Arena *arena, Memmy_Process *process, 
 Memmy_Status Memmy_MemoryExpr_ExecutePoke(Arena *arena, Memmy_Process *process, Memmy_ModuleList *modules,
                                           Memmy_MemoryExpr *expr, Memmy_ExecPokeResult *out, Memmy_Error *error);
 Memmy_Status Memmy_MemoryExpr_ExecutePatternScan(Arena *arena, Memmy_Process *process, Memmy_ModuleList *modules,
-                                                 Memmy_MemoryExpr *expr, Memmy_ScanResultList *out, Memmy_Error *error);
+                                                 Memmy_RegionList *regions, Memmy_MemoryExpr *expr,
+                                                 Memmy_ScanResultList *out, Memmy_Error *error);
+Memmy_Status Memmy_MemoryExpr_ExecuteValueScan(Arena *arena, Memmy_Process *process, Memmy_ModuleList *modules,
+                                               Memmy_RegionList *regions, Memmy_MemoryExpr *expr,
+                                               Memmy_ScanResultList *out, Memmy_Error *error);
 
 #endif // MEMMY_EXEC_H

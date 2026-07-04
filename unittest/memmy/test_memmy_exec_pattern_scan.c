@@ -37,7 +37,8 @@ Test(Test_MemmyExecPatternScanExecutesWildcardPattern)
     Test_MemmyExecPatternScan_Parse(arena, "<client.dll>{48 8b ?? ?? 89}", &expr);
 
     Memmy_ScanResultList results = {0};
-    AssertEq(Memmy_MemoryExpr_ExecutePatternScan(arena, process, &modules, &expr, &results, &error), Memmy_Status_Ok);
+    AssertEq(Memmy_MemoryExpr_ExecutePatternScan(arena, process, &modules, 0, &expr, &results, &error),
+             Memmy_Status_Ok);
     Memmy_Addr expected[] = {0x1020};
     Test_AssertScanAddresses(&results, expected, ArrayCount(expected));
 
@@ -72,7 +73,8 @@ Test(Test_MemmyExecPatternScanUsesDefaultOptions)
     Test_MemmyExecPatternScan_Parse(arena, "<client.dll>[0x10:+0x30]{90}", &expr);
 
     Memmy_ScanResultList results = {0};
-    AssertEq(Memmy_MemoryExpr_ExecutePatternScan(arena, process, &modules, &expr, &results, &error), Memmy_Status_Ok);
+    AssertEq(Memmy_MemoryExpr_ExecutePatternScan(arena, process, &modules, 0, &expr, &results, &error),
+             Memmy_Status_Ok);
     Memmy_Addr expected[] = {0x1010, 0x1030};
     Test_AssertScanAddresses(&results, expected, ArrayCount(expected));
     AssertEq(backend.min_read_addr, 0x1010);

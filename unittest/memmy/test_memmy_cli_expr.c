@@ -353,6 +353,89 @@ Test(Test_MemmyCliExprFormatsPatternScanJsonlLikePscan)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyCliExprFormatsValueScanTextLikeScan)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+    test_backend.memory[0x10] = 0x90;
+    test_backend.memory[0x30] = 0x90;
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy", "--expr", "<game.exe!client.dll>[0x10:+0x30] : u8 == 144"};
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("ADDRESS\n"
+                                 "0x0000000000001010\n"
+                                 "0x0000000000001030\n"));
+    AssertEq(test_backend.last_open_pid, 1234);
+    AssertEq(test_backend.last_open_access, Memmy_ProcessAccess_Read | Memmy_ProcessAccess_Query);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliExprFormatsValueScanJsonlLikeScan)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+    test_backend.memory[0x22] = 42;
+    test_backend.memory[0x2a] = 42;
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy", "--jsonl", "--pid", "1234", "--expr", "0x1020:+0x10 : u8 == 42"};
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("{\"address\":\"0x0000000000001022\"}\n"
+                                 "{\"address\":\"0x000000000000102a\"}\n"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliExprScansWholeProcessValueWithRegions)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+    test_backend.region_count = 0;
+    Test_MemmyBackend_AddRegion(&test_backend, 1234, 0x1010, 0x10, Memmy_RegionAccess_Read,
+                                Memmy_RegionState_Committed);
+    Test_MemmyBackend_AddRegion(&test_backend, 1234, 0x1040, 0x10, Memmy_RegionAccess_Read,
+                                Memmy_RegionState_Committed);
+    Test_MemmyBackend_AddRegion(&test_backend, 1234, 0x1080, 0x10, Memmy_RegionAccess_Write,
+                                Memmy_RegionState_Committed);
+    test_backend.memory[0x12] = 42;
+    test_backend.memory[0x45] = 42;
+    test_backend.memory[0x85] = 42;
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy", "--expr", "<game.exe!> : u8 == 42"};
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("ADDRESS\n"
+                                 "0x0000000000001012\n"
+                                 "0x0000000000001045\n"));
+    AssertEq(test_backend.last_open_pid, 1234);
+    AssertEq(test_backend.last_open_access, Memmy_ProcessAccess_Read | Memmy_ProcessAccess_Query);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
 TestSuite suite_memmy_cli_expr = TestSuite_Make(
     "Memmy CLI Expr", TestCase_Make(Test_MemmyCliExprResolvesModuleAddressByPid),
     TestCase_Make(Test_MemmyCliExprResolvesPointerChainByPid),
@@ -364,4 +447,7 @@ TestSuite suite_memmy_cli_expr = TestSuite_Make(
     TestCase_Make(Test_MemmyCliExprFormatsPokeTextLikePokeCommand), TestCase_Make(Test_MemmyCliExprRejectsJsonlPoke),
     TestCase_Make(Test_MemmyCliExprFormatsPokeJsonLikePokeCommand),
     TestCase_Make(Test_MemmyCliExprFormatsPatternScanTextLikePscan),
-    TestCase_Make(Test_MemmyCliExprFormatsPatternScanJsonlLikePscan), );
+    TestCase_Make(Test_MemmyCliExprFormatsPatternScanJsonlLikePscan),
+    TestCase_Make(Test_MemmyCliExprFormatsValueScanTextLikeScan),
+    TestCase_Make(Test_MemmyCliExprFormatsValueScanJsonlLikeScan),
+    TestCase_Make(Test_MemmyCliExprScansWholeProcessValueWithRegions), );
