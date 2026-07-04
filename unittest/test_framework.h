@@ -33,6 +33,8 @@ extern U64 test__total_fail;
 
 void Test_RunSuite(TestSuite *suite);
 void Test_RunAll(TestSuite *suites, U64 count);
+void Test_ListAll(TestSuite *suites, U64 count);
+B32 Test_RunCase(TestSuite *suites, U64 count, char *name);
 
 #define Test(name) static void name(void)
 

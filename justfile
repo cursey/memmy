@@ -3,20 +3,28 @@
 set windows-shell := ["C:/Program Files/Git/bin/bash.exe", "-cu"]
 
 build_dir := "build"
+config := env_var_or_default("CONFIG", "Debug")
 clang_format_bin := if os() == "windows" { env_var_or_default("ClangForWindowsBasePath", "C:/Program Files/LLVM") + "/bin/clang-format.exe" } else { "clang-format" }
 
 # List available recipes
 default:
     @just --list
 
-# Configure and build via CMake (uses the system default generator/compiler).
-build:
+# Configure via CMake (uses the system default generator/compiler).
+configure:
     cmake -S . -B {{build_dir}}
-    cmake --build {{build_dir}}
+
+# Build via CMake.
+build: configure
+    cmake --build {{build_dir}} --config {{config}}
+
+# Run the CTest suite
+test: build
+    ctest --test-dir {{build_dir}} -C {{config}} --output-on-failure
 
 # Format all C sources and headers
 fmt:
-    find src -name '*.c' -o -name '*.h' | xargs "{{clang_format_bin}}" -i
+    find . -path './.*' -prune -o -type f \( -name '*.c' -o -name '*.h' \) -print0 | xargs -0 "{{clang_format_bin}}" -i
 
 # Remove build artifacts
 clean:

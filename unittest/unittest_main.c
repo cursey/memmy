@@ -1,6 +1,8 @@
 #include "base_core.h"
 #include "test_framework.h"
 
+#include <string.h>
+
 extern TestSuite suite_arena;
 extern TestSuite suite_string;
 extern TestSuite suite_string_split;
@@ -34,9 +36,6 @@ extern TestSuite suite_memmy_win32_backend;
 
 int main(int argc, char **argv)
 {
-    Unused(argc);
-    Unused(argv);
-
     TestSuite suites[] = {
         suite_arena,
         suite_string,
@@ -69,6 +68,17 @@ int main(int argc, char **argv)
         suite_memmy_cli_pscan,
         suite_memmy_win32_backend,
     };
+
+    if (argc == 2 && strcmp(argv[1], "--list-cases") == 0)
+    {
+        Test_ListAll(suites, ArrayCount(suites));
+        return 0;
+    }
+
+    if (argc == 3 && strcmp(argv[1], "--case") == 0)
+    {
+        return Test_RunCase(suites, ArrayCount(suites), argv[2]) ? 0 : 1;
+    }
 
     Test_RunAll(suites, ArrayCount(suites));
     return (test__total_fail > 0) ? 1 : 0;

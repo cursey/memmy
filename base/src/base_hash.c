@@ -1,5 +1,5 @@
-#include "base_core.h"
 #include "base_hash.h"
+#include "base_core.h"
 
 // ---------------------------------------------------------------------------
 // Hash functions

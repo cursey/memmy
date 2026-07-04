@@ -143,8 +143,7 @@ Test(Test_ModI64Checked)
     AssertEq(out, 123);
 }
 
-TestSuite suite_checked =
-    TestSuite_Make("Checked", TestCase_Make(Test_AddU64Checked), TestCase_Make(Test_SubU64Checked),
-                   TestCase_Make(Test_AddI64ToU64Checked), TestCase_Make(Test_AddI64Checked),
-                   TestCase_Make(Test_SubI64Checked), TestCase_Make(Test_MulI64Checked),
-                   TestCase_Make(Test_DivI64Checked), TestCase_Make(Test_ModI64Checked), );
+TestSuite suite_checked = TestSuite_Make(
+    "Checked", TestCase_Make(Test_AddU64Checked), TestCase_Make(Test_SubU64Checked),
+    TestCase_Make(Test_AddI64ToU64Checked), TestCase_Make(Test_AddI64Checked), TestCase_Make(Test_SubI64Checked),
+    TestCase_Make(Test_MulI64Checked), TestCase_Make(Test_DivI64Checked), TestCase_Make(Test_ModI64Checked), );
