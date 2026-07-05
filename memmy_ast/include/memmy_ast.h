@@ -9,6 +9,8 @@ enum
 {
     Memmy_AstStatus_Ok,
     Memmy_AstStatus_InvalidArgument,
+    Memmy_AstStatus_ParseError,
+    Memmy_AstStatus_Overflow,
     Memmy_AstStatus_Unsupported,
 };
 
@@ -29,6 +31,19 @@ enum
     Memmy_AstNodeKind_Index,
     Memmy_AstNodeKind_Assignment,
     Memmy_AstNodeKind_Command,
+};
+
+typedef U32 Memmy_AstConstOp;
+enum
+{
+    Memmy_AstConstOp_None,
+    Memmy_AstConstOp_Pos,
+    Memmy_AstConstOp_Neg,
+    Memmy_AstConstOp_Add,
+    Memmy_AstConstOp_Sub,
+    Memmy_AstConstOp_Mul,
+    Memmy_AstConstOp_Div,
+    Memmy_AstConstOp_Mod,
 };
 
 typedef U32 Memmy_AstCommandKind;
@@ -61,6 +76,19 @@ struct Memmy_AstNode
 {
     Memmy_AstNodeKind kind;
     String8 text;
+    U64 byte_offset;
+    U64 byte_count;
+    I64 value;
+    B32 contains_variable;
+    Memmy_AstConstOp op;
+    Memmy_AstNode *lhs;
+    Memmy_AstNode *rhs;
+    Memmy_AstNode *value_expr;
+    String8 name;
+    String8 target_process;
+    String8 target_module;
+    B32 target_has_process;
+    B32 target_process_is_pid;
 };
 
 typedef struct Memmy_AstStatement Memmy_AstStatement;
@@ -69,6 +97,8 @@ struct Memmy_AstStatement
     Memmy_AstNodeKind kind;
     Memmy_AstCommandKind command_kind;
     Memmy_AstNode *expr;
+    Memmy_AstNode *assignment_value;
+    String8 assignment_name;
     String8 text;
 };
 
