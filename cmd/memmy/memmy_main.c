@@ -36,7 +36,8 @@ static Memmy_Status Memmy_Main_RunRepl(Arena *arena)
             Os_WriteStdout(String8_Lit("\n"));
             separate_next_prompt = 0;
         }
-        Os_WriteStdout(String8_Lit("> "));
+        String8 prompt = Memmy_CliReplSession_Prompt(arena, &session);
+        Os_WriteStdout(prompt);
         fflush(stdout);
         if (fgets(line, sizeof(line), stdin) == 0)
         {

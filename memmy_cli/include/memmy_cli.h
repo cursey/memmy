@@ -16,9 +16,12 @@ typedef struct Memmy_CliReplSession Memmy_CliReplSession;
 struct Memmy_CliReplSession
 {
     Memmy_ExecEnv env;
+    B32 has_attached_process;
+    Memmy_ProcessInfo attached_process;
 };
 
 Memmy_CliReplSession Memmy_CliReplSession_Begin(Arena *arena);
+String8 Memmy_CliReplSession_Prompt(Arena *arena, Memmy_CliReplSession *session);
 Memmy_Status Memmy_Cli_RunReplSessionLine(Arena *arena, Memmy_CliReplSession *session, String8 line, String8 *out,
                                           B32 *out_exit, Memmy_Error *error);
 Memmy_Status Memmy_Cli_RunReplLine(Arena *arena, String8 line, String8 *out, Memmy_Error *error);
