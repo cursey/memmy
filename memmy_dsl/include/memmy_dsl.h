@@ -68,6 +68,7 @@ enum
 {
     Memmy_AddressExprBaseKind_Absolute,
     Memmy_AddressExprBaseKind_Target,
+    Memmy_AddressExprBaseKind_ProcessAbsolute,
     Memmy_AddressExprBaseKind_Variable,
 };
 

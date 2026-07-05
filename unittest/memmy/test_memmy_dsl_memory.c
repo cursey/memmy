@@ -19,6 +19,9 @@ Test(Test_MemmyExprMemoryDispatchesRequiredExamples)
         {"<client.dll>+0x123->0x8", Memmy_MemoryExprKind_Address},
         {"<game.exe!client.dll>+0x123 : i32", Memmy_MemoryExprKind_Peek},
         {"<game.exe!client.dll>+0x123 : i32 = 77", Memmy_MemoryExprKind_Poke},
+        {"<game.exe!>0x1234", Memmy_MemoryExprKind_Address},
+        {"<game.exe!>0x1234 : u32", Memmy_MemoryExprKind_Peek},
+        {"<game.exe!>0x1234 : u32 = 42", Memmy_MemoryExprKind_Poke},
         {"<game.exe!client.dll>[0x1000:+0x4000]{48 8b ?? ?? 89}", Memmy_MemoryExprKind_PatternScan},
         {"<game.exe!> : i32 == 42", Memmy_MemoryExprKind_ValueScan},
     };
@@ -140,15 +143,35 @@ Test(Test_MemmyExprMemoryRejectsBareWholeProcessTargets)
         AssertEq(Memmy_MemoryExpr_Parse(arena, rejected[i], &expr, &error), Memmy_Status_ParseError);
         AssertStrEq(error.context, String8_Lit("expr"));
         AssertStrEq(error.input, rejected[i]);
+        AssertStrEq(error.message, String8_Lit("whole-process target is not a valid address base"));
         AssertEq(error.byte_offset, 0);
+        AssertEq(error.byte_count, rejected[i].len);
         Arena_Destroy(arena);
     }
+}
+
+Test(Test_MemmyExprMemoryParsesProcessQualifiedAddressSizedPatternScan)
+{
+    Arena *arena = Arena_CreateDefault();
+    Memmy_MemoryExpr expr = {0};
+    Test_ParseMemoryExpr(arena, "<game.exe!>0x1234:+0x100 { 90 }", &expr);
+
+    AssertEq(expr.kind, Memmy_MemoryExprKind_PatternScan);
+    AssertEq(expr.range.kind, Memmy_RangeExprKind_AddressSized);
+    AssertEq(expr.range.address.base_kind, Memmy_AddressExprBaseKind_ProcessAbsolute);
+    AssertEq(expr.range.address.absolute, 0x1234);
+    AssertEq(expr.range.size, 0x100);
+    AssertEq(expr.pattern.count, 1);
+    AssertEq(expr.pattern.bytes[0].value, 0x90);
+
+    Arena_Destroy(arena);
 }
 
 Test(Test_MemmyExprMemoryRejectsRhsAddressExpressionsForPokes)
 {
     String8 rejected[] = {
         String8_Lit("0x1000 : u32 = <client.dll>+0x4"),
+        String8_Lit("0x1000 : u32 = <game.exe!>0x2000"),
         String8_Lit("0x1000 : u32 = 0x2000+0x4"),
     };
 
@@ -227,6 +250,7 @@ TestSuite suite_memmy_dsl_memory =
                    TestCase_Make(Test_MemmyExprMemoryParsesExactValueScans),
                    TestCase_Make(Test_MemmyExprMemoryRejectsOrderingComparisons),
                    TestCase_Make(Test_MemmyExprMemoryRejectsBareWholeProcessTargets),
+                   TestCase_Make(Test_MemmyExprMemoryParsesProcessQualifiedAddressSizedPatternScan),
                    TestCase_Make(Test_MemmyExprMemoryRejectsRhsAddressExpressionsForPokes),
                    TestCase_Make(Test_MemmyExprMemoryEnforcesEqualsOperatorsByExpressionKind),
                    TestCase_Make(Test_MemmyExprMemoryRejectsWhitespaceInsideRangeExpressions),

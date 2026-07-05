@@ -590,7 +590,8 @@ static B32 Memmy_MemoryExpr_RhsLooksAddressExpr(Arena *arena, String8 text)
     Memmy_AddressExpr address = {0};
     if (Memmy_AddressExpr_Parse(scratch.arena, text, &address, 0) == Memmy_Status_Ok)
     {
-        result = (address.base_kind == Memmy_AddressExprBaseKind_Target || address.ops.count != 0);
+        result = (address.base_kind == Memmy_AddressExprBaseKind_Target ||
+                  address.base_kind == Memmy_AddressExprBaseKind_ProcessAbsolute || address.ops.count != 0);
     }
     Scratch_End(scratch);
     return result;

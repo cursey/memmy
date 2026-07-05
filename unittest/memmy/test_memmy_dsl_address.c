@@ -49,6 +49,42 @@ Test(Test_MemmyExprAddressParsesModuleTargetBases)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyExprAddressParsesProcessQualifiedAbsoluteBases)
+{
+    Arena *arena = Arena_CreateDefault();
+    Memmy_AddressExpr named = {0};
+    Memmy_AddressExpr pid = {0};
+
+    Test_ParseAddressExpr(arena, "<game.exe!>0x1234", &named);
+    Test_ParseAddressExpr(arena, "<123!>0x5678+4->0x8", &pid);
+
+    AssertEq(named.base_kind, Memmy_AddressExprBaseKind_ProcessAbsolute);
+    AssertEq(named.target.kind, Memmy_TargetExprKind_WholeProcess);
+    AssertEq(named.target.process.kind, Memmy_ProcessSelectorKind_Name);
+    AssertStrEq(named.target.process.name, String8_Lit("game.exe"));
+    AssertEq(named.absolute, 0x1234);
+    AssertEq(named.ops.count, 0);
+
+    AssertEq(pid.base_kind, Memmy_AddressExprBaseKind_ProcessAbsolute);
+    AssertEq(pid.target.kind, Memmy_TargetExprKind_WholeProcess);
+    AssertEq(pid.target.process.kind, Memmy_ProcessSelectorKind_Pid);
+    AssertEq(pid.target.process.pid, 123);
+    AssertEq(pid.absolute, 0x5678);
+    AssertEq(pid.ops.count, 2);
+
+    Memmy_AddressOp *add = Test_AddressOpAt(&pid, 0);
+    AssertTrue(add != 0);
+    AssertEq(add->kind, Memmy_AddressOpKind_Add);
+    AssertEq(add->offset, 4);
+
+    Memmy_AddressOp *deref_offset = Test_AddressOpAt(&pid, 1);
+    AssertTrue(deref_offset != 0);
+    AssertEq(deref_offset->kind, Memmy_AddressOpKind_DerefOffset);
+    AssertEq(deref_offset->offset, 0x8);
+
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyExprAddressParsesAddAndSubOperations)
 {
     Arena *arena = Arena_CreateDefault();
@@ -201,8 +237,29 @@ Test(Test_MemmyExprAddressRejectsWholeProcessTargets)
         AssertEq(Memmy_AddressExpr_Parse(arena, rejected[i], &expr, &error), Memmy_Status_ParseError);
         AssertStrEq(error.context, String8_Lit("expr"));
         AssertStrEq(error.input, rejected[i]);
+        AssertStrEq(error.message, String8_Lit("whole-process target is not a valid address base"));
         AssertEq(error.byte_offset, 0);
         AssertEq(error.byte_count, rejected[i].len);
+        Arena_Destroy(arena);
+    }
+}
+
+Test(Test_MemmyExprAddressRejectsAccidentalTargetConcatenation)
+{
+    String8 rejected[] = {
+        String8_Lit("<client.dll>0x1234"),
+        String8_Lit("<game.exe!client.dll>0x1234"),
+    };
+
+    for (U64 i = 0; i < ArrayCount(rejected); i++)
+    {
+        Arena *arena = Arena_CreateDefault();
+        Memmy_AddressExpr expr = {0};
+        Memmy_Error error = {0};
+        AssertEq(Memmy_AddressExpr_Parse(arena, rejected[i], &expr, &error), Memmy_Status_ParseError);
+        AssertStrEq(error.context, String8_Lit("expr"));
+        AssertStrEq(error.input, rejected[i]);
+        AssertTrue(error.byte_offset > 0);
         Arena_Destroy(arena);
     }
 }
@@ -210,10 +267,12 @@ Test(Test_MemmyExprAddressRejectsWholeProcessTargets)
 TestSuite suite_memmy_dsl_address =
     TestSuite_Make("Memmy DSL Address", TestCase_Make(Test_MemmyExprAddressParsesAbsoluteAddressBases),
                    TestCase_Make(Test_MemmyExprAddressParsesModuleTargetBases),
+                   TestCase_Make(Test_MemmyExprAddressParsesProcessQualifiedAbsoluteBases),
                    TestCase_Make(Test_MemmyExprAddressParsesAddAndSubOperations),
                    TestCase_Make(Test_MemmyExprAddressParsesDerefAndDerefOffsetOperations),
                    TestCase_Make(Test_MemmyExprAddressParsesParenthesizedNegativeOffsets),
                    TestCase_Make(Test_MemmyExprAddressRejectsInvalidWhitespace),
                    TestCase_Make(Test_MemmyExprAddressRejectsMalformedPointerChainSyntax),
                    TestCase_Make(Test_MemmyExprAddressRejectsAddressRanges),
-                   TestCase_Make(Test_MemmyExprAddressRejectsWholeProcessTargets), );
+                   TestCase_Make(Test_MemmyExprAddressRejectsWholeProcessTargets),
+                   TestCase_Make(Test_MemmyExprAddressRejectsAccidentalTargetConcatenation), );

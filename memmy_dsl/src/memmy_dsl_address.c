@@ -271,17 +271,32 @@ static Memmy_Status Memmy_AddressParser_ParseTargetBase(Memmy_AddressParser *par
         }
         return status;
     }
+    parser->pos = close + 1;
     if (target.kind == Memmy_TargetExprKind_WholeProcess)
     {
-        Memmy_ExprError_SetInput(parser->error, Memmy_Status_ParseError, String8_Lit("expr"),
-                                 String8_Lit("whole-process target is not a valid address base"), parser->text,
-                                 parser->pos, target_text.len);
-        return Memmy_Status_ParseError;
+        if (Memmy_AddressParser_AtEnd(parser) || !Char8_IsDigit(Memmy_AddressParser_Peek(parser)))
+        {
+            Memmy_ExprError_SetInput(parser->error, Memmy_Status_ParseError, String8_Lit("expr"),
+                                     String8_Lit("whole-process target is not a valid address base"), parser->text,
+                                     parser->pos - target_text.len, target_text.len);
+            return Memmy_Status_ParseError;
+        }
+
+        U64 addr = 0;
+        status = Memmy_AddressParser_ParseUnsigned(parser, U64_MAX, String8_Lit("expected absolute address"), &addr);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+
+        out->base_kind = Memmy_AddressExprBaseKind_ProcessAbsolute;
+        out->target = target;
+        out->absolute = addr;
+        return Memmy_Status_Ok;
     }
 
     out->base_kind = Memmy_AddressExprBaseKind_Target;
     out->target = target;
-    parser->pos = close + 1;
     return Memmy_Status_Ok;
 }
 

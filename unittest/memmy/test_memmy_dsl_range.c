@@ -77,9 +77,11 @@ Test(Test_MemmyExprRangeParsesAddressSizedRange)
     Arena *arena = Arena_CreateDefault();
     Memmy_RangeExpr absolute = {0};
     Memmy_RangeExpr module = {0};
+    Memmy_RangeExpr process_absolute = {0};
 
     Test_ParseRangeExpr(arena, "0x1000:+0x20", &absolute);
     Test_ParseRangeExpr(arena, "<client.dll>+0x123:+0x500", &module);
+    Test_ParseRangeExpr(arena, "<game.exe!>0x1234:+0x100", &process_absolute);
 
     AssertEq(absolute.kind, Memmy_RangeExprKind_AddressSized);
     AssertEq(absolute.address.base_kind, Memmy_AddressExprBaseKind_Absolute);
@@ -90,6 +92,13 @@ Test(Test_MemmyExprRangeParsesAddressSizedRange)
     AssertEq(module.address.base_kind, Memmy_AddressExprBaseKind_Target);
     AssertEq(module.address.ops.count, 1);
     AssertEq(module.size, 0x500);
+
+    AssertEq(process_absolute.kind, Memmy_RangeExprKind_AddressSized);
+    AssertEq(process_absolute.address.base_kind, Memmy_AddressExprBaseKind_ProcessAbsolute);
+    AssertEq(process_absolute.address.target.kind, Memmy_TargetExprKind_WholeProcess);
+    AssertStrEq(process_absolute.address.target.process.name, String8_Lit("game.exe"));
+    AssertEq(process_absolute.address.absolute, 0x1234);
+    AssertEq(process_absolute.size, 0x100);
 
     Arena_Destroy(arena);
 }
