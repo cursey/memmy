@@ -22,6 +22,15 @@ Test(Test_Str8EqNocase)
     AssertTrue(!String8_EqNoCase(String8_Lit("abc"), String8_Lit("abd")));
 }
 
+Test(Test_Str8FuzzyMatchNoCase)
+{
+    AssertTrue(String8_FuzzyMatchNoCase(String8_Lit("Client.exe"), String8_Lit("Client")));
+    AssertTrue(String8_FuzzyMatchNoCase(String8_Lit("CoolClient.exe"), String8_Lit("clt")));
+    AssertTrue(String8_FuzzyMatchNoCase(String8_Lit("CoolClient.exe"), String8_Lit("CLIENT")));
+    AssertTrue(String8_FuzzyMatchNoCase(String8_Lit("anything"), String8_Lit("")));
+    AssertTrue(!String8_FuzzyMatchNoCase(String8_Lit("client"), String8_Lit("clz")));
+}
+
 Test(Test_Str8Cstr)
 {
     String8 s = String8_FromCStr("test");
@@ -177,8 +186,8 @@ Test(Test_Str8ParseF64RejectsRangeErrors)
 
 TestSuite suite_string = TestSuite_Make(
     "String", TestCase_Make(Test_Str8Eq), TestCase_Make(Test_Str8EqNocase), TestCase_Make(Test_Str8Cstr),
-    TestCase_Make(Test_Str8Copy), TestCase_Make(Test_Str8Pushf), TestCase_Make(Test_Str8PrefixSuffix),
-    TestCase_Make(Test_Str8Substr), TestCase_Make(Test_Str8TrimWhitespace), TestCase_Make(Test_Str8StartsEndsWith),
-    TestCase_Make(Test_Str8ListJoin), TestCase_Make(Test_Str8ListJoinEmptySep), TestCase_Make(Test_Str8ToU64),
-    TestCase_Make(Test_Str8ToI64), TestCase_Make(Test_Str8ParseF64AcceptsValidNumbers),
+    TestCase_Make(Test_Str8FuzzyMatchNoCase), TestCase_Make(Test_Str8Copy), TestCase_Make(Test_Str8Pushf),
+    TestCase_Make(Test_Str8PrefixSuffix), TestCase_Make(Test_Str8Substr), TestCase_Make(Test_Str8TrimWhitespace),
+    TestCase_Make(Test_Str8StartsEndsWith), TestCase_Make(Test_Str8ListJoin), TestCase_Make(Test_Str8ListJoinEmptySep),
+    TestCase_Make(Test_Str8ToU64), TestCase_Make(Test_Str8ToI64), TestCase_Make(Test_Str8ParseF64AcceptsValidNumbers),
     TestCase_Make(Test_Str8ParseF64RejectsInvalidNumbers), TestCase_Make(Test_Str8ParseF64RejectsRangeErrors), );

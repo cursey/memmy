@@ -265,6 +265,22 @@ Memmy_Status Memmy_Statement_Parse(Arena *arena, String8 text, Memmy_Statement *
     {
         *out = (Memmy_Statement){.kind = Memmy_StatementKind_Procs};
     }
+    else if (source.text.len > 5 && String8_Eq(String8_Substr(source.text, 0, 5), String8_Lit("procs")) &&
+             Memmy_Statement_IsWhitespace(source.text.data[5]))
+    {
+        Memmy_StatementSlice filter = Memmy_Statement_TrimSlice(text, source.offset + 5, source.text.len - 5);
+        if (filter.text.len == 0)
+        {
+            *out = (Memmy_Statement){.kind = Memmy_StatementKind_Procs};
+        }
+        else
+        {
+            *out = (Memmy_Statement){
+                .kind = Memmy_StatementKind_Procs,
+                .procs_filter = filter.text,
+            };
+        }
+    }
     else if (String8_Eq(source.text, String8_Lit("vars")))
     {
         *out = (Memmy_Statement){.kind = Memmy_StatementKind_Vars};

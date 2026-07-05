@@ -227,6 +227,35 @@ Test(Test_MemmyCliExprProcsFormatsJsonl)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyCliExprProcsFiltersFuzzyNoCase)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+    Test_MemmyBackend_AddProcess(&test_backend, 7777, String8_Lit("CoolClient.exe"),
+                                 String8_Lit("C:\\game\\CoolClient.exe"), Memmy_PointerWidth_64);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy", "--expr", "procs CLIENT"};
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("PID     ARCH   NAME\n"
+                                 "7777    x64   CoolClient.exe\n"));
+
+    error = (Memmy_Error){0};
+    char *fuzzy_argv[] = {"memmy", "--expr", "procs CClt"};
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(fuzzy_argv), fuzzy_argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("PID     ARCH   NAME\n"
+                                 "7777    x64   CoolClient.exe\n"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyCliExprRunsStatementSyntax)
 {
     Arena *arena = Arena_CreateDefault();
@@ -709,7 +738,7 @@ TestSuite suite_memmy_cli_dsl = TestSuite_Make(
     TestCase_Make(Test_MemmyCliExprRejectsExternalPidConflict),
     TestCase_Make(Test_MemmyCliExprRejectsExternalNameConflict), TestCase_Make(Test_MemmyCliExprFormatsJsonlAddress),
     TestCase_Make(Test_MemmyCliExprProcsFormatsText), TestCase_Make(Test_MemmyCliExprProcsFormatsJsonl),
-    TestCase_Make(Test_MemmyCliExprRunsStatementSyntax),
+    TestCase_Make(Test_MemmyCliExprProcsFiltersFuzzyNoCase), TestCase_Make(Test_MemmyCliExprRunsStatementSyntax),
     TestCase_Make(Test_MemmyCliScriptMixesStatementsAssignmentsExpressionsAndExit),
     TestCase_Make(Test_MemmyCliVarsFormatsTextAndJsonl), TestCase_Make(Test_MemmyCliExprRejectsScanTweakables),
     TestCase_Make(Test_MemmyCliExprParseErrorJsonlHasTypedFields),

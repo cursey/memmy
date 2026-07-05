@@ -68,6 +68,7 @@ String8 String8_PushFV(Arena *a, char *fmt, va_list args);
 // Comparison
 B32 String8_Eq(String8 a, String8 b);
 B32 String8_EqNoCase(String8 a, String8 b);
+B32 String8_FuzzyMatchNoCase(String8 haystack, String8 needle);
 
 // Slicing
 String8 String8_Prefix(String8 s, U64 len);

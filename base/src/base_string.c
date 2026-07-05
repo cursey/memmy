@@ -110,6 +110,19 @@ B32 String8_EqNoCase(String8 a, String8 b)
     return 1;
 }
 
+B32 String8_FuzzyMatchNoCase(String8 haystack, String8 needle)
+{
+    U64 needle_i = 0;
+    for (U64 haystack_i = 0; haystack_i < haystack.len && needle_i < needle.len; haystack_i++)
+    {
+        if (ToLower(haystack.data[haystack_i]) == ToLower(needle.data[needle_i]))
+        {
+            needle_i++;
+        }
+    }
+    return needle_i == needle.len;
+}
+
 // ---------------------------------------------------------------------------
 // Slicing
 // ---------------------------------------------------------------------------

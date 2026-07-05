@@ -454,11 +454,17 @@ typedef struct Memmy_ExecProcessEmitter Memmy_ExecProcessEmitter;
 struct Memmy_ExecProcessEmitter
 {
     Memmy_ExecResultSink sink;
+    String8 filter;
 };
 
 static Memmy_Status Memmy_ExecProcessEmitter_Push(void *user_data, Memmy_ProcessInfo *info)
 {
     Memmy_ExecProcessEmitter *emitter = (Memmy_ExecProcessEmitter *)user_data;
+    if (emitter->filter.len != 0 && !String8_FuzzyMatchNoCase(info->name, emitter->filter))
+    {
+        return Memmy_Status_Ok;
+    }
+
     Memmy_ExecResult result = {
         .kind = Memmy_ExecResultKind_Process,
         .process =
@@ -488,6 +494,7 @@ Memmy_Status Memmy_Statement_ExecuteWithEnv(Arena *arena, Memmy_ExecEnv *env, Me
     {
         Memmy_ExecProcessEmitter emitter = {
             .sink = sink,
+            .filter = statement->procs_filter,
         };
         Memmy_ProcessInfoSink process_sink = {
             .callback = Memmy_ExecProcessEmitter_Push,
