@@ -89,10 +89,9 @@ static String8 Memmy_Cli_PointerWidthArchString(Memmy_PointerWidth pointer_width
 
 static Memmy_PointerWidth Memmy_CliEvalResultWriter_PointerWidth(Memmy_CliEvalResultWriter *result_writer)
 {
-    if (result_writer->env != 0 && result_writer->env->process != 0 &&
-        result_writer->env->process->pointer_width != Memmy_PointerWidth_Unknown)
+    if (result_writer->env != 0 && result_writer->env->default_pointer_width != Memmy_PointerWidth_Unknown)
     {
-        return result_writer->env->process->pointer_width;
+        return result_writer->env->default_pointer_width;
     }
     return Memmy_PointerWidth_64;
 }
@@ -225,8 +224,31 @@ Memmy_Status Memmy_Cli_ResolveProcessInfo(Arena *arena, B32 has_pid, U32 pid, B3
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Cli_OpenOptionsProcess(Arena *arena, Memmy_CliOptions *options, Memmy_EvalEnv *env,
-                                                 Memmy_ProcessInfo *out_info, Memmy_Error *error)
+static Memmy_Status Memmy_Cli_ResolvePidOrOpenTransient(Arena *arena, U32 pid, Memmy_ProcessInfo *out,
+                                                        Memmy_Error *error)
+{
+    Memmy_Status status = Memmy_Cli_ResolveProcessInfo(arena, 1, pid, 0, (String8){0}, out, error);
+    if (status != Memmy_Status_Unsupported)
+    {
+        return status;
+    }
+
+    Memmy_Process *process = 0;
+    status = Memmy_Process_Open(arena, pid, &process, error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+    *out = (Memmy_ProcessInfo){
+        .pid = pid,
+        .pointer_width = process->pointer_width,
+    };
+    Memmy_Process_Close(process);
+    return Memmy_Status_Ok;
+}
+
+static Memmy_Status Memmy_Cli_SetOptionsProcess(Arena *arena, Memmy_CliOptions *options, Memmy_EvalEnv *env,
+                                                Memmy_ProcessInfo *out_info, Memmy_Error *error)
 {
     if (options == 0 || env == 0 || (!options->has_pid && !options->has_name))
     {
@@ -235,7 +257,15 @@ static Memmy_Status Memmy_Cli_OpenOptionsProcess(Arena *arena, Memmy_CliOptions 
 
     U32 pid = options->pid;
     Memmy_ProcessInfo info = {0};
-    if (options->has_name)
+    if (options->has_pid)
+    {
+        Memmy_Status status = Memmy_Cli_ResolvePidOrOpenTransient(arena, pid, &info, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+    }
+    else if (options->has_name)
     {
         Memmy_Status status = Memmy_Cli_ResolveProcessInfo(arena, 0, 0, 1, options->name, &info, error);
         if (status != Memmy_Status_Ok)
@@ -245,55 +275,11 @@ static Memmy_Status Memmy_Cli_OpenOptionsProcess(Arena *arena, Memmy_CliOptions 
         pid = info.pid;
     }
 
-    Memmy_Process *process = 0;
-    Memmy_Status status = Memmy_Process_Open(arena, pid, &process, error);
-    if (status != Memmy_Status_Ok)
-    {
-        return status;
-    }
-    env->process = process;
     if (out_info != 0)
     {
-        if (info.pid == 0)
-        {
-            status = Memmy_Cli_ResolveProcessInfo(arena, 1, pid, 0, (String8){0}, &info, 0);
-            if (status != Memmy_Status_Ok)
-            {
-                info = (Memmy_ProcessInfo){.pid = pid, .pointer_width = process->pointer_width};
-            }
-        }
         *out_info = info;
     }
-    return Memmy_Status_Ok;
-}
-
-static Memmy_Status Memmy_Cli_OpenTargetProcess(Arena *arena, Memmy_CliTargetProcess target, Memmy_EvalEnv *env,
-                                                Memmy_Error *error)
-{
-    if (!target.found || env == 0 || env->process != 0)
-    {
-        return Memmy_Status_Ok;
-    }
-
-    U32 pid = target.pid;
-    if (!target.is_pid)
-    {
-        Memmy_ProcessInfo info = {0};
-        Memmy_Status status = Memmy_Cli_ResolveProcessInfo(arena, 0, 0, 1, target.name, &info, error);
-        if (status != Memmy_Status_Ok)
-        {
-            return status;
-        }
-        pid = info.pid;
-    }
-
-    Memmy_Process *process = 0;
-    Memmy_Status status = Memmy_Process_Open(arena, pid, &process, error);
-    if (status != Memmy_Status_Ok)
-    {
-        return status;
-    }
-    env->process = process;
+    Memmy_EvalEnv_SetDefaultProcess(env, pid, info.pointer_width);
     return Memmy_Status_Ok;
 }
 
@@ -535,7 +521,9 @@ static Memmy_Status Memmy_CliEvalResultWriter_WriteValue(Memmy_CliEvalResultWrit
                                                          Memmy_EvalValue value)
 {
     Arena *arena = result_writer->arena;
-    Memmy_PointerWidth pointer_width = Memmy_CliEvalResultWriter_PointerWidth(result_writer);
+    Memmy_PointerWidth pointer_width = value.pointer_width != Memmy_PointerWidth_Unknown
+                                           ? value.pointer_width
+                                           : Memmy_CliEvalResultWriter_PointerWidth(result_writer);
     if (value.kind == Memmy_EvalValueKind_Null)
     {
         return Memmy_Status_Ok;
@@ -573,9 +561,11 @@ static Memmy_Status Memmy_CliEvalResultWriter_WriteValue(Memmy_CliEvalResultWrit
 static Memmy_Status Memmy_CliEvalResultWriter_WriteAddressList(Memmy_CliEvalResultWriter *result_writer,
                                                                Memmy_EvalValue value)
 {
-    Memmy_Status status =
-        Memmy_CliScanOutput_Begin(&result_writer->scan_output, result_writer->arena, result_writer->writer,
-                                  Memmy_CliEvalResultWriter_PointerWidth(result_writer), result_writer->jsonl);
+    Memmy_Status status = Memmy_CliScanOutput_Begin(
+        &result_writer->scan_output, result_writer->arena, result_writer->writer,
+        value.pointer_width != Memmy_PointerWidth_Unknown ? value.pointer_width
+                                                          : Memmy_CliEvalResultWriter_PointerWidth(result_writer),
+        result_writer->jsonl);
     if (status != Memmy_Status_Ok)
     {
         result_writer->status = status;
@@ -638,7 +628,9 @@ static void Memmy_CliEvalResultWriter_Push(Memmy_EvalResultSink *sink, Memmy_Eva
     else if (result.kind == Memmy_EvalResultKind_Read)
     {
         Memmy_CliPeekOutput peek = {
-            .pointer_width = Memmy_CliEvalResultWriter_PointerWidth(result_writer),
+            .pointer_width = result.value.pointer_width != Memmy_PointerWidth_Unknown
+                                 ? result.value.pointer_width
+                                 : Memmy_CliEvalResultWriter_PointerWidth(result_writer),
             .address = result.address,
             .type = result.new_value.type,
             .type_text = Memmy_Cli_TypeString(result.new_value.type),
@@ -654,8 +646,10 @@ static void Memmy_CliEvalResultWriter_Push(Memmy_EvalResultSink *sink, Memmy_Eva
     else if (result.kind == Memmy_EvalResultKind_Write)
     {
         Memmy_CliPokeOutput poke = {
-            .pid = result_writer->env != 0 && result_writer->env->process != 0 ? result_writer->env->process->pid : 0,
-            .pointer_width = Memmy_CliEvalResultWriter_PointerWidth(result_writer),
+            .pid = result.value.has_process ? result.value.pid : 0,
+            .pointer_width = result.value.pointer_width != Memmy_PointerWidth_Unknown
+                                 ? result.value.pointer_width
+                                 : Memmy_CliEvalResultWriter_PointerWidth(result_writer),
             .address = result.address,
             .type = result.new_value.type,
             .type_text = Memmy_Cli_TypeString(result.new_value.type),
@@ -831,12 +825,11 @@ Memmy_Status Memmy_Cli_RunStatementToWriterWithEnv(Arena *arena, Memmy_EvalEnv *
         return status;
     }
 
-    status = Memmy_Cli_OpenOptionsProcess(arena, options, env, 0, error);
-    if (status != Memmy_Status_Ok)
-    {
-        return status;
-    }
-    status = Memmy_Cli_OpenTargetProcess(arena, target, env, error);
+    B32 previous_has_default_process = env->has_default_process;
+    U32 previous_default_pid = env->default_pid;
+    Memmy_PointerWidth previous_default_pointer_width = env->default_pointer_width;
+
+    status = Memmy_Cli_SetOptionsProcess(arena, options, env, 0, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
@@ -859,6 +852,15 @@ Memmy_Status Memmy_Cli_RunStatementToWriterWithEnv(Arena *arena, Memmy_EvalEnv *
     if (out_exit != 0)
     {
         *out_exit = result_writer.saw_exit;
+    }
+
+    if (previous_has_default_process)
+    {
+        Memmy_EvalEnv_SetDefaultProcess(env, previous_default_pid, previous_default_pointer_width);
+    }
+    else
+    {
+        Memmy_EvalEnv_ClearDefaultProcess(env);
     }
     if (status != Memmy_Status_Ok)
     {

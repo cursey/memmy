@@ -348,6 +348,7 @@ static Memmy_AstNode *Memmy_Parser_PushNode(Memmy_Parser *parser, Memmy_AstNodeK
 
 static Memmy_AstStatus Memmy_Parser_ParseConstSum(Memmy_Parser *parser, Memmy_AstNode **out);
 static Memmy_AstStatus Memmy_Parser_ParseExpr(Memmy_Parser *parser, Memmy_AstNode **out);
+static Memmy_AstStatus Memmy_Parser_ParseTargetOrTargetAddress(Memmy_Parser *parser, Memmy_AstNode **out);
 
 static B32 Memmy_AstNode_CanFoldConst(Memmy_AstNode *node)
 {
@@ -755,6 +756,22 @@ static Memmy_AstStatus Memmy_Parser_ParseAbsoluteAddress(Memmy_Parser *parser, M
     return Memmy_AstStatus_Ok;
 }
 
+static Memmy_AstStatus Memmy_Parser_ParseRangeEndpoint(Memmy_Parser *parser, Memmy_AstNode **out)
+{
+    if (parser->token.kind == Memmy_TokenKind_At)
+    {
+        return Memmy_Parser_ParseAbsoluteAddress(parser, out);
+    }
+    if (parser->token.kind == Memmy_TokenKind_Target)
+    {
+        return Memmy_Parser_ParseTargetOrTargetAddress(parser, out);
+    }
+
+    Memmy_Parser_SetError(parser, String8_Lit("expected address or target"), parser->token.byte_offset,
+                          parser->token.byte_count);
+    return Memmy_AstStatus_ParseError;
+}
+
 static Memmy_AstStatus Memmy_Parser_ParseRange(Memmy_Parser *parser, Memmy_AstNode **out)
 {
     Memmy_Token open = parser->token;
@@ -764,15 +781,15 @@ static Memmy_AstStatus Memmy_Parser_ParseRange(Memmy_Parser *parser, Memmy_AstNo
         return status;
     }
 
-    if (parser->token.kind != Memmy_TokenKind_At)
+    if (parser->token.kind != Memmy_TokenKind_At && parser->token.kind != Memmy_TokenKind_Target)
     {
-        Memmy_Parser_SetError(parser, String8_Lit("expected address"), parser->token.byte_offset,
+        Memmy_Parser_SetError(parser, String8_Lit("expected address or target"), parser->token.byte_offset,
                               parser->token.byte_count);
         return Memmy_AstStatus_ParseError;
     }
 
     Memmy_AstNode *start = 0;
-    status = Memmy_Parser_ParseAbsoluteAddress(parser, &start);
+    status = Memmy_Parser_ParseRangeEndpoint(parser, &start);
     if (status != Memmy_AstStatus_Ok)
     {
         return status;
@@ -792,9 +809,9 @@ static Memmy_AstStatus Memmy_Parser_ParseRange(Memmy_Parser *parser, Memmy_AstNo
 
     B32 range_is_sized = 0;
     Memmy_AstNode *end_or_size = 0;
-    if (parser->token.kind == Memmy_TokenKind_At)
+    if (parser->token.kind == Memmy_TokenKind_At || parser->token.kind == Memmy_TokenKind_Target)
     {
-        status = Memmy_Parser_ParseAbsoluteAddress(parser, &end_or_size);
+        status = Memmy_Parser_ParseRangeEndpoint(parser, &end_or_size);
     }
     else if (parser->token.kind == Memmy_TokenKind_Plus)
     {

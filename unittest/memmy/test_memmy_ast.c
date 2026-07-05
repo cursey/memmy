@@ -194,6 +194,13 @@ Test(Test_MemmyAstParsesPocketReferenceRanges)
     AssertEq(sized_range->lhs->value_expr->value, 0x1234);
     AssertEq(sized_range->rhs->value, 0x5678);
 
+    Memmy_AstNode *target_endpoint_range = 0;
+    Test_ParseAstExpr(arena, "[<1234!a.dll>..<1234!b.dll>]", &target_endpoint_range);
+    AssertEq(target_endpoint_range->kind, Memmy_AstNodeKind_Range);
+    AssertTrue(!target_endpoint_range->range_is_sized);
+    AssertEq(target_endpoint_range->lhs->kind, Memmy_AstNodeKind_Target);
+    AssertEq(target_endpoint_range->rhs->kind, Memmy_AstNodeKind_Target);
+
     Memmy_AstNode *process_range = 0;
     Test_ParseAstExpr(arena, "<game.exe!>", &process_range);
     AssertEq(process_range->kind, Memmy_AstNodeKind_Target);

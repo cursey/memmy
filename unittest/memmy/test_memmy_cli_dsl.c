@@ -159,6 +159,49 @@ Test(Test_MemmyCliExprRejectsExternalNameConflict)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyCliExprPidSelectorFormatsAddressWithSelectedPointerWidth)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy", "--pid", "1234", "--expr", "@0x1234"};
+
+    test_backend.processes[1].pointer_width = Memmy_PointerWidth_32;
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("0x00001234\n"));
+    AssertEq(test_backend.open_call_count, 0);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliExprPidSelectorRejectsMissingPidForAddressOnlyExpression)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy", "--pid", "9999", "--expr", "@0x1234"};
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_NotFound);
+    AssertStrEq(error.context, String8_Lit("process"));
+    AssertEq(test_backend.open_call_count, 0);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyCliExprFormatsJsonlAddress)
 {
     Arena *arena = Arena_CreateDefault();
@@ -304,6 +347,56 @@ Test(Test_MemmyCliScriptMixesStatementsAssignmentsExpressionsAndExit)
                                  "5678    x64   other\n"
                                  "6789    x64   other.exe\n"
                                  "0x0000000000001020: u8 42  0x2a\n"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliScriptAllowsDifferentExplicitProcessTargets)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy"};
+
+    AssertEq(Memmy_Cli_RunInputString(arena, (I32)ArrayCount(argv), argv,
+                                      String8_Lit("<1234!client.dll>+0x20\n"
+                                                  "<5678!client.dll>+0x20\n"),
+                                      &out, &error),
+             Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("0x0000000000001020\n"
+                                 "0x0000000000003020\n"));
+    AssertEq(test_backend.open_call_count, 2);
+    AssertEq(test_backend.close_call_count, 2);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliScriptPidSelectorRejectsDifferentExplicitTarget)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy", "--pid", "1234"};
+
+    AssertEq(Memmy_Cli_RunInputString(arena, (I32)ArrayCount(argv), argv, String8_Lit("<5678!client.dll>+0\n"), &out,
+                                      &error),
+             Memmy_Status_InvalidArgument);
+    AssertStrEq(error.context, String8_Lit("cli"));
+    AssertStrEq(error.message, String8_Lit("statement target conflicts with selected process"));
+    AssertEq(test_backend.open_call_count, 0);
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -783,10 +876,15 @@ TestSuite suite_memmy_cli_dsl = TestSuite_Make(
     TestCase_Make(Test_MemmyCliExprResolvesPointerChainByPid),
     TestCase_Make(Test_MemmyCliExprResolvesQualifiedProcessName),
     TestCase_Make(Test_MemmyCliExprRejectsExternalPidConflict),
-    TestCase_Make(Test_MemmyCliExprRejectsExternalNameConflict), TestCase_Make(Test_MemmyCliExprFormatsJsonlAddress),
-    TestCase_Make(Test_MemmyCliExprProcsFormatsText), TestCase_Make(Test_MemmyCliExprProcsFormatsJsonl),
-    TestCase_Make(Test_MemmyCliExprProcsFiltersFuzzyNoCase), TestCase_Make(Test_MemmyCliExprRunsStatementSyntax),
+    TestCase_Make(Test_MemmyCliExprRejectsExternalNameConflict),
+    TestCase_Make(Test_MemmyCliExprPidSelectorFormatsAddressWithSelectedPointerWidth),
+    TestCase_Make(Test_MemmyCliExprPidSelectorRejectsMissingPidForAddressOnlyExpression),
+    TestCase_Make(Test_MemmyCliExprFormatsJsonlAddress), TestCase_Make(Test_MemmyCliExprProcsFormatsText),
+    TestCase_Make(Test_MemmyCliExprProcsFormatsJsonl), TestCase_Make(Test_MemmyCliExprProcsFiltersFuzzyNoCase),
+    TestCase_Make(Test_MemmyCliExprRunsStatementSyntax),
     TestCase_Make(Test_MemmyCliScriptMixesStatementsAssignmentsExpressionsAndExit),
+    TestCase_Make(Test_MemmyCliScriptAllowsDifferentExplicitProcessTargets),
+    TestCase_Make(Test_MemmyCliScriptPidSelectorRejectsDifferentExplicitTarget),
     TestCase_Make(Test_MemmyCliVarsFormatsTextAndJsonl),
     TestCase_Make(Test_MemmyCliJsonlScriptEmitsAssignmentsExpressionsAndExit),
     TestCase_Make(Test_MemmyCliHelpFormatsText), TestCase_Make(Test_MemmyCliExprRejectsScanTweakables),

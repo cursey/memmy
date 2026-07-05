@@ -65,6 +65,9 @@ static Memmy_Status Test_MemmyBackend_OpenProcess(Arena *arena, U32 pid, Memmy_P
 
 static void Test_MemmyBackend_CloseProcess(Memmy_Process *process)
 {
+    Test_MemmyBackend *test_backend = (Test_MemmyBackend *)process->backend_data;
+    test_backend->close_call_count++;
+    test_backend->last_close_pid = process->pid;
     process->backend_data = 0;
 }
 
@@ -238,7 +241,9 @@ void Test_MemmyBackend_Init(Test_MemmyBackend *backend)
         .read_limit = 0,
         .read_call_count = 0,
         .open_call_count = 0,
+        .close_call_count = 0,
         .last_open_pid = 0,
+        .last_close_pid = 0,
         .min_read_addr = 0,
         .max_read_end = 0,
         .write_status = Memmy_Status_Ok,

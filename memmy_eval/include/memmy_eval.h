@@ -23,7 +23,9 @@ struct Memmy_EvalEnv
 {
     Arena *arena;
     HashMap bindings; // Memmy_EvalBinding
-    Memmy_Process *process;
+    B32 has_default_process;
+    U32 default_pid;
+    Memmy_PointerWidth default_pointer_width;
 };
 
 typedef struct Memmy_EvalValue Memmy_EvalValue;
@@ -37,6 +39,9 @@ struct Memmy_EvalValue
     U64 address_count;
     Memmy_Value typed_value;
     Memmy_Value old_typed_value;
+    B32 has_process;
+    U32 pid;
+    Memmy_PointerWidth pointer_width;
 };
 
 typedef U32 Memmy_EvalResultKind;
@@ -87,6 +92,8 @@ struct Memmy_EvalResultSink
 };
 
 Memmy_EvalEnv *Memmy_EvalEnv_Create(Arena *arena);
+void Memmy_EvalEnv_SetDefaultProcess(Memmy_EvalEnv *env, U32 pid, Memmy_PointerWidth pointer_width);
+void Memmy_EvalEnv_ClearDefaultProcess(Memmy_EvalEnv *env);
 Memmy_Status Memmy_EvalStatement(Memmy_EvalEnv *env, Memmy_AstStatement *statement, Memmy_EvalResultSink *sink,
                                  Memmy_Error *error);
 Memmy_Status Memmy_EvalExpr(Memmy_EvalEnv *env, Memmy_AstNode *expr, Memmy_EvalValue *out, Memmy_Error *error);

@@ -16,6 +16,9 @@ static Memmy_Status Memmy_CliReplStringWriter_Write(void *user_data, String8 tex
 
 static Memmy_Status Memmy_Cli_RunReplLineWithEnv(Arena *arena, Memmy_EvalEnv *env, Memmy_CliOptions *base_options,
                                                  String8 line, String8 *out, B32 *out_exit, Memmy_Error *error);
+static Memmy_Status Memmy_Cli_RunReplSessionLineWithOptions(Arena *arena, Memmy_CliReplSession *session,
+                                                            Memmy_CliOptions *base_options, String8 line, String8 *out,
+                                                            B32 *out_exit, Memmy_Error *error);
 
 static void Memmy_CliReplSession_SetAttachedProcess(Memmy_CliReplSession *session, Memmy_ProcessInfo info)
 {
@@ -61,35 +64,6 @@ static Memmy_Status Memmy_CliRepl_AttachCandidate(Arena *arena, Memmy_CliTargetP
         return Memmy_Status_Ok;
     }
     return Memmy_Cli_ResolveProcessInfo(arena, 0, 0, 1, target.name, out, error);
-}
-
-static Memmy_Status Memmy_CliRepl_RequireTargetMatchesAttachment(Arena *arena, Memmy_CliReplSession *session,
-                                                                 Memmy_CliTargetProcess target, Memmy_Error *error)
-{
-    if (session == 0 || !session->has_attached_process || !target.found)
-    {
-        return Memmy_Status_Ok;
-    }
-
-    U32 target_pid = target.pid;
-    if (!target.is_pid)
-    {
-        Memmy_ProcessInfo target_info = {0};
-        Memmy_Status status = Memmy_Cli_ResolveProcessInfo(arena, 0, 0, 1, target.name, &target_info, error);
-        if (status != Memmy_Status_Ok)
-        {
-            return status;
-        }
-        target_pid = target_info.pid;
-    }
-
-    if (target_pid != session->attached_process.pid)
-    {
-        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("repl"),
-                        String8_Lit("statement target conflicts with attached process"));
-        return Memmy_Status_InvalidArgument;
-    }
-    return Memmy_Status_Ok;
 }
 
 static String8 Memmy_Cli_FormatTextError(Arena *arena, Memmy_Status status, Memmy_Error *error)
@@ -179,13 +153,21 @@ String8 Memmy_CliReplSession_Prompt(Arena *arena, Memmy_CliReplSession *session)
 Memmy_Status Memmy_Cli_RunReplSessionLine(Arena *arena, Memmy_CliReplSession *session, String8 line, String8 *out,
                                           B32 *out_exit, Memmy_Error *error)
 {
+    return Memmy_Cli_RunReplSessionLineWithOptions(arena, session, 0, line, out, out_exit, error);
+}
+
+static Memmy_Status Memmy_Cli_RunReplSessionLineWithOptions(Arena *arena, Memmy_CliReplSession *session,
+                                                            Memmy_CliOptions *base_options, String8 line, String8 *out,
+                                                            B32 *out_exit, Memmy_Error *error)
+{
     if (session == 0)
     {
         Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("repl"), String8_Lit("missing session"));
         return Memmy_Status_InvalidArgument;
     }
 
-    Memmy_CliOptions options = {0};
+    Memmy_CliOptions options = base_options != 0 ? *base_options : (Memmy_CliOptions){0};
+    B32 has_base_process_selector = options.has_pid || options.has_name;
     Memmy_CliTargetProcess target = {0};
     Memmy_ProcessInfo attach_candidate = {0};
     B32 has_attach_candidate = 0;
@@ -222,12 +204,14 @@ Memmy_Status Memmy_Cli_RunReplSessionLine(Arena *arena, Memmy_CliReplSession *se
 
         target = Memmy_Cli_StatementTargetProcess(&statement);
 
-        if (!target.found && session->has_attached_process)
+        if (!target.found && session->has_attached_process && !has_base_process_selector)
         {
+            options.has_name = 0;
+            options.name = (String8){0};
             options.has_pid = 1;
             options.pid = session->attached_process.pid;
         }
-        else if (target.found && !session->has_attached_process)
+        else if (target.found)
         {
             Memmy_Status status = Memmy_CliRepl_AttachCandidate(arena, target, &attach_candidate, error);
             if (status != Memmy_Status_Ok)
@@ -243,26 +227,6 @@ Memmy_Status Memmy_Cli_RunReplSessionLine(Arena *arena, Memmy_CliReplSession *se
                 return status;
             }
             has_attach_candidate = 1;
-            options.has_pid = 1;
-            options.pid = attach_candidate.pid;
-        }
-        else if (target.found && session->has_attached_process)
-        {
-            Memmy_Status status = Memmy_CliRepl_RequireTargetMatchesAttachment(arena, session, target, error);
-            if (status != Memmy_Status_Ok)
-            {
-                if (out != 0)
-                {
-                    *out = (String8){0};
-                }
-                if (out_exit != 0)
-                {
-                    *out_exit = 0;
-                }
-                return status;
-            }
-            options.has_pid = 1;
-            options.pid = session->attached_process.pid;
         }
     }
 
@@ -299,7 +263,7 @@ Memmy_Status Memmy_Cli_RunReplStringWithOptions(Arena *arena, Memmy_CliOptions *
 
     String8List parts = {0};
     Memmy_Status result = Memmy_Status_Ok;
-    Memmy_EvalEnv *env = Memmy_EvalEnv_Create(arena);
+    Memmy_CliReplSession session = Memmy_CliReplSession_Begin(arena);
     U64 line_start = 0;
     for (U64 i = 0; i <= input.len; i++)
     {
@@ -319,8 +283,8 @@ Memmy_Status Memmy_Cli_RunReplStringWithOptions(Arena *arena, Memmy_CliOptions *
         Memmy_Error line_error = {0};
         String8 line_out = {0};
         B32 should_exit = 0;
-        Memmy_Status status =
-            Memmy_Cli_RunReplLineWithEnv(arena, env, base_options, line, &line_out, &should_exit, &line_error);
+        Memmy_Status status = Memmy_Cli_RunReplSessionLineWithOptions(arena, &session, base_options, line, &line_out,
+                                                                      &should_exit, &line_error);
         if (status == Memmy_Status_Ok)
         {
             String8List_Push(arena, &parts, line_out);

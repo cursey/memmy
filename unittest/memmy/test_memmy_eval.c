@@ -86,10 +86,8 @@ static void Test_EvalEnvWithProcess(Arena *arena, Test_MemmyBackend *backend, Me
     ctx->backend = Test_MemmyBackend_AsBackend(backend);
     Memmy_Context_Set(ctx);
 
-    Memmy_Process *process = 0;
-    AssertEq(Memmy_Process_Open(arena, 4242, &process, 0), Memmy_Status_Ok);
     Memmy_EvalEnv *env = Memmy_EvalEnv_Create(arena);
-    env->process = process;
+    Memmy_EvalEnv_SetDefaultProcess(env, 4242, Memmy_PointerWidth_64);
     *out = env;
 }
 
@@ -293,10 +291,8 @@ Test(Test_MemmyEvalModuleAndProcessTargetsResolveToRanges)
     Memmy_Context ctx = {.backend = memmy_backend};
     Memmy_Context_Set(&ctx);
 
-    Memmy_Process *process = 0;
-    AssertEq(Memmy_Process_Open(arena, 4242, &process, 0), Memmy_Status_Ok);
     Memmy_EvalEnv *env = Memmy_EvalEnv_Create(arena);
-    env->process = process;
+    Memmy_EvalEnv_SetDefaultProcess(env, 4242, Memmy_PointerWidth_64);
 
     Memmy_EvalValue module = {0};
     Test_EvalExprText(env, arena, "<test-module.exe>", &module);
@@ -309,6 +305,192 @@ Test(Test_MemmyEvalModuleAndProcessTargetsResolveToRanges)
     AssertEq(process_range.kind, Memmy_EvalValueKind_Range);
     AssertEq(process_range.range.start, backend.memory_base);
     AssertEq(process_range.range.end, backend.memory_base + TEST_MEMMY_BACKEND_MEMORY_SIZE);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalQualifiedVariablesOpenAndClosePerStatement)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    Memmy_Backend *memmy_backend = Test_MemmyBackend_AsBackend(&backend);
+    Memmy_Context ctx = {.backend = memmy_backend};
+    Memmy_Context_Set(&ctx);
+
+    Memmy_EvalEnv *env = Memmy_EvalEnv_Create(arena);
+    Test_EvalStatementText(env, arena, "$addr = <4242!test-module.exe>+0x4");
+    AssertEq(backend.open_call_count, 1);
+    AssertEq(backend.close_call_count, 1);
+
+    Memmy_EvalValue addr = {0};
+    AssertEq(Memmy_EvalEnv_Find(env, String8_Lit("addr"), &addr), Memmy_Status_Ok);
+    AssertEq(addr.kind, Memmy_EvalValueKind_Address);
+    AssertEq(addr.address, 0x10000004);
+    AssertTrue(addr.has_process);
+    AssertEq(addr.pid, 4242);
+
+    Test_MemmyBackend_SetMemoryBase(&backend, 0x10000000);
+    Memmy_EvalValue read = {0};
+    Test_EvalStatementResult(env, arena, "$addr as u32", &read);
+    AssertEq(read.kind, Memmy_EvalValueKind_TypedValue);
+    AssertEq(read.address, 0x10000004);
+    AssertEq(read.constant, 0x07060504);
+    AssertEq(backend.open_call_count, 2);
+    AssertEq(backend.close_call_count, 2);
+    AssertTrue(!env->has_default_process);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalAddressFromQualifiedTypedValuePreservesProcess)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    Test_MemmyBackend_SetMemoryBase(&backend, 0x10000000);
+    Memmy_Backend *memmy_backend = Test_MemmyBackend_AsBackend(&backend);
+    Memmy_Context ctx = {.backend = memmy_backend};
+    Memmy_Context_Set(&ctx);
+
+    U64 pointer = 0x10000020;
+    for (U64 i = 0; i < 8; i++)
+    {
+        backend.memory[i] = (U8)(pointer >> (i * 8));
+    }
+    backend.memory[0x20] = 42;
+
+    Memmy_EvalEnv *env = Memmy_EvalEnv_Create(arena);
+    Memmy_EvalValue read = {0};
+    Test_EvalExprText(env, arena, "@(<4242!test-module.exe>+0 as ptr) as u8", &read);
+    AssertEq(read.kind, Memmy_EvalValueKind_TypedValue);
+    AssertEq(read.address, 0x10000020);
+    AssertEq(read.constant, 42);
+    AssertTrue(read.has_process);
+    AssertEq(read.pid, 4242);
+    AssertEq(backend.open_call_count, 1);
+    AssertEq(backend.close_call_count, 1);
+    AssertEq(backend.read_call_count, 2);
+    AssertTrue(!env->has_default_process);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalRejectsMixedProcessRangeEndpointsBeforeScan)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    Test_MemmyBackend_AddProcess(&backend, 1234, String8_Lit("a.exe"), String8_Lit("C:\\test\\a.exe"),
+                                 Memmy_PointerWidth_64);
+    Test_MemmyBackend_AddProcess(&backend, 5678, String8_Lit("b.exe"), String8_Lit("C:\\test\\b.exe"),
+                                 Memmy_PointerWidth_64);
+    Test_MemmyBackend_AddModule(&backend, 1234, String8_Lit("a.dll"), String8_Lit("C:\\test\\a.dll"), 0x1000, 0x40);
+    Test_MemmyBackend_AddModule(&backend, 5678, String8_Lit("b.dll"), String8_Lit("C:\\test\\b.dll"), 0x1040, 0x40);
+    Memmy_Backend *memmy_backend = Test_MemmyBackend_AsBackend(&backend);
+    Memmy_Context ctx = {.backend = memmy_backend};
+    Memmy_Context_Set(&ctx);
+
+    Memmy_EvalEnv *env = Memmy_EvalEnv_Create(arena);
+    Memmy_AstNode *expr = 0;
+    Test_EvalParseExpr(arena, "[<1234!a.dll>..<5678!b.dll>] as u8 == 42", &expr);
+    Memmy_EvalValue value = {0};
+    Memmy_Error error = {0};
+    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_InvalidArgument);
+    AssertStrEq(error.context, String8_Lit("range"));
+    AssertEq(backend.read_call_count, 0);
+    AssertEq(backend.open_call_count, 2);
+    AssertEq(backend.close_call_count, 2);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalRangeEndpointsCombineMatchingProcessProvenance)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    Test_MemmyBackend_AddProcess(&backend, 1234, String8_Lit("a.exe"), String8_Lit("C:\\test\\a.exe"),
+                                 Memmy_PointerWidth_64);
+    Test_MemmyBackend_AddModule(&backend, 1234, String8_Lit("a.dll"), String8_Lit("C:\\test\\a.dll"), 0x1000, 0x40);
+    Test_MemmyBackend_AddModule(&backend, 1234, String8_Lit("b.dll"), String8_Lit("C:\\test\\b.dll"), 0x1040, 0x40);
+    Test_MemmyBackend_AddRegion(&backend, 1234, 0x1000, 0x100, Memmy_RegionAccess_Read, Memmy_RegionState_Committed);
+    Memmy_Backend *memmy_backend = Test_MemmyBackend_AsBackend(&backend);
+    Memmy_Context ctx = {.backend = memmy_backend};
+    Memmy_Context_Set(&ctx);
+
+    Memmy_EvalEnv *env = Memmy_EvalEnv_Create(arena);
+    Memmy_EvalValue matches = {0};
+    Test_EvalExprText(env, arena, "[<1234!a.dll>..<1234!b.dll>] as u8 == 42", &matches);
+    AssertEq(matches.kind, Memmy_EvalValueKind_AddressList);
+    AssertTrue(matches.has_process);
+    AssertEq(matches.pid, 1234);
+    AssertEq(matches.address_count, 1);
+    AssertEq(matches.addresses[0], 0x102a);
+    AssertEq(backend.last_open_pid, 1234);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalRangeEndpointAdoptsQualifiedProcess)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    Test_MemmyBackend_AddProcess(&backend, 1234, String8_Lit("a.exe"), String8_Lit("C:\\test\\a.exe"),
+                                 Memmy_PointerWidth_64);
+    Test_MemmyBackend_AddModule(&backend, 1234, String8_Lit("b.dll"), String8_Lit("C:\\test\\b.dll"), 0x1040, 0x40);
+    Test_MemmyBackend_AddRegion(&backend, 1234, 0x1000, 0x100, Memmy_RegionAccess_Read, Memmy_RegionState_Committed);
+    Memmy_Backend *memmy_backend = Test_MemmyBackend_AsBackend(&backend);
+    Memmy_Context ctx = {.backend = memmy_backend};
+    Memmy_Context_Set(&ctx);
+
+    Memmy_EvalEnv *env = Memmy_EvalEnv_Create(arena);
+    Memmy_EvalValue matches = {0};
+    Test_EvalExprText(env, arena, "[@0x1000..<1234!b.dll>] as u8 == 42", &matches);
+    AssertEq(matches.kind, Memmy_EvalValueKind_AddressList);
+    AssertTrue(matches.has_process);
+    AssertEq(matches.pid, 1234);
+    AssertEq(matches.address_count, 1);
+    AssertEq(matches.addresses[0], 0x102a);
+    AssertEq(backend.last_open_pid, 1234);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalTransientProcessOpenBookkeepingUsesStatementScratch)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    Memmy_Backend *memmy_backend = Test_MemmyBackend_AsBackend(&backend);
+    Memmy_Context ctx = {.backend = memmy_backend};
+    Memmy_Context_Set(&ctx);
+
+    Memmy_EvalEnv *env = Memmy_EvalEnv_Create(arena);
+    Memmy_AstStatement statement = {0};
+    Test_EvalParseStatement(arena, "<4242!test-module.exe>", &statement);
+    U64 env_pos = Arena_Pos(arena);
+    for (U64 i = 0; i < 3; i++)
+    {
+        Test_EvalResultCapture capture = {0};
+        Memmy_EvalResultSink sink = {
+            .push = Test_EvalResultCapture_Push,
+            .user_data = &capture,
+        };
+        AssertEq(Memmy_EvalStatement(env, &statement, &sink, 0), Memmy_Status_Ok);
+        AssertEq(capture.count, 1);
+        AssertEq(capture.value.kind, Memmy_EvalValueKind_Range);
+        AssertEq(Arena_Pos(arena), env_pos);
+    }
+    AssertEq(backend.open_call_count, 3);
+    AssertEq(backend.close_call_count, 3);
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -678,6 +860,12 @@ TestSuite suite_memmy_eval = TestSuite_Make(
     TestCase_Make(Test_MemmyEvalImmediateBindingAvoidsVariableCycles), TestCase_Make(Test_MemmyEvalOverflowFails),
     TestCase_Make(Test_MemmyEvalTypedIntegerVariablesWorkAsConstants),
     TestCase_Make(Test_MemmyEvalModuleAndProcessTargetsResolveToRanges),
+    TestCase_Make(Test_MemmyEvalQualifiedVariablesOpenAndClosePerStatement),
+    TestCase_Make(Test_MemmyEvalAddressFromQualifiedTypedValuePreservesProcess),
+    TestCase_Make(Test_MemmyEvalRejectsMixedProcessRangeEndpointsBeforeScan),
+    TestCase_Make(Test_MemmyEvalRangeEndpointsCombineMatchingProcessProvenance),
+    TestCase_Make(Test_MemmyEvalRangeEndpointAdoptsQualifiedProcess),
+    TestCase_Make(Test_MemmyEvalTransientProcessOpenBookkeepingUsesStatementScratch),
     TestCase_Make(Test_MemmyEvalMissingProcessDiagnostics),
     TestCase_Make(Test_MemmyEvalTypedReadsAndWritesWithFakeBackend),
     TestCase_Make(Test_MemmyEvalTypedWriteReadsOldValueBeforeRhsEvaluation),
