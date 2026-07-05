@@ -84,6 +84,7 @@ struct Memmy_AstNode
     Memmy_AstNode *lhs;
     Memmy_AstNode *rhs;
     Memmy_AstNode *value_expr;
+    B32 range_is_sized;
     String8 name;
     String8 target_process;
     String8 target_module;

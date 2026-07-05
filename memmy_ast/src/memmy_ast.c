@@ -347,6 +347,7 @@ static Memmy_AstNode *Memmy_Parser_PushNode(Memmy_Parser *parser, Memmy_AstNodeK
 }
 
 static Memmy_AstStatus Memmy_Parser_ParseConstSum(Memmy_Parser *parser, Memmy_AstNode **out);
+static Memmy_AstStatus Memmy_Parser_ParseExpr(Memmy_Parser *parser, Memmy_AstNode **out);
 
 static Memmy_AstStatus Memmy_Parser_ParseIntegerValue(Memmy_Parser *parser, Memmy_Token token, U64 limit, I64 *out)
 {
@@ -701,17 +702,237 @@ static Memmy_AstStatus Memmy_Parser_ParseConstSum(Memmy_Parser *parser, Memmy_As
     return Memmy_AstStatus_Ok;
 }
 
-static Memmy_AstStatus Memmy_Parser_ParseExprOnly(Memmy_Parser *parser, Memmy_AstNode **out)
+static Memmy_AstStatus Memmy_Parser_ParseAbsoluteAddress(Memmy_Parser *parser, Memmy_AstNode **out)
 {
-    Memmy_AstStatus status = Memmy_AstStatus_Ok;
-    if (parser->token.kind == Memmy_TokenKind_Target)
+    Memmy_Token at = parser->token;
+    Memmy_AstStatus status = Memmy_Parser_Next(parser);
+    if (status != Memmy_AstStatus_Ok)
     {
-        status = Memmy_Parser_ParseTargetNode(parser, out);
+        return status;
+    }
+
+    Memmy_AstNode *value_expr = 0;
+    status = Memmy_Parser_ParseConstSum(parser, &value_expr);
+    if (status != Memmy_AstStatus_Ok)
+    {
+        return status;
+    }
+
+    Memmy_AstNode *node = Memmy_Parser_PushNode(parser, Memmy_AstNodeKind_Address, at);
+    node->value_expr = value_expr;
+    node->contains_variable = value_expr->contains_variable;
+    node->byte_count = value_expr->byte_offset + value_expr->byte_count - at.byte_offset;
+    node->text = String8_Substr(parser->input, node->byte_offset, node->byte_count);
+    *out = node;
+    return Memmy_AstStatus_Ok;
+}
+
+static Memmy_AstStatus Memmy_Parser_ParseRange(Memmy_Parser *parser, Memmy_AstNode **out)
+{
+    Memmy_Token open = parser->token;
+    Memmy_AstStatus status = Memmy_Parser_Next(parser);
+    if (status != Memmy_AstStatus_Ok)
+    {
+        return status;
+    }
+
+    if (parser->token.kind != Memmy_TokenKind_At)
+    {
+        Memmy_Parser_SetError(parser, String8_Lit("expected address"), parser->token.byte_offset,
+                              parser->token.byte_count);
+        return Memmy_AstStatus_ParseError;
+    }
+
+    Memmy_AstNode *start = 0;
+    status = Memmy_Parser_ParseAbsoluteAddress(parser, &start);
+    if (status != Memmy_AstStatus_Ok)
+    {
+        return status;
+    }
+
+    if (parser->token.kind != Memmy_TokenKind_DotDot)
+    {
+        Memmy_Parser_SetError(parser, String8_Lit("expected '..'"), parser->token.byte_offset,
+                              parser->token.byte_count);
+        return Memmy_AstStatus_ParseError;
+    }
+    status = Memmy_Parser_Next(parser);
+    if (status != Memmy_AstStatus_Ok)
+    {
+        return status;
+    }
+
+    B32 range_is_sized = 0;
+    Memmy_AstNode *end_or_size = 0;
+    if (parser->token.kind == Memmy_TokenKind_At)
+    {
+        status = Memmy_Parser_ParseAbsoluteAddress(parser, &end_or_size);
+    }
+    else if (parser->token.kind == Memmy_TokenKind_Plus)
+    {
+        range_is_sized = 1;
+        status = Memmy_Parser_Next(parser);
+        if (status == Memmy_AstStatus_Ok)
+        {
+            status = Memmy_Parser_ParseConstSum(parser, &end_or_size);
+        }
     }
     else
     {
-        status = Memmy_Parser_ParseConstSum(parser, out);
+        Memmy_Parser_SetError(parser, String8_Lit("expected range end or size"), parser->token.byte_offset,
+                              parser->token.byte_count);
+        return Memmy_AstStatus_ParseError;
     }
+    if (status != Memmy_AstStatus_Ok)
+    {
+        return status;
+    }
+
+    if (parser->token.kind != Memmy_TokenKind_RBracket)
+    {
+        Memmy_Parser_SetError(parser, String8_Lit("expected ']'"), parser->token.byte_offset, parser->token.byte_count);
+        return Memmy_AstStatus_ParseError;
+    }
+
+    Memmy_Token close = parser->token;
+    Memmy_AstNode *node = Memmy_Parser_PushNode(parser, Memmy_AstNodeKind_Range, open);
+    node->lhs = start;
+    node->rhs = end_or_size;
+    node->range_is_sized = range_is_sized;
+    node->contains_variable = start->contains_variable || end_or_size->contains_variable;
+    node->byte_count = close.byte_offset + close.byte_count - open.byte_offset;
+    node->text = String8_Substr(parser->input, node->byte_offset, node->byte_count);
+    *out = node;
+    return Memmy_Parser_Next(parser);
+}
+
+static Memmy_AstStatus Memmy_Parser_ParseTargetOrTargetAddress(Memmy_Parser *parser, Memmy_AstNode **out)
+{
+    Memmy_AstStatus status = Memmy_AstStatus_Ok;
+    Memmy_AstNode *target = 0;
+    status = Memmy_Parser_ParseTargetNode(parser, &target);
+    if (status != Memmy_AstStatus_Ok)
+    {
+        return status;
+    }
+
+    if (parser->token.kind != Memmy_TokenKind_Plus)
+    {
+        *out = target;
+        return Memmy_AstStatus_Ok;
+    }
+
+    Memmy_Token plus = parser->token;
+    status = Memmy_Parser_Next(parser);
+    if (status != Memmy_AstStatus_Ok)
+    {
+        return status;
+    }
+
+    Memmy_AstNode *offset = 0;
+    status = Memmy_Parser_ParseConstSum(parser, &offset);
+    if (status != Memmy_AstStatus_Ok)
+    {
+        return status;
+    }
+
+    Memmy_AstNode *node = Memmy_Parser_PushNode(parser, Memmy_AstNodeKind_Address, plus);
+    node->lhs = target;
+    node->rhs = offset;
+    node->byte_offset = target->byte_offset;
+    node->byte_count = offset->byte_offset + offset->byte_count - target->byte_offset;
+    node->contains_variable = offset->contains_variable;
+    node->text = String8_Substr(parser->input, node->byte_offset, node->byte_count);
+    *out = node;
+    return Memmy_AstStatus_Ok;
+}
+
+static Memmy_AstStatus Memmy_Parser_ParseExprPrimary(Memmy_Parser *parser, Memmy_AstNode **out)
+{
+    if (parser->token.kind == Memmy_TokenKind_At)
+    {
+        return Memmy_Parser_ParseAbsoluteAddress(parser, out);
+    }
+
+    if (parser->token.kind == Memmy_TokenKind_LBracket)
+    {
+        return Memmy_Parser_ParseRange(parser, out);
+    }
+
+    if (parser->token.kind == Memmy_TokenKind_Target)
+    {
+        return Memmy_Parser_ParseTargetOrTargetAddress(parser, out);
+    }
+
+    return Memmy_Parser_ParseConstSum(parser, out);
+}
+
+static Memmy_AstStatus Memmy_Parser_ParseDerefChain(Memmy_Parser *parser, Memmy_AstNode **out)
+{
+    while (parser->token.kind == Memmy_TokenKind_Arrow)
+    {
+        if ((*out)->kind == Memmy_AstNodeKind_ConstArithmetic)
+        {
+            Memmy_Parser_SetError(parser, String8_Lit("expected address before dereference"), parser->token.byte_offset,
+                                  parser->token.byte_count);
+            return Memmy_AstStatus_ParseError;
+        }
+
+        Memmy_Token arrow = parser->token;
+        Memmy_AstStatus status = Memmy_Parser_Next(parser);
+        if (status != Memmy_AstStatus_Ok)
+        {
+            return status;
+        }
+
+        Memmy_AstNode *offset = 0;
+        if (parser->token.kind != Memmy_TokenKind_Arrow && parser->token.kind != Memmy_TokenKind_Eof &&
+            parser->token.kind != Memmy_TokenKind_As && parser->token.kind != Memmy_TokenKind_RBracket &&
+            parser->token.kind != Memmy_TokenKind_RParen && parser->token.kind != Memmy_TokenKind_Equal &&
+            parser->token.kind != Memmy_TokenKind_EqualEqual && parser->token.kind != Memmy_TokenKind_LBrace)
+        {
+            status = Memmy_Parser_ParseConstSum(parser, &offset);
+            if (status != Memmy_AstStatus_Ok)
+            {
+                return status;
+            }
+        }
+
+        Memmy_AstNode *base = *out;
+        Memmy_AstNode *node = Memmy_Parser_PushNode(parser, Memmy_AstNodeKind_Deref, arrow);
+        node->lhs = base;
+        node->rhs = offset;
+        node->byte_offset = base->byte_offset;
+        if (offset != 0)
+        {
+            node->byte_count = offset->byte_offset + offset->byte_count - base->byte_offset;
+            node->contains_variable = base->contains_variable || offset->contains_variable;
+        }
+        else
+        {
+            node->byte_count = arrow.byte_offset + arrow.byte_count - base->byte_offset;
+            node->contains_variable = base->contains_variable;
+        }
+        node->text = String8_Substr(parser->input, node->byte_offset, node->byte_count);
+        *out = node;
+    }
+
+    return Memmy_AstStatus_Ok;
+}
+
+static Memmy_AstStatus Memmy_Parser_ParseExpr(Memmy_Parser *parser, Memmy_AstNode **out)
+{
+    Memmy_AstStatus status = Memmy_Parser_ParseExprPrimary(parser, out);
+    if (status == Memmy_AstStatus_Ok)
+    {
+        status = Memmy_Parser_ParseDerefChain(parser, out);
+    }
+    return status;
+}
+
+static Memmy_AstStatus Memmy_Parser_ParseExprOnly(Memmy_Parser *parser, Memmy_AstNode **out)
+{
+    Memmy_AstStatus status = Memmy_Parser_ParseExpr(parser, out);
     if (status != Memmy_AstStatus_Ok)
     {
         return status;
