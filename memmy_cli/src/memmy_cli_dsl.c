@@ -91,6 +91,17 @@ static String8 Memmy_Cli_PointerWidthArchString(Memmy_PointerWidth pointer_width
     return String8_Lit("?");
 }
 
+static String8 Memmy_Cli_DslHelp(Arena *arena)
+{
+    return String8_Copy(arena, String8_Lit("Commands:\n"
+                                           "  /procs [filter]\n"
+                                           "  /vars\n"
+                                           "  /unset $name\n"
+                                           "  /help\n"
+                                           "  /exit\n"
+                                           "  /quit\n"));
+}
+
 static Memmy_Status Memmy_CliExecResultWriter_WriteProcess(Memmy_CliExecResultWriter *result_writer,
                                                            Memmy_ProcessInfo *info)
 {
@@ -258,7 +269,22 @@ static Memmy_Status Memmy_CliExecResultWriter_Push(void *user_data, Memmy_ExecRe
     }
     else if (result->kind == Memmy_ExecResultKind_Control)
     {
-        if (result->control.kind == Memmy_ExecControlKind_Exit)
+        if (result->control.kind == Memmy_ExecControlKind_Help)
+        {
+            String8 help = Memmy_Cli_DslHelp(arena);
+            if (result_writer->jsonl)
+            {
+                String8 text = Memmy_Cli_FormatJsonString(arena, help);
+                String8 line =
+                    String8_PushF(arena, "{\"type\":\"help\",\"text\":%.*s}\n", (int)text.len, (char *)text.data);
+                status = result_writer->writer.write(result_writer->writer.user_data, line);
+            }
+            else
+            {
+                status = result_writer->writer.write(result_writer->writer.user_data, help);
+            }
+        }
+        else if (result->control.kind == Memmy_ExecControlKind_Exit)
         {
             result_writer->saw_exit = 1;
         }

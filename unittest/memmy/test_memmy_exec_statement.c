@@ -74,7 +74,7 @@ Test(Test_MemmyExecStatementProcsEmitsProcessResults)
     Memmy_Context_Set(&ctx);
 
     Memmy_Statement statement = {0};
-    Test_ParseStatement(arena, "procs", &statement);
+    Test_ParseStatement(arena, "/procs", &statement);
     Test_ExecResultList results = {0};
     Memmy_Error error = {0};
     AssertEq(Memmy_Statement_Execute(arena, &statement, (Memmy_ExecProcessSelection){0},
@@ -252,7 +252,7 @@ Test(Test_MemmyExecStatementExitEmitsControlResult)
 {
     Arena *arena = Arena_CreateDefault();
     Memmy_Statement statement = {0};
-    Test_ParseStatement(arena, "quit", &statement);
+    Test_ParseStatement(arena, "/quit", &statement);
     Test_ExecResultList results = {0};
     Memmy_Error error = {0};
     AssertEq(Memmy_Statement_Execute(arena, &statement, (Memmy_ExecProcessSelection){0},
@@ -422,7 +422,8 @@ Test(Test_MemmyExecStatementVarsAndUnset)
     AssertEq(Test_ExecuteLine(arena, &env, "$count = (2)", (Memmy_ExecProcessSelection){0}, &results, &error),
              Memmy_Status_Ok);
     results = (Test_ExecResultList){0};
-    AssertEq(Test_ExecuteLine(arena, &env, "vars", (Memmy_ExecProcessSelection){0}, &results, &error), Memmy_Status_Ok);
+    AssertEq(Test_ExecuteLine(arena, &env, "/vars", (Memmy_ExecProcessSelection){0}, &results, &error),
+             Memmy_Status_Ok);
     AssertEq(results.list.count, 2);
 
     B32 saw_addr = 0;
@@ -444,14 +445,15 @@ Test(Test_MemmyExecStatementVarsAndUnset)
     AssertTrue(saw_count);
 
     results = (Test_ExecResultList){0};
-    AssertEq(Test_ExecuteLine(arena, &env, "unset $addr", (Memmy_ExecProcessSelection){0}, &results, &error),
+    AssertEq(Test_ExecuteLine(arena, &env, "/unset $addr", (Memmy_ExecProcessSelection){0}, &results, &error),
              Memmy_Status_Ok);
     results = (Test_ExecResultList){0};
-    AssertEq(Test_ExecuteLine(arena, &env, "vars", (Memmy_ExecProcessSelection){0}, &results, &error), Memmy_Status_Ok);
+    AssertEq(Test_ExecuteLine(arena, &env, "/vars", (Memmy_ExecProcessSelection){0}, &results, &error),
+             Memmy_Status_Ok);
     AssertEq(results.list.count, 1);
 
     results = (Test_ExecResultList){0};
-    AssertEq(Test_ExecuteLine(arena, &env, "unset $missing", (Memmy_ExecProcessSelection){0}, &results, &error),
+    AssertEq(Test_ExecuteLine(arena, &env, "/unset $missing", (Memmy_ExecProcessSelection){0}, &results, &error),
              Memmy_Status_NotFound);
 
     Arena_Destroy(arena);

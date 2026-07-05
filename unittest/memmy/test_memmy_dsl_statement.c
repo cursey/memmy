@@ -26,23 +26,43 @@ Test(Test_MemmyDslStatementParsesCommands)
     Arena *arena = Arena_CreateDefault();
     Memmy_Statement statement = {0};
 
-    Test_ParseStatement(arena, "procs", &statement);
+    Test_ParseStatement(arena, "/procs", &statement);
     AssertEq(statement.kind, Memmy_StatementKind_Procs);
 
-    Test_ParseStatement(arena, "vars", &statement);
+    Test_ParseStatement(arena, "/vars", &statement);
     AssertEq(statement.kind, Memmy_StatementKind_Vars);
 
-    Test_ParseStatement(arena, "unset $target_1", &statement);
+    Test_ParseStatement(arena, "/unset $target_1", &statement);
     AssertEq(statement.kind, Memmy_StatementKind_Unset);
     AssertStrEq(statement.variable.name, String8_Lit("target_1"));
 
-    Test_ParseStatement(arena, "exit", &statement);
+    Test_ParseStatement(arena, "/help", &statement);
+    AssertEq(statement.kind, Memmy_StatementKind_Help);
+
+    Test_ParseStatement(arena, "/exit", &statement);
     AssertEq(statement.kind, Memmy_StatementKind_Exit);
 
-    Test_ParseStatement(arena, "quit", &statement);
+    Test_ParseStatement(arena, "/quit", &statement);
     AssertEq(statement.kind, Memmy_StatementKind_Exit);
 
     Arena_Destroy(arena);
+}
+
+Test(Test_MemmyDslStatementRejectsBareCommands)
+{
+    String8 rejected[] = {
+        String8_Lit("procs"), String8_Lit("vars"), String8_Lit("unset $target"),
+        String8_Lit("help"),  String8_Lit("exit"), String8_Lit("quit"),
+    };
+
+    for (U64 i = 0; i < ArrayCount(rejected); i++)
+    {
+        Arena *arena = Arena_CreateDefault();
+        Memmy_Statement statement = {0};
+        Memmy_Error error = {0};
+        AssertEq(Memmy_Statement_Parse(arena, rejected[i], &statement, &error), Memmy_Status_ParseError);
+        Arena_Destroy(arena);
+    }
 }
 
 Test(Test_MemmyDslStatementParsesMemoryExpressions)
@@ -137,7 +157,7 @@ Test(Test_MemmyDslStatementRejectsInvalidVariableNames)
         String8_Lit("$ = 1"),
         String8_Lit("$1x = 1"),
         String8_Lit("$bad-name = 1"),
-        String8_Lit("unset $1x"),
+        String8_Lit("/unset $1x"),
     };
 
     for (U64 i = 0; i < ArrayCount(rejected); i++)
@@ -172,6 +192,7 @@ Test(Test_MemmyDslStatementRejectsMalformedAssignments)
 
 TestSuite suite_memmy_dsl_statement =
     TestSuite_Make("Memmy DSL Statement", TestCase_Make(Test_MemmyDslStatementParsesCommands),
+                   TestCase_Make(Test_MemmyDslStatementRejectsBareCommands),
                    TestCase_Make(Test_MemmyDslStatementParsesMemoryExpressions),
                    TestCase_Make(Test_MemmyDslStatementParsesAssignmentPrecedence),
                    TestCase_Make(Test_MemmyDslStatementParsesVariableRefs),

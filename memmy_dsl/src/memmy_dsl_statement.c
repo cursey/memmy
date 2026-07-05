@@ -251,10 +251,12 @@ Memmy_Status Memmy_VariableExpr_Parse(Arena *arena, String8 text, Memmy_Variable
 }
 
 /*
-statement       = meta_stmt | assignment_stmt | memory_expr
-meta_stmt       = "procs", [ ws, procs_filter ]
+statement       = command_stmt | assignment_stmt | memory_expr
+command_stmt    = "/", command
+command         = "procs", [ ws, procs_filter ]
                 | "vars"
                 | "unset", ws, variable
+                | "help"
                 | "exit"
                 | "quit"
 assignment_stmt = variable, ws_opt, "=", ws_opt, variable_expr
@@ -280,48 +282,63 @@ Memmy_Status Memmy_Statement_Parse(Arena *arena, String8 text, Memmy_Statement *
         return Memmy_Status_ParseError;
     }
 
-    if (String8_Eq(source.text, String8_Lit("procs")))
+    if (source.text.data[0] == '/')
     {
-        *out = (Memmy_Statement){.kind = Memmy_StatementKind_Procs};
-    }
-    else if (source.text.len > 5 && String8_Eq(String8_Substr(source.text, 0, 5), String8_Lit("procs")) &&
-             Memmy_Statement_IsWhitespace(source.text.data[5]))
-    {
-        Memmy_StatementSlice filter = Memmy_Statement_TrimSlice(text, source.offset + 5, source.text.len - 5);
-        if (filter.text.len == 0)
+        String8 command = String8_Substr(source.text, 1, source.text.len - 1);
+        U64 command_offset = source.offset + 1;
+        if (String8_Eq(command, String8_Lit("procs")))
         {
             *out = (Memmy_Statement){.kind = Memmy_StatementKind_Procs};
         }
-        else
+        else if (command.len > 5 && String8_Eq(String8_Substr(command, 0, 5), String8_Lit("procs")) &&
+                 Memmy_Statement_IsWhitespace(command.data[5]))
         {
+            Memmy_StatementSlice filter = Memmy_Statement_TrimSlice(text, command_offset + 5, command.len - 5);
+            if (filter.text.len == 0)
+            {
+                *out = (Memmy_Statement){.kind = Memmy_StatementKind_Procs};
+            }
+            else
+            {
+                *out = (Memmy_Statement){
+                    .kind = Memmy_StatementKind_Procs,
+                    .procs_filter = filter.text,
+                };
+            }
+        }
+        else if (String8_Eq(command, String8_Lit("vars")))
+        {
+            *out = (Memmy_Statement){.kind = Memmy_StatementKind_Vars};
+        }
+        else if (String8_Eq(command, String8_Lit("help")))
+        {
+            *out = (Memmy_Statement){.kind = Memmy_StatementKind_Help};
+        }
+        else if (String8_Eq(command, String8_Lit("exit")) || String8_Eq(command, String8_Lit("quit")))
+        {
+            *out = (Memmy_Statement){.kind = Memmy_StatementKind_Exit};
+        }
+        else if (command.len > 5 && String8_Eq(String8_Substr(command, 0, 5), String8_Lit("unset")) &&
+                 Memmy_Statement_IsWhitespace(command.data[5]))
+        {
+            Memmy_StatementSlice variable = Memmy_Statement_TrimSlice(text, command_offset + 5, command.len - 5);
+            Memmy_VariableRef variable_ref = {0};
+            Memmy_Status status = Memmy_Statement_ParseVariable(text, variable, &variable_ref, error);
+            if (status != Memmy_Status_Ok)
+            {
+                return status;
+            }
             *out = (Memmy_Statement){
-                .kind = Memmy_StatementKind_Procs,
-                .procs_filter = filter.text,
+                .kind = Memmy_StatementKind_Unset,
+                .variable = variable_ref,
             };
         }
-    }
-    else if (String8_Eq(source.text, String8_Lit("vars")))
-    {
-        *out = (Memmy_Statement){.kind = Memmy_StatementKind_Vars};
-    }
-    else if (String8_Eq(source.text, String8_Lit("exit")) || String8_Eq(source.text, String8_Lit("quit")))
-    {
-        *out = (Memmy_Statement){.kind = Memmy_StatementKind_Exit};
-    }
-    else if (source.text.len > 5 && String8_Eq(String8_Substr(source.text, 0, 5), String8_Lit("unset")) &&
-             Memmy_Statement_IsWhitespace(source.text.data[5]))
-    {
-        Memmy_StatementSlice variable = Memmy_Statement_TrimSlice(text, source.offset + 5, source.text.len - 5);
-        Memmy_VariableRef variable_ref = {0};
-        Memmy_Status status = Memmy_Statement_ParseVariable(text, variable, &variable_ref, error);
-        if (status != Memmy_Status_Ok)
+        else
         {
-            return status;
+            Memmy_StatementError_SetInput(error, Memmy_Status_ParseError, String8_Lit("statement"),
+                                          String8_Lit("unknown command"), text, source.offset, source.text.len);
+            return Memmy_Status_ParseError;
         }
-        *out = (Memmy_Statement){
-            .kind = Memmy_StatementKind_Unset,
-            .variable = variable_ref,
-        };
     }
     else
     {

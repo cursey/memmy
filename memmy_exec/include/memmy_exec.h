@@ -55,6 +55,7 @@ typedef U32 Memmy_ExecControlKind;
 enum
 {
     Memmy_ExecControlKind_None,
+    Memmy_ExecControlKind_Help,
     Memmy_ExecControlKind_Exit,
 };
 

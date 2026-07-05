@@ -561,6 +561,17 @@ Memmy_Status Memmy_Statement_ExecuteWithEnv(Arena *arena, Memmy_ExecEnv *env, Me
         };
         return Memmy_ExecResult_Emit(sink, &result, error);
     }
+    if (statement->kind == Memmy_StatementKind_Help)
+    {
+        Memmy_ExecResult result = {
+            .kind = Memmy_ExecResultKind_Control,
+            .control =
+                {
+                    .kind = Memmy_ExecControlKind_Help,
+                },
+        };
+        return Memmy_ExecResult_Emit(sink, &result, error);
+    }
     if (statement->kind == Memmy_StatementKind_Exit)
     {
         Memmy_ExecResult result = {

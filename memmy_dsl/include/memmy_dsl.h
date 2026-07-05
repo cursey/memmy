@@ -172,6 +172,7 @@ enum
     Memmy_StatementKind_Procs,
     Memmy_StatementKind_Vars,
     Memmy_StatementKind_Unset,
+    Memmy_StatementKind_Help,
     Memmy_StatementKind_Exit,
 };
 

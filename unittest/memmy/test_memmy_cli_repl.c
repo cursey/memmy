@@ -36,7 +36,7 @@ Test(Test_MemmyCliReplStringEvaluatesLinesAsAscii)
     AssertEq(Memmy_Cli_RunReplString(arena,
                                      String8_Lit("<4242!client.dll>\n"
                                                  "<4242!client.dll>+0x20 : u8\n"
-                                                 "exit\n"
+                                                 "/exit\n"
                                                  "<4242!client.dll>+0x1\n"),
                                      &out, &error),
              Memmy_Status_Ok);
@@ -98,7 +98,7 @@ Test(Test_MemmyCliReplSessionKeepsAssignmentsAcrossLines)
              Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("0x0000000000001020: u8 77  0x4d\n"));
 
-    AssertEq(Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("quit\n"), &out, &should_exit, &error),
+    AssertEq(Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("/quit\n"), &out, &should_exit, &error),
              Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit(""));
     AssertEq(should_exit, 1);
