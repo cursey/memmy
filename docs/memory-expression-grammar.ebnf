@@ -1,4 +1,6 @@
-(* Memmy DSL memory expression grammar.
+(* Memmy DSL statement and memory expression grammar.
+
+   This file is the living Memmy DSL grammar reference.
 
    This grammar documents the syntax parsed by memmy_dsl into ASTs, plus
    semantic constraints that are enforced during parsing but are awkward to
@@ -14,11 +16,21 @@
    Unless a production explicitly includes ws, whitespace is not allowed.
 *)
 
-memory_expr        = ws_opt,
-                     ( pattern_scan_expr
+statement          = meta_stmt | assignment_stmt | memory_expr ;
+
+meta_stmt          = "procs"
+                   | "vars"
+                   | "unset", ws, variable
+                   | "exit"
+                   | "quit" ;
+
+assignment_stmt    = variable, ws_opt, "=", ws_opt, variable_expr ;
+
+variable_expr      = range_expr | address_expr | "(", const_expr, ")" ;
+
+memory_expr        = ( pattern_scan_expr
                      | typed_expr
-                     | address_expr ),
-                     ws_opt ;
+                     | address_expr ) ;
 
 typed_expr         = ( poke_expr | value_scan_expr | peek_expr ) ;
 
@@ -55,7 +67,7 @@ any_char           = ? any input character ? ;
 
 address_expr       = address_base, { address_op } ;
 
-address_base       = integer | module_target_ref ;
+address_base       = variable | integer | module_target_ref ;
 
 address_op         = add | sub | deref_offset | deref ;
 
@@ -72,7 +84,8 @@ offset             = integer | "(", const_expr, ")" ;
 range_expr         = module_offset_range
                    | module_sized_range
                    | address_sized_range
-                   | target_ref ;
+                   | target_ref
+                   | variable ;
 
 module_offset_range = module_target_ref, "[", const_expr, "..", const_expr, "]" ;
 
@@ -95,7 +108,7 @@ product            = unary, { ws_opt, ("*" | "/" | "%"), ws_opt, unary } ;
 
 unary              = ws_opt, ( ("+" | "-"), unary | primary ) ;
 
-primary            = integer | "(", const_expr, ")" ;
+primary            = integer | variable | "(", const_expr, ")" ;
 
 
 (* Types, values, and patterns. *)
@@ -121,6 +134,27 @@ pattern_token      = byte_token | wildcard ;
 byte_token         = hex_digit, hex_digit ;
 
 wildcard           = "?" | "??" ;
+
+
+(* Variables. *)
+
+variable           = "$", ident ;
+
+ident              = ident_start, { ident_continue } ;
+
+ident_start        = "A" | "B" | "C" | "D" | "E" | "F"
+                   | "G" | "H" | "I" | "J" | "K" | "L"
+                   | "M" | "N" | "O" | "P" | "Q" | "R"
+                   | "S" | "T" | "U" | "V" | "W" | "X"
+                   | "Y" | "Z"
+                   | "a" | "b" | "c" | "d" | "e" | "f"
+                   | "g" | "h" | "i" | "j" | "k" | "l"
+                   | "m" | "n" | "o" | "p" | "q" | "r"
+                   | "s" | "t" | "u" | "v" | "w" | "x"
+                   | "y" | "z"
+                   | "_" ;
+
+ident_continue     = ident_start | digit ;
 
 
 (* Integer tokens. *)
@@ -151,7 +185,7 @@ ws_char            = " " | "\t" | "\n" | "\r" ;
 
 (* Semantic and parser constraints.
 
-   1. Top-level memory_expr input is trimmed before parsing.
+   1. Top-level statement input is trimmed before parsing.
 
    2. module_target_ref means target_ref whose parsed target kind is Module.
       Whole-process targets such as <game.exe!> and <123!> are valid range
@@ -191,4 +225,22 @@ ws_char            = " " | "\t" | "\n" | "\r" ;
       concrete syntax is type-dependent and is validated later by
       Memmy_Value_Parse. For poke_expr, memmy_dsl rejects value_text that
       parses as an address expression with a target base or address operations.
+
+  12. variable identifies a named parsed expression using the lexical form
+      "$" ident. ident is [A-Za-z_][A-Za-z0-9_]*.
+
+  13. Assignment stores the parsed expression on the right-hand side, not a
+      resolved address or value. For example, "$x = 100" stores an address
+      expression, "$x = (100)" stores a const expression, and
+      "$x = <module>[0:+0x100]" stores a range expression.
+
+  14. Variables are checked against the expected expression kind at each usage
+      site. Using a range variable where an address or const expression is
+      required is a resolution error.
+
+  15. Variable cycles are resolution errors.
+
+  16. Module ownership: memmy_dsl parses statements and expressions into ASTs;
+      memmy_exec executes statement semantics; memmy_cli formats output and
+      controls REPL/script input flow.
 *)
