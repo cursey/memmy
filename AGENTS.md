@@ -2,7 +2,7 @@
 
 This repository is a C11 memory introspection toolkit.
 
-- `base/` is the shared foundation library. Prefer its arenas, strings, intrusive containers, filesystem/process helpers, hashing, sorting, regex, bitsets, AVL trees, and OS abstractions before adding new utility code.
+- `base/` is the shared foundation library. Prefer its arenas, strings, intrusive containers, filesystem/process helpers, hashing, sorting, regex, bitsets, AVL trees, and OS abstractions before adding new utility code. Use the base layer as much as possible instead of calling the C standard library directly; when the base layer has a gap, call it out so we can decide whether to add the missing capability there.
 - `memmy/` is the core Memmy library. Public project APIs use `Memmy_` names. Private/file-local helpers may use lowercase `memmy_` when a prefix is useful.
 - `cmd/memmy/` is the CLI executable. The CMake target is `cmd_memmy`; its output name is `memmy`.
 - `vendor/` contains third-party code. Avoid editing it unless the task is explicitly about vendored code.
@@ -58,6 +58,7 @@ This repository is a C11 memory introspection toolkit.
 - Null pointer checks use explicit `== 0` and `!= 0`.
 - Parameter order: arenas first, primary inputs next, output parameters last.
 - Remote process addresses are integers (`Memmy_Addr`), not local pointers, outside platform boundary code.
+- Keep grammar comments in `memmy_dsl` synchronized with the parse functions they describe whenever DSL syntax or parser behavior changes.
 
 ## Memory And Data Structures
 
