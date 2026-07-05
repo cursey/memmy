@@ -78,8 +78,7 @@ Test(Test_MemmyDefaultBackendSelfProcessInventoryAndScan)
     AssertTrue(process->pointer_width == Memmy_PointerWidth_32 || process->pointer_width == Memmy_PointerWidth_64);
 
     Test_ModuleList modules = {0};
-    AssertEq(Memmy_Process_EnumerateModules(arena, process, Test_ModuleSink(&modules, arena), &error),
-             Memmy_Status_Ok);
+    AssertEq(Memmy_Process_EnumerateModules(arena, process, Test_ModuleSink(&modules, arena), &error), Memmy_Status_Ok);
     AssertTrue(modules.list.count > 0);
     B32 saw_module_metadata = 0;
     List_ForEach(Test_ModuleNode, module_node, &modules.list, link)
@@ -100,8 +99,7 @@ Test(Test_MemmyDefaultBackendSelfProcessInventoryAndScan)
 #endif
 
     Test_RegionList regions = {0};
-    AssertEq(Memmy_Process_EnumerateRegions(arena, process, Test_RegionSink(&regions, arena), &error),
-             Memmy_Status_Ok);
+    AssertEq(Memmy_Process_EnumerateRegions(arena, process, Test_RegionSink(&regions, arena), &error), Memmy_Status_Ok);
     AssertTrue(regions.list.count > 0);
     B32 saw_fixture_region = 0;
     Memmy_Addr fixture_addr = (Memmy_Addr)(uintptr_t)(fixture + 8);
@@ -177,10 +175,11 @@ Test(Test_MemmyDefaultBackendCliSelfProcessSmoke)
     U64 scan_start = (U64)(uintptr_t)scan_fixture;
 
     String8 out = {0};
-    char *peek_expr = String8_ToCStr(arena, String8_PushF(arena, "0x%llx : u32", poke_addr));
-    char *poke_expr = String8_ToCStr(arena, String8_PushF(arena, "0x%llx : u32 = 0x55667788", poke_addr));
-    char *pscan_expr = String8_ToCStr(arena, String8_PushF(arena, "0x%llx:+0x10{de ad be ef}", scan_start));
-    char *scan_expr = String8_ToCStr(arena, String8_PushF(arena, "0x%llx:+0x10 : bytes == de ad be ef", scan_start));
+    char *peek_expr = String8_ToCStr(arena, String8_PushF(arena, "@0x%llx as u32", poke_addr));
+    char *poke_expr = String8_ToCStr(arena, String8_PushF(arena, "@0x%llx as u32 = 0x55667788", poke_addr));
+    char *pscan_expr = String8_ToCStr(arena, String8_PushF(arena, "[@0x%llx..+0x10]{de ad be ef}", scan_start));
+    char *scan_expr =
+        String8_ToCStr(arena, String8_PushF(arena, "[@0x%llx..+0x10] as bytes == de ad be ef", scan_start));
     char *peek_argv[] = {"memmy", "--pid", pid_text, "--expr", peek_expr};
     char *poke_argv[] = {"memmy", "--pid", pid_text, "--expr", poke_expr};
     char *pscan_argv[] = {"memmy", "--pid", pid_text, "--expr", pscan_expr};

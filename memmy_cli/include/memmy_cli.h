@@ -1,7 +1,7 @@
 #ifndef MEMMY_CLI_H
 #define MEMMY_CLI_H
 
-#include "memmy_exec.h"
+#include "memmy_eval.h"
 
 typedef Memmy_Status Memmy_CliWriteFn(void *user_data, String8 text);
 
@@ -15,7 +15,7 @@ struct Memmy_CliOutputWriter
 typedef struct Memmy_CliReplSession Memmy_CliReplSession;
 struct Memmy_CliReplSession
 {
-    Memmy_ExecEnv env;
+    Memmy_EvalEnv *env;
     B32 has_attached_process;
     Memmy_ProcessInfo attached_process;
 };

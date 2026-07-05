@@ -14,46 +14,15 @@ static Memmy_Status Memmy_CliReplStringWriter_Write(void *user_data, String8 tex
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Cli_RunReplLineWithEnv(Arena *arena, Memmy_ExecEnv *env, Memmy_CliOptions *base_options,
+static Memmy_Status Memmy_Cli_RunReplLineWithEnv(Arena *arena, Memmy_EvalEnv *env, Memmy_CliOptions *base_options,
                                                  String8 line, String8 *out, B32 *out_exit, Memmy_Error *error);
-static Memmy_Status Memmy_Cli_ResolveProcessInfo(Arena *arena, Memmy_ProcessSelector selector, Memmy_ProcessInfo *out,
-                                                 Memmy_Error *error);
-
-typedef struct Memmy_CliProcessInfoResolver Memmy_CliProcessInfoResolver;
-struct Memmy_CliProcessInfoResolver
-{
-    Memmy_ProcessSelector selector;
-    Memmy_ProcessInfo match;
-    U64 match_count;
-};
-
-static Memmy_Status Memmy_CliProcessInfoResolver_Push(void *user_data, Memmy_ProcessInfo *info)
-{
-    Memmy_CliProcessInfoResolver *resolver = (Memmy_CliProcessInfoResolver *)user_data;
-    B32 matches = 0;
-    if (resolver->selector.kind == Memmy_ProcessSelectorKind_Pid)
-    {
-        matches = info->pid == resolver->selector.pid;
-    }
-    else if (resolver->selector.kind == Memmy_ProcessSelectorKind_Name)
-    {
-        matches = String8_EqNoCase(info->name, resolver->selector.name);
-    }
-
-    if (matches)
-    {
-        resolver->match = *info;
-        resolver->match_count++;
-    }
-    return Memmy_Status_Ok;
-}
 
 static void Memmy_CliReplSession_SetAttachedProcess(Memmy_CliReplSession *session, Memmy_ProcessInfo info)
 {
     session->has_attached_process = 1;
     session->attached_process = info;
-    session->attached_process.name = String8_Copy(session->env.arena, info.name);
-    session->attached_process.path = String8_Copy(session->env.arena, info.path);
+    session->attached_process.name = String8_Copy(session->env->arena, info.name);
+    session->attached_process.path = String8_Copy(session->env->arena, info.path);
 }
 
 static void Memmy_CliReplSession_SetAttachedPid(Memmy_CliReplSession *session, U32 pid)
@@ -72,121 +41,55 @@ static void Memmy_CliReplSession_TryFillAttachedName(Arena *arena, Memmy_CliRepl
     }
 
     Memmy_ProcessInfo info = {0};
-    Memmy_ProcessSelector selector = {
-        .kind = Memmy_ProcessSelectorKind_Pid,
-        .pid = session->attached_process.pid,
-    };
-    if (Memmy_Cli_ResolveProcessInfo(arena, selector, &info, 0) == Memmy_Status_Ok)
+    if (Memmy_Cli_ResolveProcessInfo(arena, 1, session->attached_process.pid, 0, (String8){0}, &info, 0) ==
+        Memmy_Status_Ok)
     {
         Memmy_CliReplSession_SetAttachedProcess(session, info);
     }
 }
 
-static Memmy_Status Memmy_Cli_ResolveProcessInfo(Arena *arena, Memmy_ProcessSelector selector, Memmy_ProcessInfo *out,
-                                                 Memmy_Error *error)
+static Memmy_Status Memmy_CliRepl_AttachCandidate(Arena *arena, Memmy_CliTargetProcess target, Memmy_ProcessInfo *out,
+                                                  Memmy_Error *error)
 {
-    if (selector.kind == Memmy_ProcessSelectorKind_None || out == 0)
+    if (!target.found || out == 0)
     {
-        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("process"),
-                        String8_Lit("missing process selector"));
-        return Memmy_Status_InvalidArgument;
-    }
-
-    Memmy_CliProcessInfoResolver resolver = {
-        .selector = selector,
-    };
-    Memmy_ProcessInfoSink sink = {
-        .callback = Memmy_CliProcessInfoResolver_Push,
-        .user_data = &resolver,
-    };
-    Memmy_Status status = Memmy_EnumerateProcesses(arena, sink, error);
-    if (status != Memmy_Status_Ok)
-    {
-        return status;
-    }
-    if (resolver.match_count == 0)
-    {
-        Memmy_Error_Set(error, Memmy_Status_NotFound, String8_Lit("process"), String8_Lit("process was not found"));
         return Memmy_Status_NotFound;
     }
-    if (resolver.match_count > 1)
+    if (target.is_pid)
     {
-        Memmy_Error_Set(error, Memmy_Status_Ambiguous, String8_Lit("process"),
-                        String8_Lit("process name is ambiguous"));
-        return Memmy_Status_Ambiguous;
+        out->pid = target.pid;
+        return Memmy_Status_Ok;
+    }
+    return Memmy_Cli_ResolveProcessInfo(arena, 0, 0, 1, target.name, out, error);
+}
+
+static Memmy_Status Memmy_CliRepl_RequireTargetMatchesAttachment(Arena *arena, Memmy_CliReplSession *session,
+                                                                 Memmy_CliTargetProcess target, Memmy_Error *error)
+{
+    if (session == 0 || !session->has_attached_process || !target.found)
+    {
+        return Memmy_Status_Ok;
     }
 
-    *out = resolver.match;
+    U32 target_pid = target.pid;
+    if (!target.is_pid)
+    {
+        Memmy_ProcessInfo target_info = {0};
+        Memmy_Status status = Memmy_Cli_ResolveProcessInfo(arena, 0, 0, 1, target.name, &target_info, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        target_pid = target_info.pid;
+    }
+
+    if (target_pid != session->attached_process.pid)
+    {
+        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("repl"),
+                        String8_Lit("statement target conflicts with attached process"));
+        return Memmy_Status_InvalidArgument;
+    }
     return Memmy_Status_Ok;
-}
-
-static Memmy_ProcessSelector Memmy_CliRepl_AddressProcessSelector(Memmy_ExecEnv *env, Memmy_AddressExpr *address);
-static Memmy_ProcessSelector Memmy_CliRepl_RangeProcessSelector(Memmy_ExecEnv *env, Memmy_RangeExpr *range);
-
-static Memmy_ProcessSelector Memmy_CliRepl_AddressProcessSelector(Memmy_ExecEnv *env, Memmy_AddressExpr *address)
-{
-    Memmy_ProcessSelector selector = {0};
-    if (address->base_kind == Memmy_AddressExprBaseKind_Target ||
-        address->base_kind == Memmy_AddressExprBaseKind_ProcessAbsolute)
-    {
-        selector = address->target.process;
-    }
-    else if (address->base_kind == Memmy_AddressExprBaseKind_Variable && env != 0)
-    {
-        Memmy_ExecVariableBinding *binding = 0;
-        if (Memmy_ExecEnv_Find(env, address->variable.name, &binding, 0) == Memmy_Status_Ok &&
-            Memmy_ExecVariableBinding_Kind(binding) == Memmy_VariableExprKind_Address)
-        {
-            if (Memmy_ExecEnv_ResolvePush(env, address->variable.name, 0) == Memmy_Status_Ok)
-            {
-                selector = Memmy_CliRepl_AddressProcessSelector(env, &Memmy_ExecVariableBinding_Expr(binding)->address);
-                Memmy_ExecEnv_ResolvePop(env);
-            }
-        }
-    }
-    return selector;
-}
-
-static Memmy_ProcessSelector Memmy_CliRepl_RangeProcessSelector(Memmy_ExecEnv *env, Memmy_RangeExpr *range)
-{
-    Memmy_ProcessSelector selector = {0};
-    if (range->kind == Memmy_RangeExprKind_Target || range->kind == Memmy_RangeExprKind_TargetOffset ||
-        range->kind == Memmy_RangeExprKind_TargetSized)
-    {
-        selector = range->target.process;
-    }
-    else if (range->kind == Memmy_RangeExprKind_AddressSized)
-    {
-        selector = Memmy_CliRepl_AddressProcessSelector(env, &range->address);
-    }
-    else if (range->kind == Memmy_RangeExprKind_Variable && env != 0)
-    {
-        Memmy_ExecVariableBinding *binding = 0;
-        if (Memmy_ExecEnv_Find(env, range->variable.name, &binding, 0) == Memmy_Status_Ok &&
-            Memmy_ExecVariableBinding_Kind(binding) == Memmy_VariableExprKind_Range)
-        {
-            if (Memmy_ExecEnv_ResolvePush(env, range->variable.name, 0) == Memmy_Status_Ok)
-            {
-                selector = Memmy_CliRepl_RangeProcessSelector(env, &Memmy_ExecVariableBinding_Expr(binding)->range);
-                Memmy_ExecEnv_ResolvePop(env);
-            }
-        }
-    }
-    return selector;
-}
-
-static Memmy_ProcessSelector Memmy_CliRepl_MemoryProcessSelector(Memmy_ExecEnv *env, Memmy_MemoryExpr *expr)
-{
-    if (expr->kind == Memmy_MemoryExprKind_Address || expr->kind == Memmy_MemoryExprKind_Peek ||
-        expr->kind == Memmy_MemoryExprKind_Poke)
-    {
-        return Memmy_CliRepl_AddressProcessSelector(env, &expr->address);
-    }
-    if (expr->kind == Memmy_MemoryExprKind_PatternScan || expr->kind == Memmy_MemoryExprKind_ValueScan)
-    {
-        return Memmy_CliRepl_RangeProcessSelector(env, &expr->range);
-    }
-    return (Memmy_ProcessSelector){0};
 }
 
 static String8 Memmy_Cli_FormatTextError(Arena *arena, Memmy_Status status, Memmy_Error *error)
@@ -208,11 +111,11 @@ static Memmy_Status Memmy_Cli_RunReplLineWithOptions(Arena *arena, Memmy_CliOpti
         return Memmy_Status_InvalidArgument;
     }
 
-    Memmy_ExecEnv env = Memmy_ExecEnv_Create(arena);
-    return Memmy_Cli_RunReplLineWithEnv(arena, &env, base_options, line, out, 0, error);
+    Memmy_EvalEnv *env = Memmy_EvalEnv_Create(arena);
+    return Memmy_Cli_RunReplLineWithEnv(arena, env, base_options, line, out, 0, error);
 }
 
-static Memmy_Status Memmy_Cli_RunReplLineWithEnv(Arena *arena, Memmy_ExecEnv *env, Memmy_CliOptions *base_options,
+static Memmy_Status Memmy_Cli_RunReplLineWithEnv(Arena *arena, Memmy_EvalEnv *env, Memmy_CliOptions *base_options,
                                                  String8 line, String8 *out, B32 *out_exit, Memmy_Error *error)
 {
     if (arena == 0 || out == 0)
@@ -255,7 +158,7 @@ Memmy_Status Memmy_Cli_RunReplLine(Arena *arena, String8 line, String8 *out, Mem
 Memmy_CliReplSession Memmy_CliReplSession_Begin(Arena *arena)
 {
     return (Memmy_CliReplSession){
-        .env = Memmy_ExecEnv_Create(arena),
+        .env = Memmy_EvalEnv_Create(arena),
     };
 }
 
@@ -283,16 +186,17 @@ Memmy_Status Memmy_Cli_RunReplSessionLine(Arena *arena, Memmy_CliReplSession *se
     }
 
     Memmy_CliOptions options = {0};
-    Memmy_ProcessSelector selector = {0};
+    Memmy_CliTargetProcess target = {0};
     Memmy_ProcessInfo attach_candidate = {0};
     B32 has_attach_candidate = 0;
 
     String8 statement_text = String8_TrimWhitespace(line);
     if (statement_text.len != 0)
     {
-        Memmy_Statement statement = {0};
-        Memmy_Status status = Memmy_Statement_Parse(arena, statement_text, &statement, error);
-        if (status != Memmy_Status_Ok)
+        Memmy_AstStatement statement = {0};
+        Memmy_AstDiagnostic diagnostic = {0};
+        Memmy_AstStatus ast_status = Memmy_Ast_ParseStatement(arena, statement_text, &statement, &diagnostic);
+        if (ast_status != Memmy_AstStatus_Ok)
         {
             if (out != 0)
             {
@@ -302,27 +206,30 @@ Memmy_Status Memmy_Cli_RunReplSessionLine(Arena *arena, Memmy_CliReplSession *se
             {
                 *out_exit = 0;
             }
+            Memmy_Status status = ast_status == Memmy_AstStatus_Overflow          ? Memmy_Status_Overflow
+                                  : ast_status == Memmy_AstStatus_Unsupported     ? Memmy_Status_Unsupported
+                                  : ast_status == Memmy_AstStatus_InvalidArgument ? Memmy_Status_InvalidArgument
+                                                                                  : Memmy_Status_ParseError;
+            Memmy_Error_Set(error, status, String8_Lit("expr"), diagnostic.message);
+            if (error != 0)
+            {
+                error->input = diagnostic.input;
+                error->byte_offset = diagnostic.byte_offset;
+                error->byte_count = diagnostic.byte_count;
+            }
             return status;
         }
 
-        if (statement.kind == Memmy_StatementKind_Memory)
-        {
-            selector = Memmy_CliRepl_MemoryProcessSelector(&session->env, &statement.memory);
-        }
+        target = Memmy_Cli_StatementTargetProcess(&statement);
 
-        if (selector.kind == Memmy_ProcessSelectorKind_None && session->has_attached_process)
+        if (!target.found && session->has_attached_process)
         {
             options.has_pid = 1;
             options.pid = session->attached_process.pid;
         }
-        else if (selector.kind == Memmy_ProcessSelectorKind_Pid && !session->has_attached_process)
+        else if (target.found && !session->has_attached_process)
         {
-            attach_candidate.pid = selector.pid;
-            has_attach_candidate = 1;
-        }
-        else if (selector.kind == Memmy_ProcessSelectorKind_Name && !session->has_attached_process)
-        {
-            status = Memmy_Cli_ResolveProcessInfo(arena, selector, &attach_candidate, error);
+            Memmy_Status status = Memmy_CliRepl_AttachCandidate(arena, target, &attach_candidate, error);
             if (status != Memmy_Status_Ok)
             {
                 if (out != 0)
@@ -336,10 +243,30 @@ Memmy_Status Memmy_Cli_RunReplSessionLine(Arena *arena, Memmy_CliReplSession *se
                 return status;
             }
             has_attach_candidate = 1;
+            options.has_pid = 1;
+            options.pid = attach_candidate.pid;
+        }
+        else if (target.found && session->has_attached_process)
+        {
+            Memmy_Status status = Memmy_CliRepl_RequireTargetMatchesAttachment(arena, session, target, error);
+            if (status != Memmy_Status_Ok)
+            {
+                if (out != 0)
+                {
+                    *out = (String8){0};
+                }
+                if (out_exit != 0)
+                {
+                    *out_exit = 0;
+                }
+                return status;
+            }
+            options.has_pid = 1;
+            options.pid = session->attached_process.pid;
         }
     }
 
-    Memmy_Status status = Memmy_Cli_RunReplLineWithEnv(arena, &session->env, &options, line, out, out_exit, error);
+    Memmy_Status status = Memmy_Cli_RunReplLineWithEnv(arena, session->env, &options, line, out, out_exit, error);
     if (status == Memmy_Status_Ok && has_attach_candidate)
     {
         if (attach_candidate.name.len != 0)
@@ -372,7 +299,7 @@ Memmy_Status Memmy_Cli_RunReplStringWithOptions(Arena *arena, Memmy_CliOptions *
 
     String8List parts = {0};
     Memmy_Status result = Memmy_Status_Ok;
-    Memmy_ExecEnv env = Memmy_ExecEnv_Create(arena);
+    Memmy_EvalEnv *env = Memmy_EvalEnv_Create(arena);
     U64 line_start = 0;
     for (U64 i = 0; i <= input.len; i++)
     {
@@ -393,7 +320,7 @@ Memmy_Status Memmy_Cli_RunReplStringWithOptions(Arena *arena, Memmy_CliOptions *
         String8 line_out = {0};
         B32 should_exit = 0;
         Memmy_Status status =
-            Memmy_Cli_RunReplLineWithEnv(arena, &env, base_options, line, &line_out, &should_exit, &line_error);
+            Memmy_Cli_RunReplLineWithEnv(arena, env, base_options, line, &line_out, &should_exit, &line_error);
         if (status == Memmy_Status_Ok)
         {
             String8List_Push(arena, &parts, line_out);

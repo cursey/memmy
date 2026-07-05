@@ -3,7 +3,7 @@
 
 #include "memmy_cli.h"
 
-#include "memmy_exec.h"
+#include "memmy_eval.h"
 
 typedef struct Memmy_CliOptions Memmy_CliOptions;
 struct Memmy_CliOptions
@@ -18,6 +18,15 @@ struct Memmy_CliOptions
     String8 name;
     B32 has_expr;
     String8 expr_text;
+};
+
+typedef struct Memmy_CliTargetProcess Memmy_CliTargetProcess;
+struct Memmy_CliTargetProcess
+{
+    B32 found;
+    B32 is_pid;
+    U32 pid;
+    String8 name;
 };
 
 typedef struct Memmy_CliValueFormat Memmy_CliValueFormat;
@@ -66,15 +75,18 @@ Memmy_Status Memmy_Cli_RunReplStringWithOptions(Arena *arena, Memmy_CliOptions *
                                                 String8 *out, Memmy_Error *error);
 
 Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 *out, Memmy_Error *error);
-Memmy_Status Memmy_Cli_RunExprWithEnv(Arena *arena, Memmy_ExecEnv *env, Memmy_CliOptions *options, String8 *out,
+Memmy_Status Memmy_Cli_RunExprWithEnv(Arena *arena, Memmy_EvalEnv *env, Memmy_CliOptions *options, String8 *out,
                                       Memmy_Error *error);
 Memmy_Status Memmy_Cli_RunExprToWriter(Arena *arena, Memmy_CliOptions *options, Memmy_CliOutputWriter writer,
                                        Memmy_Error *error);
-Memmy_Status Memmy_Cli_RunExprToWriterWithEnv(Arena *arena, Memmy_ExecEnv *env, Memmy_CliOptions *options,
+Memmy_Status Memmy_Cli_RunExprToWriterWithEnv(Arena *arena, Memmy_EvalEnv *env, Memmy_CliOptions *options,
                                               Memmy_CliOutputWriter writer, Memmy_Error *error);
-Memmy_Status Memmy_Cli_RunStatementToWriterWithEnv(Arena *arena, Memmy_ExecEnv *env, Memmy_CliOptions *options,
+Memmy_Status Memmy_Cli_RunStatementToWriterWithEnv(Arena *arena, Memmy_EvalEnv *env, Memmy_CliOptions *options,
                                                    String8 text, Memmy_CliOutputWriter writer, B32 *out_exit,
                                                    Memmy_Error *error);
+Memmy_Status Memmy_Cli_ResolveProcessInfo(Arena *arena, B32 has_pid, U32 pid, B32 has_name, String8 name,
+                                          Memmy_ProcessInfo *out, Memmy_Error *error);
+Memmy_CliTargetProcess Memmy_Cli_StatementTargetProcess(Memmy_AstStatement *statement);
 
 Memmy_Status Memmy_Cli_FormatValue(Arena *arena, Memmy_CliValueFormat *format, String8 bytes, String8 *out,
                                    Memmy_Error *error);

@@ -1136,8 +1136,24 @@ static Memmy_Status Memmy_Eval_Command(Memmy_EvalEnv *env, Memmy_AstStatement *s
     {
         Memmy_EvalResult_Push(sink, (Memmy_EvalResult){
                                         .kind = Memmy_EvalResultKind_Help,
-                                        .text = String8_Lit("/procs [filter]\n/mods [filter]\n/regions\n/vars\n/"
-                                                            "unset $var\n/clear\n/help\n/exit\n/quit\n"),
+                                        .text = String8_Lit("Core values:\n"
+                                                            "  x                    constant integer/math expression\n"
+                                                            "  @x                   absolute address\n"
+                                                            "  [@a..@b]             explicit address range [a, b)\n"
+                                                            "  [@a..+n]             sized address range [a, a+n)\n"
+                                                            "  <target>             process/module range\n"
+                                                            "  $name                variable\n"
+                                                            "\n"
+                                                            "Commands:\n"
+                                                            "  /procs [filter]\n"
+                                                            "  /mods [filter]\n"
+                                                            "  /regions\n"
+                                                            "  /vars\n"
+                                                            "  /unset $var\n"
+                                                            "  /clear\n"
+                                                            "  /help\n"
+                                                            "  /exit\n"
+                                                            "  /quit\n"),
                                     });
         return Memmy_Status_Ok;
     }

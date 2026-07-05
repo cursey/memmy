@@ -94,8 +94,8 @@ Test(Test_MemmyCliInputStringEvaluatesWithOptions)
     String8 out = {0};
     Memmy_Error error = {0};
     char *argv[] = {"memmy", "--pid", "1234"};
-    AssertEq(Memmy_Cli_RunInputString(arena, (I32)ArrayCount(argv), argv, String8_Lit("<client.dll>+0x20 : u8\n"), &out,
-                                      &error),
+    AssertEq(Memmy_Cli_RunInputString(arena, (I32)ArrayCount(argv), argv, String8_Lit("<client.dll>+0x20 as u8\n"),
+                                      &out, &error),
              Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("0x0000000000001020: u8 42  0x2a\n"));
 
@@ -113,7 +113,7 @@ Test(Test_MemmyCliFileInputEvaluatesReplString)
     Memmy_Context_Set(&ctx);
 
     String8 path = Fs_TempFile(arena, String8_Lit("memmy-test.memmy"));
-    AssertTrue(Fs_WriteFile(path, String8_Lit("<game.exe!client.dll>\n/exit\n0x1000\n")));
+    AssertTrue(Fs_WriteFile(path, String8_Lit("<game.exe!client.dll>\n/exit\n@0x1000\n")));
 
     Scratch scratch = Scratch_Begin(&arena, 1);
     char *path_text = String8_ToCStr(scratch.arena, path);
@@ -121,7 +121,7 @@ Test(Test_MemmyCliFileInputEvaluatesReplString)
     String8 out = {0};
     Memmy_Error error = {0};
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
-    AssertStrEq(out, String8_Lit("0x0000000000001000\n"));
+    AssertStrEq(out, String8_Lit("[0x0000000000001000..0x0000000000003000)\n"));
     Scratch_End(scratch);
 
     AssertTrue(Os_FileDelete(path));
@@ -154,7 +154,7 @@ Test(Test_MemmyCliJsonlHelpers)
 {
     Arena *arena = Arena_CreateDefault();
     U8 bytes[] = {0x00, 0x0a, 0xff};
-    char *jsonl_flag[] = {"memmy", "--jsonl", "--expr", "0x1000:+0x10 : u8 == 1"};
+    char *jsonl_flag[] = {"memmy", "--jsonl", "--expr", "[@0x1000..+0x10] as u8 == 1"};
     char *jsonl_value[] = {"memmy", "--expr", "--jsonl"};
     char *help_flag[] = {"memmy", "--help"};
     char *version_flag[] = {"memmy", "--version"};

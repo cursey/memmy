@@ -293,9 +293,9 @@ Test(Test_MemmyCliScriptMixesStatementsAssignmentsExpressionsAndExit)
     AssertEq(Memmy_Cli_RunInputString(arena, (I32)ArrayCount(argv), argv,
                                       String8_Lit("/procs\n"
                                                   "$addr = <game.exe!client.dll>+0x20\n"
-                                                  "$addr : u8\n"
+                                                  "$addr as u8\n"
                                                   "/exit\n"
-                                                  "0x1000\n"),
+                                                  "@0x1000\n"),
                                       &out, &error),
              Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("PID     ARCH   NAME\n"
@@ -324,7 +324,7 @@ Test(Test_MemmyCliVarsFormatsTextAndJsonl)
     char *jsonl_argv[] = {"memmy", "--jsonl"};
 
     AssertEq(Memmy_Cli_RunInputString(arena, (I32)ArrayCount(text_argv), text_argv,
-                                      String8_Lit("$addr = <game.exe!client.dll>\n"
+                                      String8_Lit("$addr = <game.exe!client.dll>+0\n"
                                                   "/vars\n"),
                                       &out, &error),
              Memmy_Status_Ok);
@@ -332,12 +332,46 @@ Test(Test_MemmyCliVarsFormatsTextAndJsonl)
 
     error = (Memmy_Error){0};
     AssertEq(Memmy_Cli_RunInputString(arena, (I32)ArrayCount(jsonl_argv), jsonl_argv,
-                                      String8_Lit("$addr = <game.exe!client.dll>\n"
+                                      String8_Lit("$addr = <game.exe!client.dll>+0\n"
                                                   "/vars\n"),
                                       &out, &error),
              Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("{\"type\":\"assignment\",\"name\":\"addr\",\"kind\":\"address\"}\n"
                                  "{\"type\":\"variable\",\"name\":\"addr\",\"kind\":\"address\"}\n"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliJsonlScriptEmitsAssignmentsExpressionsAndExit)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+    test_backend.memory[0x20] = 42;
+    test_backend.memory[0x21] = 0xaa;
+    test_backend.memory[0x30] = 42;
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy", "--jsonl"};
+
+    AssertEq(Memmy_Cli_RunInputString(arena, (I32)ArrayCount(argv), argv,
+                                      String8_Lit("$addr = <game.exe!client.dll>+0x20\n"
+                                                  "$hp = $addr as u8\n"
+                                                  "$matches = [@0x1020..+0x20] as u8 == 42\n"
+                                                  "$addr\n"
+                                                  "/exit\n"
+                                                  "@0x1000\n"),
+                                      &out, &error),
+             Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("{\"type\":\"assignment\",\"name\":\"addr\",\"kind\":\"address\"}\n"
+                                 "{\"type\":\"assignment\",\"name\":\"hp\",\"kind\":\"typed_value\"}\n"
+                                 "{\"type\":\"assignment\",\"name\":\"matches\",\"kind\":\"address_list\"}\n"
+                                 "{\"type\":\"address\",\"address\":\"0x0000000000001020\"}\n"));
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -409,7 +443,7 @@ Test(Test_MemmyCliExprParseErrorJsonlHasTypedFields)
     Arena_Destroy(arena);
 }
 
-Test(Test_MemmyCliExprRejectsBareWholeProcessTargetOutsideScans)
+Test(Test_MemmyCliExprRejectsOldSyntax)
 {
     Arena *arena = Arena_CreateDefault();
     Test_MemmyBackend test_backend = {0};
@@ -420,28 +454,26 @@ Test(Test_MemmyCliExprRejectsBareWholeProcessTargetOutsideScans)
 
     String8 out = {0};
     Memmy_Error error = {0};
-    char *address_argv[] = {"memmy", "--expr", "<game.exe!>"};
-    char *peek_argv[] = {"memmy", "--expr", "<game.exe!> : u8"};
-    char *poke_argv[] = {"memmy", "--expr", "<game.exe!> : u8 = 42"};
+    char *address_argv[] = {"memmy", "--expr", "0x1000:+0x10"};
+    char *peek_argv[] = {"memmy", "--expr", "@0x1000 : u8"};
+    char *process_absolute_argv[] = {"memmy", "--expr", "<1234!>0x1000"};
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(address_argv), address_argv, &out, &error),
              Memmy_Status_ParseError);
     AssertStrEq(error.context, String8_Lit("expr"));
-    AssertStrEq(error.message, String8_Lit("whole-process target is not a valid address base"));
-    AssertEq(error.byte_offset, 0);
-    AssertEq(error.byte_count, 11);
+    AssertStrEq(error.message, String8_Lit("unexpected character"));
 
     error = (Memmy_Error){0};
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(peek_argv), peek_argv, &out, &error),
              Memmy_Status_ParseError);
     AssertStrEq(error.context, String8_Lit("expr"));
-    AssertStrEq(error.message, String8_Lit("whole-process target is not a valid address base"));
+    AssertStrEq(error.message, String8_Lit("unexpected character"));
 
     error = (Memmy_Error){0};
-    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(poke_argv), poke_argv, &out, &error),
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(process_absolute_argv), process_absolute_argv, &out, &error),
              Memmy_Status_ParseError);
     AssertStrEq(error.context, String8_Lit("expr"));
-    AssertStrEq(error.message, String8_Lit("whole-process target is not a valid address base"));
+    AssertStrEq(error.message, String8_Lit("unexpected trailing input"));
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -460,7 +492,7 @@ Test(Test_MemmyCliExprFormatsPeekTextLikePeekCommand)
 
     String8 out = {0};
     Memmy_Error error = {0};
-    char *argv[] = {"memmy", "--expr", "<game.exe!client.dll>+0x123 : u32"};
+    char *argv[] = {"memmy", "--expr", "<game.exe!client.dll>+0x123 as u32"};
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("0x0000000000001123: u32 1337  0x00000539\n"));
@@ -481,7 +513,7 @@ Test(Test_MemmyCliExprFormatsPeekJsonlLikePeekCommand)
 
     String8 out = {0};
     Memmy_Error error = {0};
-    char *argv[] = {"memmy", "--jsonl", "--pid", "1234", "--expr", "0x1010 : u32"};
+    char *argv[] = {"memmy", "--jsonl", "--pid", "1234", "--expr", "@0x1010 as u32"};
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("{\"type\":\"peek\",\"address\":\"0x0000000000001010\",\"value_type\":\"u32\","
@@ -513,8 +545,8 @@ Test(Test_MemmyCliExprFormatsVariableWidthStringPeek)
 
     String8 out = {0};
     Memmy_Error error = {0};
-    char *str_argv[] = {"memmy", "--expr", "<game.exe!client.dll>+0x123 : str"};
-    char *wstr_argv[] = {"memmy", "--expr", "<game.exe!client.dll>+0x133 : wstr"};
+    char *str_argv[] = {"memmy", "--expr", "<game.exe!client.dll>+0x123 as str"};
+    char *wstr_argv[] = {"memmy", "--expr", "<game.exe!client.dll>+0x133 as wstr"};
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(str_argv), str_argv, &out, &error), Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("0x0000000000001123: str \"hello\"\n"));
@@ -539,7 +571,7 @@ Test(Test_MemmyCliExprFormatsPokeTextLikePokeCommand)
 
     String8 out = {0};
     Memmy_Error error = {0};
-    char *argv[] = {"memmy", "--pid", "1234", "--expr", "0x1020 : u32 = 1337"};
+    char *argv[] = {"memmy", "--pid", "1234", "--expr", "@0x1020 as u32 = 1337"};
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("wrote:\n"
@@ -568,7 +600,7 @@ Test(Test_MemmyCliExprFormatsPokeJsonlLikePokeCommand)
 
     String8 out = {0};
     Memmy_Error error = {0};
-    char *argv[] = {"memmy", "--jsonl", "--expr", "<game.exe!client.dll>+0x123 : i32 = 77"};
+    char *argv[] = {"memmy", "--jsonl", "--expr", "<game.exe!client.dll>+0x123 as i32 = 77"};
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("{\"type\":\"poke\",\"process\":1234,\"address\":\"0x0000000000001123\","
@@ -597,7 +629,7 @@ Test(Test_MemmyCliExprFormatsPatternScanTextLikePscan)
 
     String8 out = {0};
     Memmy_Error error = {0};
-    char *argv[] = {"memmy", "--pid", "1234", "--expr", "<client.dll>[0x0:+0x40]{48 8b ?? ?? 89}"};
+    char *argv[] = {"memmy", "--pid", "1234", "--expr", "[@0x1000..+0x40]{48 8b ?? ?? 89}"};
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("ADDRESS\n"
@@ -621,7 +653,7 @@ Test(Test_MemmyCliExprFormatsPatternScanJsonlLikePscan)
 
     String8 out = {0};
     Memmy_Error error = {0};
-    char *argv[] = {"memmy", "--jsonl", "--expr", "<game.exe!client.dll>[0x20:+0x20]{90}"};
+    char *argv[] = {"memmy", "--jsonl", "--pid", "1234", "--expr", "[@0x1020..+0x20]{90}"};
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("{\"type\":\"match\",\"address\":\"0x0000000000001020\"}\n"
@@ -646,7 +678,7 @@ Test(Test_MemmyCliExprFormatsValueScanTextLikeScan)
 
     String8 out = {0};
     Memmy_Error error = {0};
-    char *argv[] = {"memmy", "--expr", "<game.exe!client.dll>[0x10:+0x30] : u8 == 144"};
+    char *argv[] = {"memmy", "--pid", "1234", "--expr", "[@0x1010..+0x30] as u8 == 144"};
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("ADDRESS\n"
@@ -671,7 +703,7 @@ Test(Test_MemmyCliExprFormatsValueScanJsonlLikeScan)
 
     String8 out = {0};
     Memmy_Error error = {0};
-    char *argv[] = {"memmy", "--jsonl", "--pid", "1234", "--expr", "0x1020:+0x10 : u8 == 42"};
+    char *argv[] = {"memmy", "--jsonl", "--pid", "1234", "--expr", "[@0x1020..+0x10] as u8 == 42"};
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("{\"type\":\"match\",\"address\":\"0x0000000000001022\"}\n"
@@ -694,7 +726,7 @@ Test(Test_MemmyCliExprJsonlScanWriterFailureStopsBeforeSummary)
     Memmy_Context_Set(&ctx);
 
     Memmy_Error error = {0};
-    char *argv[] = {"memmy", "--jsonl", "--pid", "1234", "--expr", "0x1020:+0x10 : u8 == 42"};
+    char *argv[] = {"memmy", "--jsonl", "--pid", "1234", "--expr", "[@0x1020..+0x10] as u8 == 42"};
     Test_MemmyCliExprWriter writer_state = {
         .arena = arena,
         .fail_call = 2,
@@ -734,7 +766,7 @@ Test(Test_MemmyCliExprScansWholeProcessValueWithRegions)
 
     String8 out = {0};
     Memmy_Error error = {0};
-    char *argv[] = {"memmy", "--expr", "<game.exe!> : u8 == 42"};
+    char *argv[] = {"memmy", "--expr", "<game.exe!> as u8 == 42"};
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("ADDRESS\n"
@@ -755,10 +787,10 @@ TestSuite suite_memmy_cli_dsl = TestSuite_Make(
     TestCase_Make(Test_MemmyCliExprProcsFormatsText), TestCase_Make(Test_MemmyCliExprProcsFormatsJsonl),
     TestCase_Make(Test_MemmyCliExprProcsFiltersFuzzyNoCase), TestCase_Make(Test_MemmyCliExprRunsStatementSyntax),
     TestCase_Make(Test_MemmyCliScriptMixesStatementsAssignmentsExpressionsAndExit),
-    TestCase_Make(Test_MemmyCliVarsFormatsTextAndJsonl), TestCase_Make(Test_MemmyCliHelpFormatsText),
-    TestCase_Make(Test_MemmyCliExprRejectsScanTweakables),
-    TestCase_Make(Test_MemmyCliExprParseErrorJsonlHasTypedFields),
-    TestCase_Make(Test_MemmyCliExprRejectsBareWholeProcessTargetOutsideScans),
+    TestCase_Make(Test_MemmyCliVarsFormatsTextAndJsonl),
+    TestCase_Make(Test_MemmyCliJsonlScriptEmitsAssignmentsExpressionsAndExit),
+    TestCase_Make(Test_MemmyCliHelpFormatsText), TestCase_Make(Test_MemmyCliExprRejectsScanTweakables),
+    TestCase_Make(Test_MemmyCliExprParseErrorJsonlHasTypedFields), TestCase_Make(Test_MemmyCliExprRejectsOldSyntax),
     TestCase_Make(Test_MemmyCliExprFormatsPeekTextLikePeekCommand),
     TestCase_Make(Test_MemmyCliExprFormatsPeekJsonlLikePeekCommand),
     TestCase_Make(Test_MemmyCliExprFormatsVariableWidthStringPeek),
