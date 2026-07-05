@@ -3,7 +3,7 @@ file(GLOB_RECURSE memmy_test_sources CONFIGURE_DEPENDS *.c)
 add_executable(memmy_test ${memmy_test_sources})
 target_compile_definitions(memmy_test PRIVATE BUILD_TEST)
 target_include_directories(memmy_test PRIVATE .)
-target_link_libraries(memmy_test PRIVATE memmy_cli memmy_exec memmy_eval memmy_ast memmy_dsl memmy base)
+target_link_libraries(memmy_test PRIVATE memmy_cli memmy_eval memmy_ast memmy base)
 
 if(CMAKE_CONFIGURATION_TYPES)
     set(memmy_test_ctest_cases ${CMAKE_CURRENT_BINARY_DIR}/memmy_ctest_cases_$<CONFIG>.cmake)

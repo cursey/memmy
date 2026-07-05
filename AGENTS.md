@@ -18,7 +18,7 @@ This repository is a C11 memory introspection toolkit.
 ### Naming
 
 - **Types**: `PascalCase`.
-- **Memmy public types**: prefixed with `Memmy_`, e.g. `Memmy_Process`, `Memmy_Module`, `Memmy_AddressExpr`.
+- **Memmy public types**: prefixed with `Memmy_`, e.g. `Memmy_Process`, `Memmy_Module`, `Memmy_AstNode`.
 - **Base types**: no system prefix, e.g. `Arena`, `Scratch`, `String8`, `List`, `HashMap`, `AvlTree`, `BitSet`.
 - **Platform-specific types**: prefixed with the platform/system, e.g. `Win32_Process`.
 - **Enums**: anonymous enum body with `typedef U32 TypeName` before the enum. Constants are `PascalCase` and prefixed with the enum type:
@@ -31,7 +31,7 @@ This repository is a C11 memory introspection toolkit.
   };
   ```
 - **Functions**: `PascalCase`.
-  - Memmy dominant type: `Memmy_Type_Action`, e.g. `Memmy_Process_Open`, `Memmy_AddressExpr_Parse`.
+  - Memmy dominant type: `Memmy_Type_Action`, e.g. `Memmy_Process_Open`, `Memmy_Ast_ParseExpr`.
   - Memmy no dominant type: `Memmy_Action`, e.g. `Memmy_ListProcesses`.
   - Base dominant type: `Type_Action`, e.g. `Arena_Push`, `Scratch_Begin`, `String8_Eq`.
   - Base no dominant type: plain `PascalCase`, e.g. `Sort`.
@@ -58,7 +58,7 @@ This repository is a C11 memory introspection toolkit.
 - Null pointer checks use explicit `== 0` and `!= 0`.
 - Parameter order: arenas first, primary inputs next, output parameters last.
 - Remote process addresses are integers (`Memmy_Addr`), not local pointers, outside platform boundary code.
-- Keep grammar comments in `memmy_dsl` synchronized with the parse functions they describe whenever DSL syntax or parser behavior changes.
+- Keep grammar comments in `memmy_ast` synchronized with the parse functions they describe whenever DSL syntax or parser behavior changes.
 
 ## Memory And Data Structures
 

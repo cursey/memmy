@@ -28,18 +28,6 @@ extern TestSuite suite_memmy_context;
 extern TestSuite suite_memmy_process;
 extern TestSuite suite_memmy_ast;
 extern TestSuite suite_memmy_eval;
-extern TestSuite suite_memmy_dsl_target;
-extern TestSuite suite_memmy_dsl_const;
-extern TestSuite suite_memmy_dsl_address;
-extern TestSuite suite_memmy_dsl_memory;
-extern TestSuite suite_memmy_dsl_range;
-extern TestSuite suite_memmy_dsl_statement;
-extern TestSuite suite_memmy_exec_address;
-extern TestSuite suite_memmy_exec_peek_poke;
-extern TestSuite suite_memmy_exec_range;
-extern TestSuite suite_memmy_exec_statement;
-extern TestSuite suite_memmy_exec_pattern_scan;
-extern TestSuite suite_memmy_exec_value_scan;
 extern TestSuite suite_memmy_cli;
 extern TestSuite suite_memmy_cli_dsl;
 extern TestSuite suite_memmy_cli_repl;
@@ -73,18 +61,6 @@ int main(int argc, char **argv)
         suite_memmy_process,
         suite_memmy_ast,
         suite_memmy_eval,
-        suite_memmy_dsl_target,
-        suite_memmy_dsl_const,
-        suite_memmy_dsl_address,
-        suite_memmy_dsl_memory,
-        suite_memmy_dsl_range,
-        suite_memmy_dsl_statement,
-        suite_memmy_exec_address,
-        suite_memmy_exec_peek_poke,
-        suite_memmy_exec_range,
-        suite_memmy_exec_statement,
-        suite_memmy_exec_pattern_scan,
-        suite_memmy_exec_value_scan,
         suite_memmy_cli,
         suite_memmy_cli_dsl,
         suite_memmy_cli_repl,
