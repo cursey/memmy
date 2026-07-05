@@ -311,11 +311,11 @@ static Memmy_Status Memmy_Cli_ParseOptions(I32 argc, char **argv, Memmy_CliOptio
 static String8 Memmy_Cli_Help(Arena *arena)
 {
     return String8_Copy(arena, String8_Lit("memmy\n"
-                                           "memmy [global-options] [--pid <pid>|--name <name>] --expr <memory-expr>\n"
+                                           "memmy [global-options] [--pid <pid>|--name <name>] --expr <statement>\n"
                                            "memmy [global-options] [--pid <pid>|--name <name>] <file>\n"
                                            "<input> | memmy [global-options] [--pid <pid>|--name <name>]\n"
                                            "\n"
-                                           "Run without arguments to start a simple expression REPL.\n"
+                                           "Run without arguments to start a DSL REPL.\n"
                                            "\n"
                                            "Global options:\n"
                                            "  --jsonl\n"
@@ -323,7 +323,7 @@ static String8 Memmy_Cli_Help(Arena *arena)
                                            "  --version\n"
                                            "\n"
                                            "Expression options:\n"
-                                           "  --expr <memory-expr>\n"
+                                           "  --expr <statement>\n"
                                            "\n"
                                            "Types: u8 i8 u16 i16 u32 i32 u64 i64 f32 f64 ptr bytes str wstr\n"
                                            "Patterns: two-digit hex bytes with ? or ?? wildcards\n"));
@@ -344,14 +344,6 @@ static Memmy_Status Memmy_Cli_RunScriptString(Arena *arena, Memmy_CliOptions *op
                                               Memmy_Error *error)
 {
     return Memmy_Cli_RunReplStringWithOptions(arena, options, input, out, error);
-}
-
-static B32 Memmy_Cli_IsOneShotStatement(Arena *arena, String8 text)
-{
-    Memmy_Statement statement = {0};
-    Memmy_Error ignored_error = {0};
-    Memmy_Status status = Memmy_Statement_Parse(arena, text, &statement, &ignored_error);
-    return status == Memmy_Status_Ok && statement.kind != Memmy_StatementKind_Memory;
 }
 
 typedef struct Memmy_CliStringWriter Memmy_CliStringWriter;
@@ -471,14 +463,6 @@ Memmy_Status Memmy_Cli_RunToWriter(Arena *arena, I32 argc, char **argv, Memmy_Cl
     {
         String8 help = Memmy_Cli_Help(arena);
         return writer.write(writer.user_data, help);
-    }
-
-    if (Memmy_Cli_IsOneShotStatement(arena, options.input_path))
-    {
-        Memmy_ExecEnv env = Memmy_ExecEnv_Create(arena);
-        B32 should_exit = 0;
-        return Memmy_Cli_RunStatementToWriterWithEnv(arena, &env, &options, options.input_path, writer, &should_exit,
-                                                     error);
     }
 
     String8 input = {0};

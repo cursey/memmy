@@ -288,10 +288,8 @@ Memmy_Status Memmy_Cli_RunExprToWriterWithEnv(Arena *arena, Memmy_ExecEnv *env, 
         return Memmy_Status_InvalidArgument;
     }
 
-    Memmy_Statement statement = {
-        .kind = Memmy_StatementKind_Memory,
-    };
-    Memmy_Status status = Memmy_MemoryExpr_Parse(arena, options->expr_text, &statement.memory, error);
+    Memmy_Statement statement = {0};
+    Memmy_Status status = Memmy_Statement_Parse(arena, options->expr_text, &statement, error);
     if (status != Memmy_Status_Ok)
     {
         return status;

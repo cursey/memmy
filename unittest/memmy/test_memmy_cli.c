@@ -24,7 +24,7 @@ Test(Test_MemmyCliHelpAndVersion)
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(help_argv), help_argv, &out, &error), Memmy_Status_Ok);
     AssertTrue(String8_Find(out, String8_Lit("memmy [global-options] [--pid <pid>|--name <name>] <file>"), 0) !=
                STRING8_NPOS);
-    AssertTrue(String8_Find(out, String8_Lit("--expr <memory-expr>"), 0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("--expr <statement>"), 0) != STRING8_NPOS);
     AssertTrue(String8_Find(out, String8_Lit("--json\n"), 0) == STRING8_NPOS);
     AssertTrue(String8_Find(out, String8_Lit("--jsonl"), 0) != STRING8_NPOS);
     AssertTrue(String8_Find(out, String8_Lit("procs"), 0) == STRING8_NPOS);
@@ -135,10 +135,17 @@ Test(Test_MemmyCliFormerSubcommandNamesAreFilePaths)
     String8 out = {0};
     Memmy_Error error = {0};
     char *argv[] = {"memmy", "peek"};
+    char *procs_argv[] = {"memmy", "procs"};
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_NotFound);
     AssertStrEq(error.context, String8_Lit("file"));
     AssertStrEq(error.input, String8_Lit("peek"));
+
+    error = (Memmy_Error){0};
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(procs_argv), procs_argv, &out, &error),
+             Memmy_Status_NotFound);
+    AssertStrEq(error.context, String8_Lit("file"));
+    AssertStrEq(error.input, String8_Lit("procs"));
 
     Arena_Destroy(arena);
 }

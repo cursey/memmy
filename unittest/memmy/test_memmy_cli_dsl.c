@@ -179,7 +179,7 @@ Test(Test_MemmyCliExprFormatsJsonlAddress)
     Arena_Destroy(arena);
 }
 
-Test(Test_MemmyCliOneShotProcsFormatsText)
+Test(Test_MemmyCliExprProcsFormatsText)
 {
     Arena *arena = Arena_CreateDefault();
     Test_MemmyBackend test_backend = {0};
@@ -191,7 +191,7 @@ Test(Test_MemmyCliOneShotProcsFormatsText)
 
     String8 out = {0};
     Memmy_Error error = {0};
-    char *argv[] = {"memmy", "procs"};
+    char *argv[] = {"memmy", "--expr", "procs"};
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("PID     ARCH   NAME\n"
@@ -204,7 +204,7 @@ Test(Test_MemmyCliOneShotProcsFormatsText)
     Arena_Destroy(arena);
 }
 
-Test(Test_MemmyCliOneShotProcsFormatsJsonl)
+Test(Test_MemmyCliExprProcsFormatsJsonl)
 {
     Arena *arena = Arena_CreateDefault();
     Test_MemmyBackend test_backend = {0};
@@ -215,7 +215,7 @@ Test(Test_MemmyCliOneShotProcsFormatsJsonl)
 
     String8 out = {0};
     Memmy_Error error = {0};
-    char *argv[] = {"memmy", "--jsonl", "procs"};
+    char *argv[] = {"memmy", "--jsonl", "--expr", "procs"};
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
     AssertTrue(String8_Find(out, String8_Lit("{\"type\":\"process\",\"pid\":4242,\"arch\":\"x64\","), 0) !=
@@ -227,7 +227,7 @@ Test(Test_MemmyCliOneShotProcsFormatsJsonl)
     Arena_Destroy(arena);
 }
 
-Test(Test_MemmyCliExprRejectsStatementOnlySyntax)
+Test(Test_MemmyCliExprRunsStatementSyntax)
 {
     Arena *arena = Arena_CreateDefault();
     Test_MemmyBackend test_backend = {0};
@@ -240,8 +240,8 @@ Test(Test_MemmyCliExprRejectsStatementOnlySyntax)
     Memmy_Error error = {0};
     char *argv[] = {"memmy", "--expr", "procs"};
 
-    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_ParseError);
-    AssertStrEq(error.context, String8_Lit("expr"));
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
+    AssertTrue(String8_Find(out, String8_Lit("PID     ARCH   NAME\n"), 0) != STRING8_NPOS);
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -708,8 +708,8 @@ TestSuite suite_memmy_cli_dsl = TestSuite_Make(
     TestCase_Make(Test_MemmyCliExprResolvesQualifiedProcessName),
     TestCase_Make(Test_MemmyCliExprRejectsExternalPidConflict),
     TestCase_Make(Test_MemmyCliExprRejectsExternalNameConflict), TestCase_Make(Test_MemmyCliExprFormatsJsonlAddress),
-    TestCase_Make(Test_MemmyCliOneShotProcsFormatsText), TestCase_Make(Test_MemmyCliOneShotProcsFormatsJsonl),
-    TestCase_Make(Test_MemmyCliExprRejectsStatementOnlySyntax),
+    TestCase_Make(Test_MemmyCliExprProcsFormatsText), TestCase_Make(Test_MemmyCliExprProcsFormatsJsonl),
+    TestCase_Make(Test_MemmyCliExprRunsStatementSyntax),
     TestCase_Make(Test_MemmyCliScriptMixesStatementsAssignmentsExpressionsAndExit),
     TestCase_Make(Test_MemmyCliVarsFormatsTextAndJsonl), TestCase_Make(Test_MemmyCliExprRejectsScanTweakables),
     TestCase_Make(Test_MemmyCliExprParseErrorJsonlHasTypedFields),
