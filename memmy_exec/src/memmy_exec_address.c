@@ -185,8 +185,8 @@ static Memmy_Status Memmy_AddressExpr_RejectVariable(Memmy_Error *error)
     return Memmy_Status_Unsupported;
 }
 
-Memmy_Status Memmy_AddressExpr_Resolve(Memmy_Process *process, Memmy_AddressExpr *expr, Memmy_Addr *out,
-                                       Memmy_Error *error)
+Memmy_Status Memmy_AddressExpr_ResolveWithEnv(Memmy_ExecEnv *env, Memmy_Process *process, Memmy_AddressExpr *expr,
+                                              Memmy_Addr *out, Memmy_Error *error)
 {
     if (expr == 0 || out == 0)
     {
@@ -210,7 +210,36 @@ Memmy_Status Memmy_AddressExpr_Resolve(Memmy_Process *process, Memmy_AddressExpr
     }
     else if (expr->base_kind == Memmy_AddressExprBaseKind_Variable)
     {
-        return Memmy_AddressExpr_RejectVariable(error);
+        if (env == 0)
+        {
+            return Memmy_AddressExpr_RejectVariable(error);
+        }
+
+        Memmy_Status status = Memmy_ExecEnv_ResolvePush(env, expr->variable.name, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+
+        Memmy_ExecVariableBinding *binding = 0;
+        status = Memmy_ExecEnv_Find(env, expr->variable.name, &binding, error);
+        if (status == Memmy_Status_Ok && Memmy_ExecVariableBinding_Kind(binding) != Memmy_VariableExprKind_Address)
+        {
+            Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("variable"),
+                            String8_PushF(env->arena, "wrong variable kind for $%.*s: expected address",
+                                          (int)expr->variable.name.len, (char *)expr->variable.name.data));
+            status = Memmy_Status_InvalidArgument;
+        }
+        if (status == Memmy_Status_Ok)
+        {
+            status = Memmy_AddressExpr_ResolveWithEnv(env, process, &Memmy_ExecVariableBinding_Expr(binding)->address,
+                                                      &addr, error);
+        }
+        Memmy_ExecEnv_ResolvePop(env);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
     }
     else
     {
@@ -221,14 +250,23 @@ Memmy_Status Memmy_AddressExpr_Resolve(Memmy_Process *process, Memmy_AddressExpr
 
     List_ForEach(Memmy_AddressOp, op, &expr->ops, link)
     {
+        I64 offset = op->offset;
         if (op->offset_expr.contains_variable)
         {
-            return Memmy_AddressExpr_RejectVariable(error);
+            if (env == 0)
+            {
+                return Memmy_AddressExpr_RejectVariable(error);
+            }
+            Memmy_Status status = Memmy_ConstExpr_Resolve(env, process, &op->offset_expr, &offset, error);
+            if (status != Memmy_Status_Ok)
+            {
+                return status;
+            }
         }
 
         if (op->kind == Memmy_AddressOpKind_Add)
         {
-            Memmy_Status status = Memmy_AddressExpr_ApplyOffset(addr, op->offset, &addr, error);
+            Memmy_Status status = Memmy_AddressExpr_ApplyOffset(addr, offset, &addr, error);
             if (status != Memmy_Status_Ok)
             {
                 return status;
@@ -236,7 +274,7 @@ Memmy_Status Memmy_AddressExpr_Resolve(Memmy_Process *process, Memmy_AddressExpr
         }
         else if (op->kind == Memmy_AddressOpKind_Sub)
         {
-            Memmy_Status status = Memmy_AddressExpr_ApplySubOffset(addr, op->offset, &addr, error);
+            Memmy_Status status = Memmy_AddressExpr_ApplySubOffset(addr, offset, &addr, error);
             if (status != Memmy_Status_Ok)
             {
                 return status;
@@ -251,7 +289,7 @@ Memmy_Status Memmy_AddressExpr_Resolve(Memmy_Process *process, Memmy_AddressExpr
             }
             if (op->kind == Memmy_AddressOpKind_DerefOffset)
             {
-                status = Memmy_AddressExpr_ApplyOffset(addr, op->offset, &addr, error);
+                status = Memmy_AddressExpr_ApplyOffset(addr, offset, &addr, error);
                 if (status != Memmy_Status_Ok)
                 {
                     return status;
@@ -274,8 +312,14 @@ Memmy_Status Memmy_AddressExpr_Resolve(Memmy_Process *process, Memmy_AddressExpr
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_MemoryExpr_ResolveAddress(Memmy_Process *process, Memmy_MemoryExpr *expr, Memmy_Addr *out,
-                                             Memmy_Error *error)
+Memmy_Status Memmy_AddressExpr_Resolve(Memmy_Process *process, Memmy_AddressExpr *expr, Memmy_Addr *out,
+                                       Memmy_Error *error)
+{
+    return Memmy_AddressExpr_ResolveWithEnv(0, process, expr, out, error);
+}
+
+Memmy_Status Memmy_MemoryExpr_ResolveAddressWithEnv(Memmy_ExecEnv *env, Memmy_Process *process, Memmy_MemoryExpr *expr,
+                                                    Memmy_Addr *out, Memmy_Error *error)
 {
     if (expr == 0 || out == 0)
     {
@@ -290,5 +334,11 @@ Memmy_Status Memmy_MemoryExpr_ResolveAddress(Memmy_Process *process, Memmy_Memor
         return Memmy_Status_InvalidArgument;
     }
 
-    return Memmy_AddressExpr_Resolve(process, &expr->address, out, error);
+    return Memmy_AddressExpr_ResolveWithEnv(env, process, &expr->address, out, error);
+}
+
+Memmy_Status Memmy_MemoryExpr_ResolveAddress(Memmy_Process *process, Memmy_MemoryExpr *expr, Memmy_Addr *out,
+                                             Memmy_Error *error)
+{
+    return Memmy_MemoryExpr_ResolveAddressWithEnv(0, process, expr, out, error);
 }

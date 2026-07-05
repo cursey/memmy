@@ -117,14 +117,16 @@ Test(Test_MemmyExprRangeRejectsAddressExprDotDotRanges)
     }
 }
 
-Test(Test_MemmyExprRangeRejectsWholeProcessBracketRanges)
+Test(Test_MemmyExprRangeParsesWholeProcessBracketRanges)
 {
     Arena *arena = Arena_CreateDefault();
     Memmy_RangeExpr range = {0};
     Memmy_Error error = {0};
-    AssertEq(Memmy_RangeExpr_Parse(arena, String8_Lit("<game.exe!>[0x1000:+0x20]"), &range, &error),
-             Memmy_Status_ParseError);
-    AssertStrEq(error.context, String8_Lit("range"));
+    AssertEq(Memmy_RangeExpr_Parse(arena, String8_Lit("<game.exe!>[0x1000:+0x20]"), &range, &error), Memmy_Status_Ok);
+    AssertEq(range.kind, Memmy_RangeExprKind_ModuleSized);
+    AssertEq(range.target.kind, Memmy_TargetExprKind_WholeProcess);
+    AssertEq(range.start_offset, 0x1000);
+    AssertEq(range.size, 0x20);
     Arena_Destroy(arena);
 }
 
@@ -150,12 +152,12 @@ Test(Test_MemmyExprRangeReportsByteOffsets)
     Arena_Destroy(arena);
 }
 
-TestSuite suite_memmy_dsl_range = TestSuite_Make(
-    "Memmy DSL Range", TestCase_Make(Test_MemmyExprRangeParsesTargetRefs),
-    TestCase_Make(Test_MemmyExprRangeParsesModuleBracketRange),
-    TestCase_Make(Test_MemmyExprRangeParsesModuleSizedRange), TestCase_Make(Test_MemmyExprRangeParsesAddressSizedRange),
-    TestCase_Make(Test_MemmyExprRangeParsesModuleSizedRangeConstSize),
-    TestCase_Make(Test_MemmyExprRangeRejectsAddressExprDotDotRanges),
-    TestCase_Make(Test_MemmyExprRangeRejectsWholeProcessBracketRanges),
-    TestCase_Make(Test_MemmyExprRangeRejectsNegativeModuleSizedRangeSize),
-    TestCase_Make(Test_MemmyExprRangeReportsByteOffsets), );
+TestSuite suite_memmy_dsl_range = TestSuite_Make("Memmy DSL Range", TestCase_Make(Test_MemmyExprRangeParsesTargetRefs),
+                                                 TestCase_Make(Test_MemmyExprRangeParsesModuleBracketRange),
+                                                 TestCase_Make(Test_MemmyExprRangeParsesModuleSizedRange),
+                                                 TestCase_Make(Test_MemmyExprRangeParsesAddressSizedRange),
+                                                 TestCase_Make(Test_MemmyExprRangeParsesModuleSizedRangeConstSize),
+                                                 TestCase_Make(Test_MemmyExprRangeRejectsAddressExprDotDotRanges),
+                                                 TestCase_Make(Test_MemmyExprRangeParsesWholeProcessBracketRanges),
+                                                 TestCase_Make(Test_MemmyExprRangeRejectsNegativeModuleSizedRangeSize),
+                                                 TestCase_Make(Test_MemmyExprRangeReportsByteOffsets), );

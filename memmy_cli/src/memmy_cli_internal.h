@@ -3,6 +3,8 @@
 
 #include "memmy_cli.h"
 
+#include "memmy_exec.h"
+
 typedef struct Memmy_CliOptions Memmy_CliOptions;
 struct Memmy_CliOptions
 {
@@ -64,8 +66,12 @@ Memmy_Status Memmy_Cli_RunReplStringWithOptions(Arena *arena, Memmy_CliOptions *
                                                 String8 *out, Memmy_Error *error);
 
 Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 *out, Memmy_Error *error);
+Memmy_Status Memmy_Cli_RunExprWithEnv(Arena *arena, Memmy_ExecEnv *env, Memmy_CliOptions *options, String8 *out,
+                                      Memmy_Error *error);
 Memmy_Status Memmy_Cli_RunExprToWriter(Arena *arena, Memmy_CliOptions *options, Memmy_CliOutputWriter writer,
                                        Memmy_Error *error);
+Memmy_Status Memmy_Cli_RunExprToWriterWithEnv(Arena *arena, Memmy_ExecEnv *env, Memmy_CliOptions *options,
+                                              Memmy_CliOutputWriter writer, Memmy_Error *error);
 
 Memmy_Status Memmy_Cli_FormatValue(Arena *arena, Memmy_CliValueFormat *format, String8 bytes, String8 *out,
                                    Memmy_Error *error);

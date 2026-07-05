@@ -304,8 +304,47 @@ static Memmy_Status Memmy_Exec_ReadValue(Arena *arena, Memmy_Process *process, M
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_MemoryExpr_ExecutePeek(Arena *arena, Memmy_Process *process, Memmy_MemoryExpr *expr,
-                                          Memmy_ExecPeekResult *out, Memmy_Error *error)
+static B32 Memmy_Exec_TypeAcceptsConstValue(Memmy_Type type)
+{
+    return type.kind == Memmy_TypeKind_U8 || type.kind == Memmy_TypeKind_I8 || type.kind == Memmy_TypeKind_U16 ||
+           type.kind == Memmy_TypeKind_I16 || type.kind == Memmy_TypeKind_U32 || type.kind == Memmy_TypeKind_I32 ||
+           type.kind == Memmy_TypeKind_U64 || type.kind == Memmy_TypeKind_I64 || type.kind == Memmy_TypeKind_Ptr;
+}
+
+Memmy_Status Memmy_Exec_ValueParseWithEnv(Arena *arena, Memmy_ExecEnv *env, Memmy_Process *process, Memmy_Type type,
+                                          String8 text, Memmy_Value *out, Memmy_Error *error)
+{
+    String8 value_text = text;
+    if (env != 0 && Memmy_Exec_TypeAcceptsConstValue(type) && String8_FindChar(text, '$', 0) != STRING8_NPOS)
+    {
+        Scratch scratch = Scratch_Begin(&arena, 1);
+        Memmy_ConstExpr constant = {0};
+        Memmy_Status status = Memmy_ConstExpr_Parse(scratch.arena, text, &constant, error);
+        if (status != Memmy_Status_Ok)
+        {
+            Scratch_End(scratch);
+            return status;
+        }
+
+        I64 value = 0;
+        status = Memmy_ConstExpr_Resolve(env, process, &constant, &value, error);
+        if (status != Memmy_Status_Ok)
+        {
+            Scratch_End(scratch);
+            return status;
+        }
+
+        value_text = String8_PushF(scratch.arena, "%lld", value);
+        status = Memmy_Value_Parse(arena, type, process->pointer_width, value_text, out, error);
+        Scratch_End(scratch);
+        return status;
+    }
+
+    return Memmy_Value_Parse(arena, type, process->pointer_width, value_text, out, error);
+}
+
+Memmy_Status Memmy_MemoryExpr_ExecutePeekWithEnv(Arena *arena, Memmy_ExecEnv *env, Memmy_Process *process,
+                                                 Memmy_MemoryExpr *expr, Memmy_ExecPeekResult *out, Memmy_Error *error)
 {
     if (arena == 0 || expr == 0 || out == 0)
     {
@@ -327,7 +366,7 @@ Memmy_Status Memmy_MemoryExpr_ExecutePeek(Arena *arena, Memmy_Process *process, 
     }
 
     Memmy_Addr address = 0;
-    status = Memmy_AddressExpr_Resolve(process, &expr->address, &address, error);
+    status = Memmy_AddressExpr_ResolveWithEnv(env, process, &expr->address, &address, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
@@ -349,8 +388,14 @@ Memmy_Status Memmy_MemoryExpr_ExecutePeek(Arena *arena, Memmy_Process *process, 
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_MemoryExpr_ExecutePoke(Arena *arena, Memmy_Process *process, Memmy_MemoryExpr *expr,
-                                          Memmy_ExecPokeResult *out, Memmy_Error *error)
+Memmy_Status Memmy_MemoryExpr_ExecutePeek(Arena *arena, Memmy_Process *process, Memmy_MemoryExpr *expr,
+                                          Memmy_ExecPeekResult *out, Memmy_Error *error)
+{
+    return Memmy_MemoryExpr_ExecutePeekWithEnv(arena, 0, process, expr, out, error);
+}
+
+Memmy_Status Memmy_MemoryExpr_ExecutePokeWithEnv(Arena *arena, Memmy_ExecEnv *env, Memmy_Process *process,
+                                                 Memmy_MemoryExpr *expr, Memmy_ExecPokeResult *out, Memmy_Error *error)
 {
     if (arena == 0 || expr == 0 || out == 0)
     {
@@ -372,14 +417,14 @@ Memmy_Status Memmy_MemoryExpr_ExecutePoke(Arena *arena, Memmy_Process *process, 
     }
 
     Memmy_Addr address = 0;
-    status = Memmy_AddressExpr_Resolve(process, &expr->address, &address, error);
+    status = Memmy_AddressExpr_ResolveWithEnv(env, process, &expr->address, &address, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
     }
 
     Memmy_Value new_value = {0};
-    status = Memmy_Value_Parse(arena, expr->type, process->pointer_width, expr->value_text, &new_value, error);
+    status = Memmy_Exec_ValueParseWithEnv(arena, env, process, expr->type, expr->value_text, &new_value, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
@@ -428,4 +473,10 @@ Memmy_Status Memmy_MemoryExpr_ExecutePoke(Arena *arena, Memmy_Process *process, 
         .new_value = new_value,
     };
     return Memmy_Status_Ok;
+}
+
+Memmy_Status Memmy_MemoryExpr_ExecutePoke(Arena *arena, Memmy_Process *process, Memmy_MemoryExpr *expr,
+                                          Memmy_ExecPokeResult *out, Memmy_Error *error)
+{
+    return Memmy_MemoryExpr_ExecutePokeWithEnv(arena, 0, process, expr, out, error);
 }

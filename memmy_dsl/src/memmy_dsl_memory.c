@@ -363,12 +363,6 @@ static Memmy_Status Memmy_RangeExpr_ParseModuleBracket(Arena *arena, String8 tex
                                                        U64 bracket_offset, Memmy_RangeExpr *out, Memmy_Error *error)
 {
     (void)arena;
-    if (target.kind != Memmy_TargetExprKind_Module)
-    {
-        Memmy_ExprError_SetInput(error, Memmy_Status_ParseError, String8_Lit("range"),
-                                 String8_Lit("module range requires a module target"), text, 0, bracket_offset);
-        return Memmy_Status_ParseError;
-    }
     if (text.len == 0 || text.data[text.len - 1] != ']')
     {
         Memmy_ExprError_SetInput(error, Memmy_Status_ParseError, String8_Lit("range"), String8_Lit("expected ']'"),

@@ -42,6 +42,15 @@ static void Test_ParseStatement(Arena *arena, char *text, Memmy_Statement *out)
     AssertEq(Memmy_Statement_Parse(arena, String8_FromCStr(text), out, &error), Memmy_Status_Ok);
 }
 
+static Memmy_Status Test_ExecuteLine(Arena *arena, Memmy_ExecEnv *env, char *text, Memmy_ExecProcessSelection selection,
+                                     Test_ExecResultList *results, Memmy_Error *error)
+{
+    Memmy_Statement statement = {0};
+    Test_ParseStatement(arena, text, &statement);
+    return Memmy_Statement_ExecuteWithEnv(arena, env, &statement, selection, Test_ExecResultSink(results, arena),
+                                          error);
+}
+
 static void Test_WriteLE(Test_MemmyBackend *backend, Memmy_Addr addr, U64 value, U64 size)
 {
     U64 offset = addr - backend->memory_base;
@@ -206,9 +215,243 @@ Test(Test_MemmyExecStatementExitEmitsControlResult)
     Arena_Destroy(arena);
 }
 
-TestSuite suite_memmy_exec_statement =
-    TestSuite_Make("Memmy Exec Statement", TestCase_Make(Test_MemmyExecStatementProcsEmitsProcessResults),
-                   TestCase_Make(Test_MemmyExecStatementAddressEmitsStructuredAddress),
-                   TestCase_Make(Test_MemmyExecStatementPeekPokeEmitStructuredValues),
-                   TestCase_Make(Test_MemmyExecStatementScanEmitsMatchesAndSummary),
-                   TestCase_Make(Test_MemmyExecStatementExitEmitsControlResult), );
+Test(Test_MemmyExecStatementAssignsAndReassignsAddressVariables)
+{
+    Arena *arena = Arena_CreateDefault();
+    Memmy_ExecEnv env = Memmy_ExecEnv_Create(arena);
+    Memmy_Error error = {0};
+    Test_ExecResultList results = {0};
+
+    AssertEq(Test_ExecuteLine(arena, &env, "$addr = 0x1000", (Memmy_ExecProcessSelection){0}, &results, &error),
+             Memmy_Status_Ok);
+    Test_ExecResultNode *assign = ContainerOf(results.list.first, Test_ExecResultNode, link);
+    AssertEq(assign->result.kind, Memmy_ExecResultKind_Assignment);
+    AssertStrEq(assign->result.assignment.name, String8_Lit("addr"));
+    AssertEq(assign->result.assignment.variable_kind, Memmy_VariableExprKind_Address);
+
+    results = (Test_ExecResultList){0};
+    AssertEq(Test_ExecuteLine(arena, &env, "$addr = 0x1010", (Memmy_ExecProcessSelection){0}, &results, &error),
+             Memmy_Status_Ok);
+    results = (Test_ExecResultList){0};
+    AssertEq(Test_ExecuteLine(arena, &env, "$addr+0x2", (Memmy_ExecProcessSelection){0}, &results, &error),
+             Memmy_Status_Ok);
+
+    Test_ExecResultNode *address = ContainerOf(results.list.first, Test_ExecResultNode, link);
+    AssertEq(address->result.kind, Memmy_ExecResultKind_Address);
+    AssertEq(address->result.address.address, 0x1012);
+
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyExecStatementResolvesVariablesInAddressPeekAndConstOffsets)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    backend.memory[0x23] = 0xab;
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&backend)};
+    Memmy_Context_Set(&ctx);
+
+    Memmy_ExecEnv env = Memmy_ExecEnv_Create(arena);
+    Memmy_ExecProcessSelection selection = {.has_pid = 1, .pid = 4242};
+    Test_ExecResultList results = {0};
+    Memmy_Error error = {0};
+
+    AssertEq(Test_ExecuteLine(arena, &env, "$base = 0x1000", selection, &results, &error), Memmy_Status_Ok);
+    results = (Test_ExecResultList){0};
+    AssertEq(Test_ExecuteLine(arena, &env, "$off = (0x23)", selection, &results, &error), Memmy_Status_Ok);
+    results = (Test_ExecResultList){0};
+    AssertEq(Test_ExecuteLine(arena, &env, "$base+$off : u8", selection, &results, &error), Memmy_Status_Ok);
+
+    Test_ExecResultNode *peek = ContainerOf(results.list.first, Test_ExecResultNode, link);
+    AssertEq(peek->result.kind, Memmy_ExecResultKind_Peek);
+    AssertEq(peek->result.peek.address, 0x1023);
+    AssertEq(peek->result.peek.value.bytes.data[0], 0xab);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyExecStatementResolvesModuleAddressVariables)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&backend)};
+    Memmy_Context_Set(&ctx);
+
+    Memmy_ExecEnv env = Memmy_ExecEnv_Create(arena);
+    Test_ExecResultList results = {0};
+    Memmy_Error error = {0};
+
+    AssertEq(Test_ExecuteLine(arena, &env, "$base = <test-process!test-module.exe>", (Memmy_ExecProcessSelection){0},
+                              &results, &error),
+             Memmy_Status_Ok);
+    results = (Test_ExecResultList){0};
+    AssertEq(Test_ExecuteLine(arena, &env, "$base+0x123", (Memmy_ExecProcessSelection){0}, &results, &error),
+             Memmy_Status_Ok);
+
+    Test_ExecResultNode *address = ContainerOf(results.list.first, Test_ExecResultNode, link);
+    AssertEq(address->result.kind, Memmy_ExecResultKind_Address);
+    AssertEq(address->result.address.address, 0x10000123);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyExecStatementResolvesRangeVariables)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    backend.memory[0x2a] = 42;
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&backend)};
+    Memmy_Context_Set(&ctx);
+
+    Memmy_ExecEnv env = Memmy_ExecEnv_Create(arena);
+    Memmy_ExecProcessSelection selection = {.has_pid = 1, .pid = 4242};
+    Test_ExecResultList results = {0};
+    Memmy_Error error = {0};
+
+    AssertEq(Test_ExecuteLine(arena, &env, "$range = 0x1000:+0x40", selection, &results, &error), Memmy_Status_Ok);
+    results = (Test_ExecResultList){0};
+    AssertEq(Test_ExecuteLine(arena, &env, "$range : u8 == 42", selection, &results, &error), Memmy_Status_Ok);
+
+    AssertTrue(results.list.count >= 2);
+    Test_ExecResultNode *summary = ContainerOf(results.list.last, Test_ExecResultNode, link);
+    AssertEq(summary->result.kind, Memmy_ExecResultKind_Summary);
+    AssertTrue(summary->result.summary.match_count >= 1);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyExecStatementResolvesWholeProcessBracketRangeVariables)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    Test_MemmyBackend_SetMemoryBase(&backend, 0);
+    Test_MemmyBackend_AddRegion(&backend, 4242, 0, 0x100, Memmy_RegionAccess_Read | Memmy_RegionAccess_Write,
+                                Memmy_RegionState_Committed);
+    backend.memory[0x2a] = 42;
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&backend)};
+    Memmy_Context_Set(&ctx);
+
+    Memmy_ExecEnv env = Memmy_ExecEnv_Create(arena);
+    Test_ExecResultList results = {0};
+    Memmy_Error error = {0};
+
+    AssertEq(Test_ExecuteLine(arena, &env, "$range = <test-process!>[0x20:+0x20]", (Memmy_ExecProcessSelection){0},
+                              &results, &error),
+             Memmy_Status_Ok);
+    results = (Test_ExecResultList){0};
+    AssertEq(Test_ExecuteLine(arena, &env, "$range : u8 == 42", (Memmy_ExecProcessSelection){0}, &results, &error),
+             Memmy_Status_Ok);
+
+    Test_ExecResultNode *summary = ContainerOf(results.list.last, Test_ExecResultNode, link);
+    AssertEq(summary->result.kind, Memmy_ExecResultKind_Summary);
+    AssertTrue(summary->result.summary.match_count >= 1);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyExecStatementVarsAndUnset)
+{
+    Arena *arena = Arena_CreateDefault();
+    Memmy_ExecEnv env = Memmy_ExecEnv_Create(arena);
+    Memmy_Error error = {0};
+    Test_ExecResultList results = {0};
+
+    AssertEq(Test_ExecuteLine(arena, &env, "$addr = 0x1000", (Memmy_ExecProcessSelection){0}, &results, &error),
+             Memmy_Status_Ok);
+    results = (Test_ExecResultList){0};
+    AssertEq(Test_ExecuteLine(arena, &env, "$count = (2)", (Memmy_ExecProcessSelection){0}, &results, &error),
+             Memmy_Status_Ok);
+    results = (Test_ExecResultList){0};
+    AssertEq(Test_ExecuteLine(arena, &env, "vars", (Memmy_ExecProcessSelection){0}, &results, &error), Memmy_Status_Ok);
+    AssertEq(results.list.count, 2);
+
+    B32 saw_addr = 0;
+    B32 saw_count = 0;
+    List_ForEach(Test_ExecResultNode, node, &results.list, link)
+    {
+        if (String8_Eq(node->result.variable_binding.name, String8_Lit("addr")))
+        {
+            saw_addr = 1;
+            AssertEq(node->result.variable_binding.variable_kind, Memmy_VariableExprKind_Address);
+        }
+        if (String8_Eq(node->result.variable_binding.name, String8_Lit("count")))
+        {
+            saw_count = 1;
+            AssertEq(node->result.variable_binding.variable_kind, Memmy_VariableExprKind_Const);
+        }
+    }
+    AssertTrue(saw_addr);
+    AssertTrue(saw_count);
+
+    results = (Test_ExecResultList){0};
+    AssertEq(Test_ExecuteLine(arena, &env, "unset $addr", (Memmy_ExecProcessSelection){0}, &results, &error),
+             Memmy_Status_Ok);
+    results = (Test_ExecResultList){0};
+    AssertEq(Test_ExecuteLine(arena, &env, "vars", (Memmy_ExecProcessSelection){0}, &results, &error), Memmy_Status_Ok);
+    AssertEq(results.list.count, 1);
+
+    results = (Test_ExecResultList){0};
+    AssertEq(Test_ExecuteLine(arena, &env, "unset $missing", (Memmy_ExecProcessSelection){0}, &results, &error),
+             Memmy_Status_NotFound);
+
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyExecStatementRejectsWrongKindVariables)
+{
+    Arena *arena = Arena_CreateDefault();
+    Memmy_ExecEnv env = Memmy_ExecEnv_Create(arena);
+    Memmy_Error error = {0};
+    Test_ExecResultList results = {0};
+
+    AssertEq(Test_ExecuteLine(arena, &env, "$range = 0x1000:+0x10", (Memmy_ExecProcessSelection){0}, &results, &error),
+             Memmy_Status_Ok);
+    results = (Test_ExecResultList){0};
+    AssertEq(Test_ExecuteLine(arena, &env, "$range+0x4", (Memmy_ExecProcessSelection){0}, &results, &error),
+             Memmy_Status_InvalidArgument);
+    AssertTrue(String8_Find(error.message, String8_Lit("expected address"), 0) != STRING8_NPOS);
+
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyExecStatementRejectsVariableCycles)
+{
+    Arena *arena = Arena_CreateDefault();
+    Memmy_ExecEnv env = Memmy_ExecEnv_Create(arena);
+    Memmy_Error error = {0};
+    Test_ExecResultList results = {0};
+
+    AssertEq(Test_ExecuteLine(arena, &env, "$a = $b+0", (Memmy_ExecProcessSelection){0}, &results, &error),
+             Memmy_Status_Ok);
+    results = (Test_ExecResultList){0};
+    AssertEq(Test_ExecuteLine(arena, &env, "$b = $a+0", (Memmy_ExecProcessSelection){0}, &results, &error),
+             Memmy_Status_Ok);
+    results = (Test_ExecResultList){0};
+    AssertEq(Test_ExecuteLine(arena, &env, "$a", (Memmy_ExecProcessSelection){0}, &results, &error),
+             Memmy_Status_InvalidArgument);
+    AssertStrEq(error.message, String8_Lit("variable cycle: $a -> $b -> $a"));
+
+    Arena_Destroy(arena);
+}
+
+TestSuite suite_memmy_exec_statement = TestSuite_Make(
+    "Memmy Exec Statement", TestCase_Make(Test_MemmyExecStatementProcsEmitsProcessResults),
+    TestCase_Make(Test_MemmyExecStatementAddressEmitsStructuredAddress),
+    TestCase_Make(Test_MemmyExecStatementPeekPokeEmitStructuredValues),
+    TestCase_Make(Test_MemmyExecStatementScanEmitsMatchesAndSummary),
+    TestCase_Make(Test_MemmyExecStatementExitEmitsControlResult),
+    TestCase_Make(Test_MemmyExecStatementAssignsAndReassignsAddressVariables),
+    TestCase_Make(Test_MemmyExecStatementResolvesVariablesInAddressPeekAndConstOffsets),
+    TestCase_Make(Test_MemmyExecStatementResolvesModuleAddressVariables),
+    TestCase_Make(Test_MemmyExecStatementResolvesRangeVariables),
+    TestCase_Make(Test_MemmyExecStatementResolvesWholeProcessBracketRangeVariables),
+    TestCase_Make(Test_MemmyExecStatementVarsAndUnset), TestCase_Make(Test_MemmyExecStatementRejectsWrongKindVariables),
+    TestCase_Make(Test_MemmyExecStatementRejectsVariableCycles), );

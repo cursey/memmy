@@ -24,11 +24,27 @@ static void Memmy_Exec_TargetExprNeeds(Memmy_TargetExpr *target, Memmy_ExecExprN
     }
 }
 
-static void Memmy_Exec_AddressExprNeeds(Memmy_AddressExpr *address, Memmy_ExecExprNeeds *needs)
+static void Memmy_Exec_AddressExprNeeds(Memmy_ExecEnv *env, Memmy_AddressExpr *address, Memmy_ExecExprNeeds *needs);
+static void Memmy_Exec_RangeExprNeeds(Memmy_ExecEnv *env, Memmy_RangeExpr *range, Memmy_ExecExprNeeds *needs);
+
+static void Memmy_Exec_AddressExprNeeds(Memmy_ExecEnv *env, Memmy_AddressExpr *address, Memmy_ExecExprNeeds *needs)
 {
     if (address->base_kind == Memmy_AddressExprBaseKind_Target)
     {
         Memmy_Exec_TargetExprNeeds(&address->target, needs);
+    }
+    else if (address->base_kind == Memmy_AddressExprBaseKind_Variable && env != 0)
+    {
+        Memmy_ExecVariableBinding *binding = 0;
+        if (Memmy_ExecEnv_Find(env, address->variable.name, &binding, 0) == Memmy_Status_Ok &&
+            Memmy_ExecVariableBinding_Kind(binding) == Memmy_VariableExprKind_Address)
+        {
+            if (Memmy_ExecEnv_ResolvePush(env, address->variable.name, 0) == Memmy_Status_Ok)
+            {
+                Memmy_Exec_AddressExprNeeds(env, &Memmy_ExecVariableBinding_Expr(binding)->address, needs);
+                Memmy_ExecEnv_ResolvePop(env);
+            }
+        }
     }
 
     List_ForEach(Memmy_AddressOp, op, &address->ops, link)
@@ -40,7 +56,7 @@ static void Memmy_Exec_AddressExprNeeds(Memmy_AddressExpr *address, Memmy_ExecEx
     }
 }
 
-static void Memmy_Exec_RangeExprNeeds(Memmy_RangeExpr *range, Memmy_ExecExprNeeds *needs)
+static void Memmy_Exec_RangeExprNeeds(Memmy_ExecEnv *env, Memmy_RangeExpr *range, Memmy_ExecExprNeeds *needs)
 {
     if (range->kind == Memmy_RangeExprKind_Target || range->kind == Memmy_RangeExprKind_ModuleOffset ||
         range->kind == Memmy_RangeExprKind_ModuleSized)
@@ -49,51 +65,109 @@ static void Memmy_Exec_RangeExprNeeds(Memmy_RangeExpr *range, Memmy_ExecExprNeed
     }
     else if (range->kind == Memmy_RangeExprKind_AddressSized)
     {
-        Memmy_Exec_AddressExprNeeds(&range->address, needs);
+        Memmy_Exec_AddressExprNeeds(env, &range->address, needs);
+    }
+    else if (range->kind == Memmy_RangeExprKind_Variable && env != 0)
+    {
+        Memmy_ExecVariableBinding *binding = 0;
+        if (Memmy_ExecEnv_Find(env, range->variable.name, &binding, 0) == Memmy_Status_Ok &&
+            Memmy_ExecVariableBinding_Kind(binding) == Memmy_VariableExprKind_Range)
+        {
+            if (Memmy_ExecEnv_ResolvePush(env, range->variable.name, 0) == Memmy_Status_Ok)
+            {
+                Memmy_Exec_RangeExprNeeds(env, &Memmy_ExecVariableBinding_Expr(binding)->range, needs);
+                Memmy_ExecEnv_ResolvePop(env);
+            }
+        }
     }
 }
 
-static Memmy_ExecExprNeeds Memmy_Exec_MemoryExprNeeds(Memmy_MemoryExpr *expr)
+static Memmy_ExecExprNeeds Memmy_Exec_MemoryExprNeeds(Memmy_ExecEnv *env, Memmy_MemoryExpr *expr)
 {
     Memmy_ExecExprNeeds needs = {0};
     if (expr->kind == Memmy_MemoryExprKind_Address)
     {
-        Memmy_Exec_AddressExprNeeds(&expr->address, &needs);
+        Memmy_Exec_AddressExprNeeds(env, &expr->address, &needs);
     }
     else if (expr->kind == Memmy_MemoryExprKind_Peek || expr->kind == Memmy_MemoryExprKind_Poke)
     {
         needs.process = 1;
-        Memmy_Exec_AddressExprNeeds(&expr->address, &needs);
+        Memmy_Exec_AddressExprNeeds(env, &expr->address, &needs);
     }
     else if (expr->kind == Memmy_MemoryExprKind_PatternScan || expr->kind == Memmy_MemoryExprKind_ValueScan)
     {
         needs.process = 1;
-        Memmy_Exec_RangeExprNeeds(&expr->range, &needs);
+        Memmy_Exec_RangeExprNeeds(env, &expr->range, &needs);
     }
     return needs;
 }
 
-static Memmy_ProcessSelector Memmy_Exec_MemoryExprProcessSelector(Memmy_MemoryExpr *expr)
+static Memmy_ProcessSelector Memmy_Exec_AddressExprProcessSelector(Memmy_ExecEnv *env, Memmy_AddressExpr *expr);
+static Memmy_ProcessSelector Memmy_Exec_RangeExprProcessSelector(Memmy_ExecEnv *env, Memmy_RangeExpr *expr);
+
+static Memmy_ProcessSelector Memmy_Exec_AddressExprProcessSelector(Memmy_ExecEnv *env, Memmy_AddressExpr *expr)
+{
+    Memmy_ProcessSelector selector = {0};
+    if (expr->base_kind == Memmy_AddressExprBaseKind_Target)
+    {
+        selector = expr->target.process;
+    }
+    else if (expr->base_kind == Memmy_AddressExprBaseKind_Variable && env != 0)
+    {
+        Memmy_ExecVariableBinding *binding = 0;
+        if (Memmy_ExecEnv_Find(env, expr->variable.name, &binding, 0) == Memmy_Status_Ok &&
+            Memmy_ExecVariableBinding_Kind(binding) == Memmy_VariableExprKind_Address)
+        {
+            if (Memmy_ExecEnv_ResolvePush(env, expr->variable.name, 0) == Memmy_Status_Ok)
+            {
+                selector =
+                    Memmy_Exec_AddressExprProcessSelector(env, &Memmy_ExecVariableBinding_Expr(binding)->address);
+                Memmy_ExecEnv_ResolvePop(env);
+            }
+        }
+    }
+    return selector;
+}
+
+static Memmy_ProcessSelector Memmy_Exec_RangeExprProcessSelector(Memmy_ExecEnv *env, Memmy_RangeExpr *expr)
+{
+    Memmy_ProcessSelector selector = {0};
+    if (expr->kind == Memmy_RangeExprKind_Target || expr->kind == Memmy_RangeExprKind_ModuleOffset ||
+        expr->kind == Memmy_RangeExprKind_ModuleSized)
+    {
+        selector = expr->target.process;
+    }
+    else if (expr->kind == Memmy_RangeExprKind_AddressSized)
+    {
+        selector = Memmy_Exec_AddressExprProcessSelector(env, &expr->address);
+    }
+    else if (expr->kind == Memmy_RangeExprKind_Variable && env != 0)
+    {
+        Memmy_ExecVariableBinding *binding = 0;
+        if (Memmy_ExecEnv_Find(env, expr->variable.name, &binding, 0) == Memmy_Status_Ok &&
+            Memmy_ExecVariableBinding_Kind(binding) == Memmy_VariableExprKind_Range)
+        {
+            if (Memmy_ExecEnv_ResolvePush(env, expr->variable.name, 0) == Memmy_Status_Ok)
+            {
+                selector = Memmy_Exec_RangeExprProcessSelector(env, &Memmy_ExecVariableBinding_Expr(binding)->range);
+                Memmy_ExecEnv_ResolvePop(env);
+            }
+        }
+    }
+    return selector;
+}
+
+static Memmy_ProcessSelector Memmy_Exec_MemoryExprProcessSelector(Memmy_ExecEnv *env, Memmy_MemoryExpr *expr)
 {
     Memmy_ProcessSelector selector = {0};
     if ((expr->kind == Memmy_MemoryExprKind_Address || expr->kind == Memmy_MemoryExprKind_Peek ||
-         expr->kind == Memmy_MemoryExprKind_Poke) &&
-        expr->address.base_kind == Memmy_AddressExprBaseKind_Target)
+         expr->kind == Memmy_MemoryExprKind_Poke))
     {
-        selector = expr->address.target.process;
+        selector = Memmy_Exec_AddressExprProcessSelector(env, &expr->address);
     }
     else if (expr->kind == Memmy_MemoryExprKind_PatternScan || expr->kind == Memmy_MemoryExprKind_ValueScan)
     {
-        if (expr->range.kind == Memmy_RangeExprKind_Target || expr->range.kind == Memmy_RangeExprKind_ModuleOffset ||
-            expr->range.kind == Memmy_RangeExprKind_ModuleSized)
-        {
-            selector = expr->range.target.process;
-        }
-        else if (expr->range.kind == Memmy_RangeExprKind_AddressSized &&
-                 expr->range.address.base_kind == Memmy_AddressExprBaseKind_Target)
-        {
-            selector = expr->range.address.target.process;
-        }
+        selector = Memmy_Exec_RangeExprProcessSelector(env, &expr->range);
     }
     return selector;
 }
@@ -254,12 +328,12 @@ static Memmy_Status Memmy_ExecStatementScanSink_Push(void *user_data, Memmy_Addr
     return scan_sink->sink.callback(scan_sink->sink.user_data, &result);
 }
 
-static Memmy_Status Memmy_Statement_ExecuteMemory(Arena *arena, Memmy_MemoryExpr *expr,
+static Memmy_Status Memmy_Statement_ExecuteMemory(Arena *arena, Memmy_ExecEnv *env, Memmy_MemoryExpr *expr,
                                                   Memmy_ExecProcessSelection selection, Memmy_ExecResultSink sink,
                                                   Memmy_Error *error)
 {
-    Memmy_ExecExprNeeds needs = Memmy_Exec_MemoryExprNeeds(expr);
-    Memmy_ProcessSelector expr_selector = Memmy_Exec_MemoryExprProcessSelector(expr);
+    Memmy_ExecExprNeeds needs = Memmy_Exec_MemoryExprNeeds(env, expr);
+    Memmy_ProcessSelector expr_selector = Memmy_Exec_MemoryExprProcessSelector(env, expr);
     B32 process_required = needs.process || expr_selector.kind != Memmy_ProcessSelectorKind_None;
     U32 pid = 0;
     Memmy_Status status = Memmy_Exec_SelectProcess(arena, selection, expr_selector, process_required, &pid, error);
@@ -283,7 +357,7 @@ static Memmy_Status Memmy_Statement_ExecuteMemory(Arena *arena, Memmy_MemoryExpr
     if (expr->kind == Memmy_MemoryExprKind_Address)
     {
         Memmy_Addr address = 0;
-        status = Memmy_MemoryExpr_ResolveAddress(process, expr, &address, error);
+        status = Memmy_MemoryExpr_ResolveAddressWithEnv(env, process, expr, &address, error);
         if (process != 0)
         {
             Memmy_Process_Close(process);
@@ -307,7 +381,7 @@ static Memmy_Status Memmy_Statement_ExecuteMemory(Arena *arena, Memmy_MemoryExpr
     if (expr->kind == Memmy_MemoryExprKind_Peek)
     {
         Memmy_ExecResult result = {.kind = Memmy_ExecResultKind_Peek};
-        status = Memmy_MemoryExpr_ExecutePeek(arena, process, expr, &result.peek, error);
+        status = Memmy_MemoryExpr_ExecutePeekWithEnv(arena, env, process, expr, &result.peek, error);
         if (process != 0)
         {
             Memmy_Process_Close(process);
@@ -322,7 +396,7 @@ static Memmy_Status Memmy_Statement_ExecuteMemory(Arena *arena, Memmy_MemoryExpr
     if (expr->kind == Memmy_MemoryExprKind_Poke)
     {
         Memmy_ExecResult result = {.kind = Memmy_ExecResultKind_Poke};
-        status = Memmy_MemoryExpr_ExecutePoke(arena, process, expr, &result.poke, error);
+        status = Memmy_MemoryExpr_ExecutePokeWithEnv(arena, env, process, expr, &result.poke, error);
         if (process != 0)
         {
             Memmy_Process_Close(process);
@@ -344,11 +418,11 @@ static Memmy_Status Memmy_Statement_ExecuteMemory(Arena *arena, Memmy_MemoryExpr
     };
     if (expr->kind == Memmy_MemoryExprKind_PatternScan)
     {
-        status = Memmy_MemoryExpr_ExecutePatternScan(arena, process, expr, memory_sink, error);
+        status = Memmy_MemoryExpr_ExecutePatternScanWithEnv(arena, env, process, expr, memory_sink, error);
     }
     else if (expr->kind == Memmy_MemoryExprKind_ValueScan)
     {
-        status = Memmy_MemoryExpr_ExecuteValueScan(arena, process, expr, memory_sink, error);
+        status = Memmy_MemoryExpr_ExecuteValueScanWithEnv(arena, env, process, expr, memory_sink, error);
     }
     else
     {
@@ -395,19 +469,20 @@ static Memmy_Status Memmy_ExecProcessEmitter_Push(void *user_data, Memmy_Process
     return emitter->sink.callback(emitter->sink.user_data, &result);
 }
 
-Memmy_Status Memmy_Statement_Execute(Arena *arena, Memmy_Statement *statement, Memmy_ExecProcessSelection selection,
-                                     Memmy_ExecResultSink sink, Memmy_Error *error)
+Memmy_Status Memmy_Statement_ExecuteWithEnv(Arena *arena, Memmy_ExecEnv *env, Memmy_Statement *statement,
+                                            Memmy_ExecProcessSelection selection, Memmy_ExecResultSink sink,
+                                            Memmy_Error *error)
 {
-    if (arena == 0 || statement == 0 || sink.callback == 0)
+    if (arena == 0 || env == 0 || statement == 0 || sink.callback == 0)
     {
         Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("exec"),
-                        String8_Lit("missing arena, statement, or result sink"));
+                        String8_Lit("missing arena, environment, statement, or result sink"));
         return Memmy_Status_InvalidArgument;
     }
 
     if (statement->kind == Memmy_StatementKind_Memory)
     {
-        return Memmy_Statement_ExecuteMemory(arena, &statement->memory, selection, sink, error);
+        return Memmy_Statement_ExecuteMemory(arena, env, &statement->memory, selection, sink, error);
     }
     if (statement->kind == Memmy_StatementKind_Procs)
     {
@@ -422,35 +497,57 @@ Memmy_Status Memmy_Statement_Execute(Arena *arena, Memmy_Statement *statement, M
     }
     if (statement->kind == Memmy_StatementKind_Assignment)
     {
+        Memmy_Status status = Memmy_ExecEnv_Set(env, statement->variable.name, &statement->assignment, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
         Memmy_ExecResult result = {
             .kind = Memmy_ExecResultKind_Assignment,
             .assignment =
                 {
                     .name = statement->variable.name,
-                    .status = Memmy_Status_Unsupported,
+                    .variable_kind = statement->assignment.kind,
+                    .status = Memmy_Status_Ok,
                 },
         };
         return Memmy_ExecResult_Emit(sink, &result, error);
     }
     if (statement->kind == Memmy_StatementKind_Vars)
     {
-        Memmy_ExecResult result = {
-            .kind = Memmy_ExecResultKind_VariableBinding,
-            .variable_binding =
-                {
-                    .status = Memmy_Status_Unsupported,
-                },
-        };
-        return Memmy_ExecResult_Emit(sink, &result, error);
+        for (Memmy_ExecVariableBinding *binding = Memmy_ExecEnv_First(env); binding != 0;
+             binding = Memmy_ExecEnv_Next(env, binding))
+        {
+            Memmy_ExecResult result = {
+                .kind = Memmy_ExecResultKind_VariableBinding,
+                .variable_binding =
+                    {
+                        .name = Memmy_ExecVariableBinding_Name(binding),
+                        .variable_kind = Memmy_ExecVariableBinding_Kind(binding),
+                        .status = Memmy_Status_Ok,
+                    },
+            };
+            Memmy_Status status = Memmy_ExecResult_Emit(sink, &result, error);
+            if (status != Memmy_Status_Ok)
+            {
+                return status;
+            }
+        }
+        return Memmy_Status_Ok;
     }
     if (statement->kind == Memmy_StatementKind_Unset)
     {
+        Memmy_Status status = Memmy_ExecEnv_Unset(env, statement->variable.name, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
         Memmy_ExecResult result = {
             .kind = Memmy_ExecResultKind_Unset,
             .unset =
                 {
                     .name = statement->variable.name,
-                    .status = Memmy_Status_NotFound,
+                    .status = Memmy_Status_Ok,
                 },
         };
         return Memmy_ExecResult_Emit(sink, &result, error);
@@ -470,4 +567,17 @@ Memmy_Status Memmy_Statement_Execute(Arena *arena, Memmy_Statement *statement, M
     Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("statement"),
                     String8_Lit("unknown statement kind"));
     return Memmy_Status_InvalidArgument;
+}
+
+Memmy_Status Memmy_Statement_Execute(Arena *arena, Memmy_Statement *statement, Memmy_ExecProcessSelection selection,
+                                     Memmy_ExecResultSink sink, Memmy_Error *error)
+{
+    if (arena == 0)
+    {
+        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("exec"), String8_Lit("missing arena"));
+        return Memmy_Status_InvalidArgument;
+    }
+
+    Memmy_ExecEnv env = Memmy_ExecEnv_Create(arena);
+    return Memmy_Statement_ExecuteWithEnv(arena, &env, statement, selection, sink, error);
 }

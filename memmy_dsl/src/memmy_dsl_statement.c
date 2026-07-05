@@ -190,25 +190,11 @@ Memmy_Status Memmy_VariableExpr_Parse(Arena *arena, String8 text, Memmy_Variable
         return Memmy_Status_ParseError;
     }
 
-    Memmy_RangeExpr range = {0};
-    Memmy_Status status = Memmy_RangeExpr_Parse(arena, source.text, &range, 0);
-    if (status == Memmy_Status_Ok)
-    {
-        *out = (Memmy_VariableExpr){
-            .kind = Memmy_VariableExprKind_Range,
-            .range = range,
-        };
-        if (error != 0)
-        {
-            *error = (Memmy_Error){0};
-        }
-        return Memmy_Status_Ok;
-    }
-
     if (Memmy_Statement_IsWrappedInTopLevelParens(source.text))
     {
         Memmy_ConstExpr constant = {0};
-        status = Memmy_ConstExpr_Parse(arena, String8_Substr(source.text, 1, source.text.len - 2), &constant, error);
+        Memmy_Status status =
+            Memmy_ConstExpr_Parse(arena, String8_Substr(source.text, 1, source.text.len - 2), &constant, error);
         if (status != Memmy_Status_Ok)
         {
             Memmy_Statement_RemapError(error, text, source.offset + 1);
@@ -226,16 +212,30 @@ Memmy_Status Memmy_VariableExpr_Parse(Arena *arena, String8 text, Memmy_Variable
     }
 
     Memmy_AddressExpr address = {0};
-    status = Memmy_AddressExpr_Parse(arena, source.text, &address, error);
+    Memmy_Status status = Memmy_AddressExpr_Parse(arena, source.text, &address, 0);
+    if (status == Memmy_Status_Ok)
+    {
+        *out = (Memmy_VariableExpr){
+            .kind = Memmy_VariableExprKind_Address,
+            .address = address,
+        };
+        if (error != 0)
+        {
+            *error = (Memmy_Error){0};
+        }
+        return Memmy_Status_Ok;
+    }
+
+    Memmy_RangeExpr range = {0};
+    status = Memmy_RangeExpr_Parse(arena, source.text, &range, error);
     if (status != Memmy_Status_Ok)
     {
         Memmy_Statement_RemapError(error, text, source.offset);
         return status;
     }
-
     *out = (Memmy_VariableExpr){
-        .kind = Memmy_VariableExprKind_Address,
-        .address = address,
+        .kind = Memmy_VariableExprKind_Range,
+        .range = range,
     };
     if (error != 0)
     {
@@ -324,12 +324,6 @@ Memmy_Status Memmy_Statement_Parse(Arena *arena, String8 text, Memmy_Statement *
                 .variable = variable_ref,
                 .assignment = variable_expr,
             };
-        }
-        else if (source.text.data[0] == '$')
-        {
-            Memmy_StatementError_SetInput(error, Memmy_Status_ParseError, String8_Lit("statement"),
-                                          String8_Lit("expected assignment"), text, source.offset, source.text.len);
-            return Memmy_Status_ParseError;
         }
         else
         {

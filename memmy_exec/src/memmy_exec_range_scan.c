@@ -282,8 +282,8 @@ static Memmy_Status Memmy_Exec_ScanWholeProcess(Arena *arena, Memmy_Process *pro
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_RangeExpr_Resolve(Memmy_Process *process, Memmy_RangeExpr *expr, Memmy_Range *out,
-                                     Memmy_Error *error)
+Memmy_Status Memmy_RangeExpr_ResolveWithEnv(Memmy_ExecEnv *env, Memmy_Process *process, Memmy_RangeExpr *expr,
+                                            Memmy_Range *out, Memmy_Error *error)
 {
     if (expr == 0 || out == 0)
     {
@@ -305,33 +305,105 @@ Memmy_Status Memmy_RangeExpr_Resolve(Memmy_Process *process, Memmy_RangeExpr *ex
 
     if (expr->kind == Memmy_RangeExprKind_Variable)
     {
-        return Memmy_Exec_RejectVariableRange(error);
-    }
-
-    if (expr->kind == Memmy_RangeExprKind_ModuleOffset || expr->kind == Memmy_RangeExprKind_ModuleSized)
-    {
-        if (expr->start_offset_expr.contains_variable)
-        {
-            return Memmy_Exec_RejectVariableRange(error);
-        }
-        if (expr->kind == Memmy_RangeExprKind_ModuleOffset && expr->end_offset_expr.contains_variable)
-        {
-            return Memmy_Exec_RejectVariableRange(error);
-        }
-        if (expr->kind == Memmy_RangeExprKind_ModuleSized && expr->size_expr.contains_variable)
+        if (env == 0)
         {
             return Memmy_Exec_RejectVariableRange(error);
         }
 
-        Memmy_Module module = {0};
-        Memmy_Status status = Memmy_Exec_ResolveModule(process, &expr->target, &module, error);
+        Memmy_Status status = Memmy_ExecEnv_ResolvePush(env, expr->variable.name, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
 
+        Memmy_ExecVariableBinding *binding = 0;
+        status = Memmy_ExecEnv_Find(env, expr->variable.name, &binding, error);
+        if (status == Memmy_Status_Ok && Memmy_ExecVariableBinding_Kind(binding) != Memmy_VariableExprKind_Range)
+        {
+            Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("variable"),
+                            String8_PushF(env->arena, "wrong variable kind for $%.*s: expected range",
+                                          (int)expr->variable.name.len, (char *)expr->variable.name.data));
+            status = Memmy_Status_InvalidArgument;
+        }
+        if (status == Memmy_Status_Ok)
+        {
+            status = Memmy_RangeExpr_ResolveWithEnv(env, process, &Memmy_ExecVariableBinding_Expr(binding)->range, out,
+                                                    error);
+        }
+        Memmy_ExecEnv_ResolvePop(env);
+        return status;
+    }
+
+    if (expr->kind == Memmy_RangeExprKind_ModuleOffset || expr->kind == Memmy_RangeExprKind_ModuleSized)
+    {
+        I64 start_offset = expr->start_offset;
+        I64 end_offset = expr->end_offset;
+        I64 size_value = (I64)expr->size;
+        if (expr->start_offset_expr.contains_variable)
+        {
+            if (env == 0)
+            {
+                return Memmy_Exec_RejectVariableRange(error);
+            }
+            Memmy_Status status = Memmy_ConstExpr_Resolve(env, process, &expr->start_offset_expr, &start_offset, error);
+            if (status != Memmy_Status_Ok)
+            {
+                return status;
+            }
+        }
+        if (expr->kind == Memmy_RangeExprKind_ModuleOffset && expr->end_offset_expr.contains_variable)
+        {
+            if (env == 0)
+            {
+                return Memmy_Exec_RejectVariableRange(error);
+            }
+            Memmy_Status status = Memmy_ConstExpr_Resolve(env, process, &expr->end_offset_expr, &end_offset, error);
+            if (status != Memmy_Status_Ok)
+            {
+                return status;
+            }
+        }
+        if (expr->kind == Memmy_RangeExprKind_ModuleSized && expr->size_expr.contains_variable)
+        {
+            if (env == 0)
+            {
+                return Memmy_Exec_RejectVariableRange(error);
+            }
+            Memmy_Status status = Memmy_ConstExpr_Resolve(env, process, &expr->size_expr, &size_value, error);
+            if (status != Memmy_Status_Ok)
+            {
+                return status;
+            }
+            if (size_value < 0)
+            {
+                Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("range"),
+                                String8_Lit("size cannot be negative"));
+                return Memmy_Status_InvalidArgument;
+            }
+        }
+
+        Memmy_Addr base = 0;
+        if (expr->target.kind == Memmy_TargetExprKind_Module)
+        {
+            Memmy_Module module = {0};
+            Memmy_Status status = Memmy_Exec_ResolveModule(process, &expr->target, &module, error);
+            if (status != Memmy_Status_Ok)
+            {
+                return status;
+            }
+            base = module.base;
+        }
+        else
+        {
+            Memmy_Status status = Memmy_Exec_TargetCheckProcess(process, &expr->target, error);
+            if (status != Memmy_Status_Ok)
+            {
+                return status;
+            }
+        }
+
         Memmy_Addr start = 0;
-        status = Memmy_Exec_AddOffset(module.base, expr->start_offset, &start, error);
+        Memmy_Status status = Memmy_Exec_AddOffset(base, start_offset, &start, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -339,11 +411,11 @@ Memmy_Status Memmy_RangeExpr_Resolve(Memmy_Process *process, Memmy_RangeExpr *ex
 
         if (expr->kind == Memmy_RangeExprKind_ModuleSized)
         {
-            return Memmy_Range_FromStartLength(start, expr->size, out, error);
+            return Memmy_Range_FromStartLength(start, (Memmy_Size)size_value, out, error);
         }
 
         Memmy_Addr end = 0;
-        status = Memmy_Exec_AddOffset(module.base, expr->end_offset, &end, error);
+        status = Memmy_Exec_AddOffset(base, end_offset, &end, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -353,18 +425,33 @@ Memmy_Status Memmy_RangeExpr_Resolve(Memmy_Process *process, Memmy_RangeExpr *ex
 
     if (expr->kind == Memmy_RangeExprKind_AddressSized)
     {
+        I64 size_value = (I64)expr->size;
         if (expr->size_expr.contains_variable)
         {
-            return Memmy_Exec_RejectVariableRange(error);
+            if (env == 0)
+            {
+                return Memmy_Exec_RejectVariableRange(error);
+            }
+            Memmy_Status status = Memmy_ConstExpr_Resolve(env, process, &expr->size_expr, &size_value, error);
+            if (status != Memmy_Status_Ok)
+            {
+                return status;
+            }
+            if (size_value < 0)
+            {
+                Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("range"),
+                                String8_Lit("size cannot be negative"));
+                return Memmy_Status_InvalidArgument;
+            }
         }
 
         Memmy_Addr start = 0;
-        Memmy_Status status = Memmy_AddressExpr_Resolve(process, &expr->address, &start, error);
+        Memmy_Status status = Memmy_AddressExpr_ResolveWithEnv(env, process, &expr->address, &start, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
-        return Memmy_Range_FromStartLength(start, expr->size, out, error);
+        return Memmy_Range_FromStartLength(start, (Memmy_Size)size_value, out, error);
     }
 
     Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("range"),
@@ -372,8 +459,14 @@ Memmy_Status Memmy_RangeExpr_Resolve(Memmy_Process *process, Memmy_RangeExpr *ex
     return Memmy_Status_InvalidArgument;
 }
 
-Memmy_Status Memmy_MemoryExpr_ExecutePatternScan(Arena *arena, Memmy_Process *process, Memmy_MemoryExpr *expr,
-                                                 Memmy_ScanSink sink, Memmy_Error *error)
+Memmy_Status Memmy_RangeExpr_Resolve(Memmy_Process *process, Memmy_RangeExpr *expr, Memmy_Range *out,
+                                     Memmy_Error *error)
+{
+    return Memmy_RangeExpr_ResolveWithEnv(0, process, expr, out, error);
+}
+
+Memmy_Status Memmy_MemoryExpr_ExecutePatternScanWithEnv(Arena *arena, Memmy_ExecEnv *env, Memmy_Process *process,
+                                                        Memmy_MemoryExpr *expr, Memmy_ScanSink sink, Memmy_Error *error)
 {
     if (expr == 0 || sink.callback == 0)
     {
@@ -395,7 +488,7 @@ Memmy_Status Memmy_MemoryExpr_ExecutePatternScan(Arena *arena, Memmy_Process *pr
     }
 
     Memmy_Range range = {0};
-    Memmy_Status status = Memmy_RangeExpr_Resolve(process, &expr->range, &range, error);
+    Memmy_Status status = Memmy_RangeExpr_ResolveWithEnv(env, process, &expr->range, &range, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
@@ -404,8 +497,14 @@ Memmy_Status Memmy_MemoryExpr_ExecutePatternScan(Arena *arena, Memmy_Process *pr
     return Memmy_Exec_ScanRange(arena, process, range, Memmy_Exec_ScanPattern, &expr->pattern, sink, error);
 }
 
-Memmy_Status Memmy_MemoryExpr_ExecuteValueScan(Arena *arena, Memmy_Process *process, Memmy_MemoryExpr *expr,
-                                               Memmy_ScanSink sink, Memmy_Error *error)
+Memmy_Status Memmy_MemoryExpr_ExecutePatternScan(Arena *arena, Memmy_Process *process, Memmy_MemoryExpr *expr,
+                                                 Memmy_ScanSink sink, Memmy_Error *error)
+{
+    return Memmy_MemoryExpr_ExecutePatternScanWithEnv(arena, 0, process, expr, sink, error);
+}
+
+Memmy_Status Memmy_MemoryExpr_ExecuteValueScanWithEnv(Arena *arena, Memmy_ExecEnv *env, Memmy_Process *process,
+                                                      Memmy_MemoryExpr *expr, Memmy_ScanSink sink, Memmy_Error *error)
 {
     if (expr == 0 || sink.callback == 0)
     {
@@ -427,7 +526,8 @@ Memmy_Status Memmy_MemoryExpr_ExecuteValueScan(Arena *arena, Memmy_Process *proc
     }
 
     Memmy_Value value = {0};
-    Memmy_Status status = Memmy_Value_Parse(arena, expr->type, process->pointer_width, expr->value_text, &value, error);
+    Memmy_Status status =
+        Memmy_Exec_ValueParseWithEnv(arena, env, process, expr->type, expr->value_text, &value, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
@@ -439,11 +539,17 @@ Memmy_Status Memmy_MemoryExpr_ExecuteValueScan(Arena *arena, Memmy_Process *proc
     }
 
     Memmy_Range range = {0};
-    status = Memmy_RangeExpr_Resolve(process, &expr->range, &range, error);
+    status = Memmy_RangeExpr_ResolveWithEnv(env, process, &expr->range, &range, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
     }
 
     return Memmy_Exec_ScanRange(arena, process, range, Memmy_Exec_ScanValue, &value, sink, error);
+}
+
+Memmy_Status Memmy_MemoryExpr_ExecuteValueScan(Arena *arena, Memmy_Process *process, Memmy_MemoryExpr *expr,
+                                               Memmy_ScanSink sink, Memmy_Error *error)
+{
+    return Memmy_MemoryExpr_ExecuteValueScanWithEnv(arena, 0, process, expr, sink, error);
 }

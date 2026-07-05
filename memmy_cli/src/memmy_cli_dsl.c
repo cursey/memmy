@@ -16,7 +16,37 @@ static Memmy_Status Memmy_CliExprStringWriter_Write(void *user_data, String8 tex
     return Memmy_Status_Ok;
 }
 
+static String8 Memmy_Cli_VariableKindString(Memmy_VariableExprKind kind)
+{
+    if (kind == Memmy_VariableExprKind_Address)
+    {
+        return String8_Lit("address");
+    }
+    if (kind == Memmy_VariableExprKind_Range)
+    {
+        return String8_Lit("range");
+    }
+    if (kind == Memmy_VariableExprKind_Const)
+    {
+        return String8_Lit("const");
+    }
+    return String8_Lit("unknown");
+}
+
 Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 *out, Memmy_Error *error)
+{
+    if (arena == 0)
+    {
+        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("cli"), String8_Lit("missing arena"));
+        return Memmy_Status_InvalidArgument;
+    }
+
+    Memmy_ExecEnv env = Memmy_ExecEnv_Create(arena);
+    return Memmy_Cli_RunExprWithEnv(arena, &env, options, out, error);
+}
+
+Memmy_Status Memmy_Cli_RunExprWithEnv(Arena *arena, Memmy_ExecEnv *env, Memmy_CliOptions *options, String8 *out,
+                                      Memmy_Error *error)
 {
     if (out == 0)
     {
@@ -31,7 +61,7 @@ Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 
         .write = Memmy_CliExprStringWriter_Write,
         .user_data = &string_writer,
     };
-    Memmy_Status status = Memmy_Cli_RunExprToWriter(arena, options, writer, error);
+    Memmy_Status status = Memmy_Cli_RunExprToWriterWithEnv(arena, env, options, writer, error);
     *out = String8List_Join(arena, &string_writer.list, (String8){0});
     return status;
 }
@@ -151,13 +181,74 @@ static Memmy_Status Memmy_CliExecResultWriter_Push(void *user_data, Memmy_ExecRe
     {
         status = Memmy_CliExecResultWriter_WriteProcess(result_writer, &result->process.info);
     }
+    else if (result->kind == Memmy_ExecResultKind_Assignment)
+    {
+        String8 kind = Memmy_Cli_VariableKindString(result->assignment.variable_kind);
+        String8 line = {0};
+        if (result_writer->jsonl)
+        {
+            String8 name = Memmy_Cli_FormatJsonString(arena, result->assignment.name);
+            line = String8_PushF(arena, "{\"type\":\"assignment\",\"name\":%.*s,\"kind\":\"%.*s\"}\n", (int)name.len,
+                                 (char *)name.data, (int)kind.len, (char *)kind.data);
+        }
+        else
+        {
+            line = String8_PushF(arena, "$%.*s = %.*s\n", (int)result->assignment.name.len,
+                                 (char *)result->assignment.name.data, (int)kind.len, (char *)kind.data);
+        }
+        status = result_writer->writer.write(result_writer->writer.user_data, line);
+    }
+    else if (result->kind == Memmy_ExecResultKind_VariableBinding)
+    {
+        String8 kind = Memmy_Cli_VariableKindString(result->variable_binding.variable_kind);
+        String8 line = {0};
+        if (result_writer->jsonl)
+        {
+            String8 name = Memmy_Cli_FormatJsonString(arena, result->variable_binding.name);
+            line = String8_PushF(arena, "{\"type\":\"variable\",\"name\":%.*s,\"kind\":\"%.*s\"}\n", (int)name.len,
+                                 (char *)name.data, (int)kind.len, (char *)kind.data);
+        }
+        else
+        {
+            line = String8_PushF(arena, "$%.*s %.*s\n", (int)result->variable_binding.name.len,
+                                 (char *)result->variable_binding.name.data, (int)kind.len, (char *)kind.data);
+        }
+        status = result_writer->writer.write(result_writer->writer.user_data, line);
+    }
+    else if (result->kind == Memmy_ExecResultKind_Unset)
+    {
+        String8 line = {0};
+        if (result_writer->jsonl)
+        {
+            String8 name = Memmy_Cli_FormatJsonString(arena, result->unset.name);
+            line = String8_PushF(arena, "{\"type\":\"unset\",\"name\":%.*s}\n", (int)name.len, (char *)name.data);
+        }
+        else
+        {
+            line = String8_PushF(arena, "unset $%.*s\n", (int)result->unset.name.len, (char *)result->unset.name.data);
+        }
+        status = result_writer->writer.write(result_writer->writer.user_data, line);
+    }
     return status;
 }
 
 Memmy_Status Memmy_Cli_RunExprToWriter(Arena *arena, Memmy_CliOptions *options, Memmy_CliOutputWriter writer,
                                        Memmy_Error *error)
 {
-    if (arena == 0 || options == 0 || writer.write == 0)
+    if (arena == 0)
+    {
+        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("cli"), String8_Lit("missing arena"));
+        return Memmy_Status_InvalidArgument;
+    }
+
+    Memmy_ExecEnv env = Memmy_ExecEnv_Create(arena);
+    return Memmy_Cli_RunExprToWriterWithEnv(arena, &env, options, writer, error);
+}
+
+Memmy_Status Memmy_Cli_RunExprToWriterWithEnv(Arena *arena, Memmy_ExecEnv *env, Memmy_CliOptions *options,
+                                              Memmy_CliOutputWriter writer, Memmy_Error *error)
+{
+    if (arena == 0 || env == 0 || options == 0 || writer.write == 0)
     {
         Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("cli"), String8_Lit("missing output writer"));
         return Memmy_Status_InvalidArgument;
@@ -185,5 +276,5 @@ Memmy_Status Memmy_Cli_RunExprToWriter(Arena *arena, Memmy_CliOptions *options, 
         .has_name = options->has_name,
         .name = options->name,
     };
-    return Memmy_Statement_Execute(arena, &statement, selection, sink, error);
+    return Memmy_Statement_ExecuteWithEnv(arena, env, &statement, selection, sink, error);
 }
