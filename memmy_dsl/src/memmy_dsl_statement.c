@@ -291,7 +291,7 @@ Memmy_Status Memmy_Statement_Parse(Arena *arena, String8 text, Memmy_Statement *
     else
     {
         U64 equal = 0;
-        if (Memmy_Statement_TopLevelFindChar(source.text, '=', &equal) &&
+        if (source.text.data[0] == '$' && Memmy_Statement_TopLevelFindChar(source.text, '=', &equal) &&
             (equal + 1 >= source.text.len || source.text.data[equal + 1] != '='))
         {
             Memmy_StatementSlice variable = Memmy_Statement_TrimSlice(text, source.offset, equal);

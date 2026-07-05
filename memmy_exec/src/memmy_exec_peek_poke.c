@@ -342,6 +342,7 @@ Memmy_Status Memmy_MemoryExpr_ExecutePeek(Arena *arena, Memmy_Process *process, 
 
     *out = (Memmy_ExecPeekResult){
         .address = address,
+        .pointer_width = process->pointer_width,
         .type = expr->type,
         .value = value,
     };
@@ -419,7 +420,9 @@ Memmy_Status Memmy_MemoryExpr_ExecutePoke(Arena *arena, Memmy_Process *process, 
     }
 
     *out = (Memmy_ExecPokeResult){
+        .pid = process->pid,
         .address = address,
+        .pointer_width = process->pointer_width,
         .type = expr->type,
         .old_value = {.type = expr->type, .bytes = String8_Make(old_bytes, size)},
         .new_value = new_value,

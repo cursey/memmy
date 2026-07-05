@@ -35,6 +35,7 @@ extern TestSuite suite_memmy_dsl_statement;
 extern TestSuite suite_memmy_exec_address;
 extern TestSuite suite_memmy_exec_peek_poke;
 extern TestSuite suite_memmy_exec_range;
+extern TestSuite suite_memmy_exec_statement;
 extern TestSuite suite_memmy_exec_pattern_scan;
 extern TestSuite suite_memmy_exec_value_scan;
 extern TestSuite suite_memmy_cli;
@@ -77,6 +78,7 @@ int main(int argc, char **argv)
         suite_memmy_exec_address,
         suite_memmy_exec_peek_poke,
         suite_memmy_exec_range,
+        suite_memmy_exec_statement,
         suite_memmy_exec_pattern_scan,
         suite_memmy_exec_value_scan,
         suite_memmy_cli,
