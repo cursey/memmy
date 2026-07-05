@@ -1,8 +1,11 @@
 #ifndef MEMMY_EVAL_H
 #define MEMMY_EVAL_H
 
+#include "base_hashmap.h"
 #include "memmy.h"
 #include "memmy_ast.h"
+
+typedef struct Memmy_EvalBinding Memmy_EvalBinding;
 
 typedef U32 Memmy_EvalValueKind;
 enum
@@ -19,6 +22,8 @@ typedef struct Memmy_EvalEnv Memmy_EvalEnv;
 struct Memmy_EvalEnv
 {
     Arena *arena;
+    HashMap bindings; // Memmy_EvalBinding
+    Memmy_Process *process;
 };
 
 typedef struct Memmy_EvalValue Memmy_EvalValue;
@@ -28,6 +33,7 @@ struct Memmy_EvalValue
     I64 constant;
     Memmy_Addr address;
     Memmy_Range range;
+    Memmy_Value typed_value;
 };
 
 typedef struct Memmy_EvalResult Memmy_EvalResult;
