@@ -48,12 +48,24 @@ struct Memmy_CliPokeOutput
     B32 dry_run;
 };
 
+typedef struct Memmy_CliScanOutput Memmy_CliScanOutput;
+struct Memmy_CliScanOutput
+{
+    Arena *arena;
+    Memmy_CliOutputWriter writer;
+    Memmy_PointerWidth pointer_width;
+    B32 jsonl;
+    U64 count;
+};
+
 void Memmy_Cli_PushLine(Arena *arena, String8List *list, char *fmt, ...);
 Memmy_Status Memmy_Cli_InvalidOption(Memmy_Error *error, String8 message, String8 input);
 Memmy_Status Memmy_Cli_RunReplStringWithOptions(Arena *arena, Memmy_CliOptions *base_options, String8 input,
                                                 String8 *out, Memmy_Error *error);
 
 Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 *out, Memmy_Error *error);
+Memmy_Status Memmy_Cli_RunExprToWriter(Arena *arena, Memmy_CliOptions *options, Memmy_CliOutputWriter writer,
+                                       Memmy_Error *error);
 
 Memmy_Status Memmy_Cli_FormatValue(Arena *arena, Memmy_CliValueFormat *format, String8 bytes, String8 *out,
                                    Memmy_Error *error);
@@ -62,7 +74,9 @@ Memmy_Status Memmy_Cli_FormatPeekOutput(Arena *arena, Memmy_CliPeekOutput *peek,
                                         Memmy_Error *error);
 Memmy_Status Memmy_Cli_FormatPokeOutput(Arena *arena, Memmy_CliPokeOutput *poke, B32 jsonl, String8 *out,
                                         Memmy_Error *error);
-String8 Memmy_Cli_FormatScanResults(Arena *arena, Memmy_ScanResultList *results, Memmy_PointerWidth pointer_width,
-                                    B32 jsonl);
+Memmy_Status Memmy_CliScanOutput_Begin(Memmy_CliScanOutput *output, Arena *arena, Memmy_CliOutputWriter writer,
+                                       Memmy_PointerWidth pointer_width, B32 jsonl);
+Memmy_Status Memmy_CliScanOutput_PushMatch(void *user_data, Memmy_Addr address);
+Memmy_Status Memmy_CliScanOutput_End(Memmy_CliScanOutput *output);
 
 #endif // MEMMY_CLI_INTERNAL_H

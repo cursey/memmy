@@ -220,8 +220,49 @@ static Memmy_Status Memmy_Cli_SelectExprProcess(Arena *arena, Memmy_CliOptions *
     return Memmy_Status_Ok;
 }
 
+typedef struct Memmy_CliExprStringWriter Memmy_CliExprStringWriter;
+struct Memmy_CliExprStringWriter
+{
+    Arena *arena;
+    String8List list;
+};
+
+static Memmy_Status Memmy_CliExprStringWriter_Write(void *user_data, String8 text)
+{
+    Memmy_CliExprStringWriter *writer = (Memmy_CliExprStringWriter *)user_data;
+    String8List_Push(writer->arena, &writer->list, text);
+    return Memmy_Status_Ok;
+}
+
 Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 *out, Memmy_Error *error)
 {
+    if (out == 0)
+    {
+        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("cli"), String8_Lit("missing output"));
+        return Memmy_Status_InvalidArgument;
+    }
+
+    Memmy_CliExprStringWriter string_writer = {
+        .arena = arena,
+    };
+    Memmy_CliOutputWriter writer = {
+        .write = Memmy_CliExprStringWriter_Write,
+        .user_data = &string_writer,
+    };
+    Memmy_Status status = Memmy_Cli_RunExprToWriter(arena, options, writer, error);
+    *out = String8List_Join(arena, &string_writer.list, (String8){0});
+    return status;
+}
+
+Memmy_Status Memmy_Cli_RunExprToWriter(Arena *arena, Memmy_CliOptions *options, Memmy_CliOutputWriter writer,
+                                       Memmy_Error *error)
+{
+    if (arena == 0 || options == 0 || writer.write == 0)
+    {
+        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("cli"), String8_Lit("missing output writer"));
+        return Memmy_Status_InvalidArgument;
+    }
+
     Memmy_MemoryExpr expr = {0};
     Memmy_Status status = Memmy_MemoryExpr_Parse(arena, options->expr_text, &expr, error);
     if (status != Memmy_Status_Ok)
@@ -300,12 +341,18 @@ Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 
         String8 address_text = Memmy_Cli_FormatAddress(arena, pointer_width, address);
         if (options->jsonl)
         {
-            *out = String8_PushF(arena, "{\"type\":\"address\",\"address\":\"%.*s\"}\n", (int)address_text.len,
-                                 (char *)address_text.data);
+            String8 line = String8_PushF(arena, "{\"type\":\"address\",\"address\":\"%.*s\"}\n", (int)address_text.len,
+                                         (char *)address_text.data);
+            status = writer.write(writer.user_data, line);
         }
         else
         {
-            *out = String8_PushF(arena, "%.*s\n", (int)address_text.len, (char *)address_text.data);
+            String8 line = String8_PushF(arena, "%.*s\n", (int)address_text.len, (char *)address_text.data);
+            status = writer.write(writer.user_data, line);
+        }
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
         }
     }
     else if (expr.kind == Memmy_MemoryExprKind_Peek)
@@ -328,7 +375,13 @@ Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 
             .type_text = Memmy_Cli_TypeString(result.type),
             .bytes = result.value.bytes,
         };
-        status = Memmy_Cli_FormatPeekOutput(arena, &peek, options->jsonl, out, error);
+        String8 output = {0};
+        status = Memmy_Cli_FormatPeekOutput(arena, &peek, options->jsonl, &output, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        status = writer.write(writer.user_data, output);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -357,7 +410,13 @@ Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 
             .new_bytes = result.new_value.bytes,
             .dry_run = 0,
         };
-        status = Memmy_Cli_FormatPokeOutput(arena, &poke, options->jsonl, out, error);
+        String8 output = {0};
+        status = Memmy_Cli_FormatPokeOutput(arena, &poke, options->jsonl, &output, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        status = writer.write(writer.user_data, output);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -365,8 +424,21 @@ Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 
     }
     else if (expr.kind == Memmy_MemoryExprKind_PatternScan)
     {
-        Memmy_ScanResultList results = {0};
-        status = Memmy_MemoryExpr_ExecutePatternScan(arena, process, modules_ptr, regions_ptr, &expr, &results, error);
+        Memmy_CliScanOutput scan_output = {0};
+        status = Memmy_CliScanOutput_Begin(&scan_output, arena, writer, pointer_width, options->jsonl);
+        if (status != Memmy_Status_Ok)
+        {
+            if (process != 0)
+            {
+                Memmy_Process_Close(process);
+            }
+            return status;
+        }
+        Memmy_ScanSink sink = {
+            .callback = Memmy_CliScanOutput_PushMatch,
+            .user_data = &scan_output,
+        };
+        status = Memmy_MemoryExpr_ExecutePatternScan(arena, process, modules_ptr, regions_ptr, &expr, sink, error);
         if (process != 0)
         {
             Memmy_Process_Close(process);
@@ -376,12 +448,29 @@ Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 
             return status;
         }
 
-        *out = Memmy_Cli_FormatScanResults(arena, &results, pointer_width, options->jsonl);
+        status = Memmy_CliScanOutput_End(&scan_output);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
     }
     else
     {
-        Memmy_ScanResultList results = {0};
-        status = Memmy_MemoryExpr_ExecuteValueScan(arena, process, modules_ptr, regions_ptr, &expr, &results, error);
+        Memmy_CliScanOutput scan_output = {0};
+        status = Memmy_CliScanOutput_Begin(&scan_output, arena, writer, pointer_width, options->jsonl);
+        if (status != Memmy_Status_Ok)
+        {
+            if (process != 0)
+            {
+                Memmy_Process_Close(process);
+            }
+            return status;
+        }
+        Memmy_ScanSink sink = {
+            .callback = Memmy_CliScanOutput_PushMatch,
+            .user_data = &scan_output,
+        };
+        status = Memmy_MemoryExpr_ExecuteValueScan(arena, process, modules_ptr, regions_ptr, &expr, sink, error);
         if (process != 0)
         {
             Memmy_Process_Close(process);
@@ -391,7 +480,11 @@ Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 
             return status;
         }
 
-        *out = Memmy_Cli_FormatScanResults(arena, &results, pointer_width, options->jsonl);
+        status = Memmy_CliScanOutput_End(&scan_output);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
     }
     return Memmy_Status_Ok;
 }

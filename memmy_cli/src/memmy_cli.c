@@ -346,6 +346,31 @@ static Memmy_Status Memmy_Cli_RunScriptString(Arena *arena, Memmy_CliOptions *op
     return Memmy_Cli_RunReplStringWithOptions(arena, options, input, out, error);
 }
 
+typedef struct Memmy_CliStringWriter Memmy_CliStringWriter;
+struct Memmy_CliStringWriter
+{
+    Arena *arena;
+    String8List list;
+};
+
+static Memmy_Status Memmy_CliStringWriter_Write(void *user_data, String8 text)
+{
+    Memmy_CliStringWriter *writer = (Memmy_CliStringWriter *)user_data;
+    String8List_Push(writer->arena, &writer->list, text);
+    return Memmy_Status_Ok;
+}
+
+static Memmy_CliOutputWriter Memmy_CliStringWriter_Make(Memmy_CliStringWriter *writer, Arena *arena)
+{
+    *writer = (Memmy_CliStringWriter){
+        .arena = arena,
+    };
+    return (Memmy_CliOutputWriter){
+        .write = Memmy_CliStringWriter_Write,
+        .user_data = writer,
+    };
+}
+
 Memmy_Status Memmy_Cli_RunInputString(Arena *arena, I32 argc, char **argv, String8 input, String8 *out,
                                       Memmy_Error *error)
 {
@@ -394,6 +419,22 @@ Memmy_Status Memmy_Cli_RunToString(Arena *arena, I32 argc, char **argv, String8 
     }
 
     *out = (String8){0};
+    Memmy_CliStringWriter string_writer = {0};
+    Memmy_CliOutputWriter writer = Memmy_CliStringWriter_Make(&string_writer, arena);
+    Memmy_Status status = Memmy_Cli_RunToWriter(arena, argc, argv, writer, error);
+    *out = String8List_Join(arena, &string_writer.list, (String8){0});
+    return status;
+}
+
+Memmy_Status Memmy_Cli_RunToWriter(Arena *arena, I32 argc, char **argv, Memmy_CliOutputWriter writer,
+                                   Memmy_Error *error)
+{
+    if (arena == 0 || writer.write == 0)
+    {
+        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("cli"), String8_Lit("missing output writer"));
+        return Memmy_Status_InvalidArgument;
+    }
+
     Memmy_CliOptions options = {0};
     Memmy_Status status = Memmy_Cli_ParseOptions(argc, argv, &options, error);
     if (status != Memmy_Status_Ok)
@@ -403,13 +444,12 @@ Memmy_Status Memmy_Cli_RunToString(Arena *arena, I32 argc, char **argv, String8 
 
     if (options.version)
     {
-        *out = String8_Copy(arena, String8_Lit("memmy 0.0.0\n"));
-        return Memmy_Status_Ok;
+        return writer.write(writer.user_data, String8_Lit("memmy 0.0.0\n"));
     }
     if (options.help)
     {
-        *out = Memmy_Cli_Help(arena);
-        return Memmy_Status_Ok;
+        String8 help = Memmy_Cli_Help(arena);
+        return writer.write(writer.user_data, help);
     }
     if (options.has_expr)
     {
@@ -417,12 +457,12 @@ Memmy_Status Memmy_Cli_RunToString(Arena *arena, I32 argc, char **argv, String8 
         {
             return Memmy_Cli_UseOneInputSource(error, String8_Lit("--expr"));
         }
-        return Memmy_Cli_RunExpr(arena, &options, out, error);
+        return Memmy_Cli_RunExprToWriter(arena, &options, writer, error);
     }
     if (options.input_path.len == 0)
     {
-        *out = Memmy_Cli_Help(arena);
-        return Memmy_Status_Ok;
+        String8 help = Memmy_Cli_Help(arena);
+        return writer.write(writer.user_data, help);
     }
 
     String8 input = {0};
@@ -435,7 +475,18 @@ Memmy_Status Memmy_Cli_RunToString(Arena *arena, I32 argc, char **argv, String8 
         }
         return Memmy_Status_NotFound;
     }
-    return Memmy_Cli_RunScriptString(arena, &options, input, out, error);
+
+    String8 output = {0};
+    status = Memmy_Cli_RunScriptString(arena, &options, input, &output, error);
+    if (output.len > 0)
+    {
+        Memmy_Status write_status = writer.write(writer.user_data, output);
+        if (write_status != Memmy_Status_Ok)
+        {
+            return write_status;
+        }
+    }
+    return status;
 }
 
 I32 Memmy_Cli_ExitCodeFromStatus(Memmy_Status status)

@@ -70,19 +70,24 @@ static I32 Memmy_ScanRange_Cmp(void *a, void *b, void *ctx)
     return 0;
 }
 
-static Memmy_Status Memmy_Scan_PushMatch(Arena *arena, Memmy_ScanResultList *out, Memmy_Addr address,
-                                         Memmy_ScanOptions *options, B32 *out_stop)
+static Memmy_Status Memmy_Scan_EmitMatch(Memmy_ScanSink sink, Memmy_Addr address, Memmy_ScanOptions *options,
+                                         U64 *match_count, B32 *out_stop)
 {
-    if (options->limit != 0 && out->list.count >= options->limit)
+    if (options->limit != 0 && *match_count >= options->limit)
     {
         *out_stop = 1;
         return Memmy_Status_Ok;
     }
 
-    Memmy_ScanResult *result = Memmy_ScanResultList_Push(arena, out);
-    result->address = address;
+    Memmy_Status status = sink.callback(sink.user_data, address);
+    if (status != Memmy_Status_Ok)
+    {
+        *out_stop = 1;
+        return status;
+    }
 
-    if (options->limit != 0 && out->list.count >= options->limit)
+    *match_count += 1;
+    if (options->limit != 0 && *match_count >= options->limit)
     {
         *out_stop = 1;
     }
@@ -90,9 +95,9 @@ static Memmy_Status Memmy_Scan_PushMatch(Arena *arena, Memmy_ScanResultList *out
 }
 
 static Memmy_Status Memmy_Process_ScanRange(Arena *arena, Memmy_Process *process, Memmy_Range range,
-                                            Memmy_ScanOptions *options, Memmy_ScanNeedle needle,
-                                            Memmy_ScanResultList *out, B32 *any_read, B32 *out_stop,
-                                            Memmy_Addr *last_match, B32 *has_last_match, Memmy_Error *error)
+                                            Memmy_ScanOptions *options, Memmy_ScanNeedle needle, Memmy_ScanSink sink,
+                                            U64 *match_count, B32 *any_read, B32 *out_stop, Memmy_Addr *last_match,
+                                            B32 *has_last_match, Memmy_Error *error)
 {
     U64 chunk_size = options->chunk_size != 0 ? options->chunk_size : MEMMY_DEFAULT_SCAN_CHUNK_SIZE;
     chunk_size = Max(chunk_size, needle.size);
@@ -133,12 +138,13 @@ static Memmy_Status Memmy_Process_ScanRange(Arena *arena, Memmy_Process *process
                             {
                                 continue;
                             }
-                            Memmy_Status push_status = Memmy_Scan_PushMatch(arena, out, match_addr, options, out_stop);
+                            Memmy_Status sink_status =
+                                Memmy_Scan_EmitMatch(sink, match_addr, options, match_count, out_stop);
                             *last_match = match_addr;
                             *has_last_match = 1;
-                            if (push_status != Memmy_Status_Ok || *out_stop)
+                            if (sink_status != Memmy_Status_Ok || *out_stop)
                             {
-                                return push_status;
+                                return sink_status;
                             }
                         }
                     }
@@ -176,17 +182,10 @@ static Memmy_Status Memmy_Process_ScanRange(Arena *arena, Memmy_Process *process
     return Memmy_Status_Ok;
 }
 
-Memmy_ScanResult *Memmy_ScanResultList_Push(Arena *arena, Memmy_ScanResultList *list)
-{
-    Memmy_ScanResult *result = Arena_PushStruct(arena, Memmy_ScanResult);
-    List_PushBack(&list->list, &result->link);
-    return result;
-}
-
 static Memmy_Status Memmy_Process_ScanNeedle(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options,
-                                             Memmy_ScanNeedle needle, Memmy_ScanResultList *out, Memmy_Error *error)
+                                             Memmy_ScanNeedle needle, Memmy_ScanSink sink, Memmy_Error *error)
 {
-    if (arena == 0 || process == 0 || options == 0 || out == 0)
+    if (arena == 0 || process == 0 || options == 0 || sink.callback == 0)
     {
         Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("scan"), String8_Lit("missing scan argument"));
         return Memmy_Status_InvalidArgument;
@@ -198,7 +197,6 @@ static Memmy_Status Memmy_Process_ScanNeedle(Arena *arena, Memmy_Process *proces
         return Memmy_Status_InvalidArgument;
     }
 
-    *out = (Memmy_ScanResultList){0};
     if (options->range.end == options->range.start)
     {
         return Memmy_Status_Ok;
@@ -211,6 +209,7 @@ static Memmy_Status Memmy_Process_ScanNeedle(Arena *arena, Memmy_Process *proces
 
     B32 any_read = 0;
     B32 stop = 0;
+    U64 match_count = 0;
     Memmy_Addr last_match = 0;
     B32 has_last_match = 0;
     Memmy_Backend *backend = process->backend;
@@ -267,8 +266,8 @@ static Memmy_Status Memmy_Process_ScanNeedle(Arena *arena, Memmy_Process *proces
                     i++;
                 }
 
-                status = Memmy_Process_ScanRange(arena, process, merged_range, options, needle, out, &any_read, &stop,
-                                                 &last_match, &has_last_match, error);
+                status = Memmy_Process_ScanRange(arena, process, merged_range, options, needle, sink, &match_count,
+                                                 &any_read, &stop, &last_match, &has_last_match, error);
                 if (status != Memmy_Status_Ok || stop)
                 {
                     Scratch_End(scratch);
@@ -287,8 +286,8 @@ static Memmy_Status Memmy_Process_ScanNeedle(Arena *arena, Memmy_Process *proces
         }
     }
 
-    Memmy_Status status = Memmy_Process_ScanRange(arena, process, options->range, options, needle, out, &any_read,
-                                                  &stop, &last_match, &has_last_match, error);
+    Memmy_Status status = Memmy_Process_ScanRange(arena, process, options->range, options, needle, sink, &match_count,
+                                                  &any_read, &stop, &last_match, &has_last_match, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
@@ -302,23 +301,23 @@ static Memmy_Status Memmy_Process_ScanNeedle(Arena *arena, Memmy_Process *proces
 }
 
 Memmy_Status Memmy_Process_ScanValue(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options,
-                                     Memmy_Value value, Memmy_ScanResultList *out, Memmy_Error *error)
+                                     Memmy_Value value, Memmy_ScanSink sink, Memmy_Error *error)
 {
     Memmy_ScanNeedle needle = {
         .size = value.bytes.len,
         .match = value.bytes.data != 0 ? Memmy_Value_MatchesAt : 0,
         .user_data = &value,
     };
-    return Memmy_Process_ScanNeedle(arena, process, options, needle, out, error);
+    return Memmy_Process_ScanNeedle(arena, process, options, needle, sink, error);
 }
 
 Memmy_Status Memmy_Process_ScanPattern(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options,
-                                       Memmy_Pattern pattern, Memmy_ScanResultList *out, Memmy_Error *error)
+                                       Memmy_Pattern pattern, Memmy_ScanSink sink, Memmy_Error *error)
 {
     Memmy_ScanNeedle needle = {
         .size = pattern.count,
         .match = pattern.bytes != 0 ? Memmy_Pattern_MatchesAtUserData : 0,
         .user_data = &pattern,
     };
-    return Memmy_Process_ScanNeedle(arena, process, options, needle, out, error);
+    return Memmy_Process_ScanNeedle(arena, process, options, needle, sink, error);
 }

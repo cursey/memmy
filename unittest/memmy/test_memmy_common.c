@@ -47,11 +47,33 @@ void Test_OpenProcess(Arena *arena, Memmy_Process **out)
     AssertEq(Memmy_Process_Open(arena, 4242, out, &error), Memmy_Status_Ok);
 }
 
-void Test_AssertScanAddresses(Memmy_ScanResultList *results, Memmy_Addr *addresses, U64 count)
+Memmy_ScanSink Test_ScanSink(Test_ScanResultList *results, Arena *arena)
+{
+    *results = (Test_ScanResultList){
+        .arena = arena,
+        .status = Memmy_Status_Ok,
+    };
+    Memmy_ScanSink sink = {
+        .callback = Test_ScanSinkCallback,
+        .user_data = results,
+    };
+    return sink;
+}
+
+Memmy_Status Test_ScanSinkCallback(void *user_data, Memmy_Addr address)
+{
+    Test_ScanResultList *results = (Test_ScanResultList *)user_data;
+    Test_ScanResult *result = Arena_PushStruct(results->arena, Test_ScanResult);
+    result->address = address;
+    List_PushBack(&results->list, &result->link);
+    return results->status;
+}
+
+void Test_AssertScanAddresses(Test_ScanResultList *results, Memmy_Addr *addresses, U64 count)
 {
     AssertEq(results->list.count, count);
     U64 index = 0;
-    List_ForEach(Memmy_ScanResult, result, &results->list, link)
+    List_ForEach(Test_ScanResult, result, &results->list, link)
     {
         AssertTrue(index < count);
         AssertEq(result->address, addresses[index]);

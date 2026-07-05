@@ -27,6 +27,27 @@ static void Test_MemmyCliExpr_WriteU64LE(Test_MemmyBackend *backend, Memmy_Addr 
     }
 }
 
+typedef struct Test_MemmyCliExprWriter Test_MemmyCliExprWriter;
+struct Test_MemmyCliExprWriter
+{
+    Arena *arena;
+    String8List chunks;
+    U64 call_count;
+    U64 fail_call;
+};
+
+static Memmy_Status Test_MemmyCliExprWriter_Write(void *user_data, String8 text)
+{
+    Test_MemmyCliExprWriter *writer = (Test_MemmyCliExprWriter *)user_data;
+    writer->call_count++;
+    if (writer->fail_call != 0 && writer->call_count == writer->fail_call)
+    {
+        return Memmy_Status_AccessDenied;
+    }
+    String8List_Push(writer->arena, &writer->chunks, text);
+    return Memmy_Status_Ok;
+}
+
 Test(Test_MemmyCliExprResolvesModuleAddressByPid)
 {
     Arena *arena = Arena_CreateDefault();
@@ -482,6 +503,37 @@ Test(Test_MemmyCliExprFormatsValueScanJsonlLikeScan)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyCliExprJsonlScanWriterFailureStopsBeforeSummary)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+    test_backend.memory[0x22] = 42;
+    test_backend.memory[0x2a] = 42;
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy", "--jsonl", "--pid", "1234", "--expr", "0x1020:+0x10 : u8 == 42"};
+    Test_MemmyCliExprWriter writer_state = {
+        .arena = arena,
+        .fail_call = 2,
+    };
+    Memmy_CliOutputWriter writer = {
+        .write = Test_MemmyCliExprWriter_Write,
+        .user_data = &writer_state,
+    };
+
+    AssertEq(Memmy_Cli_RunToWriter(arena, (I32)ArrayCount(argv), argv, writer, &error), Memmy_Status_AccessDenied);
+    AssertEq(writer_state.call_count, 2);
+    String8 out = String8List_Join(arena, &writer_state.chunks, (String8){0});
+    AssertStrEq(out, String8_Lit("{\"type\":\"match\",\"address\":\"0x0000000000001022\"}\n"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyCliExprScansWholeProcessValueWithRegions)
 {
     Arena *arena = Arena_CreateDefault();
@@ -533,4 +585,5 @@ TestSuite suite_memmy_cli_expr = TestSuite_Make(
     TestCase_Make(Test_MemmyCliExprFormatsPatternScanJsonlLikePscan),
     TestCase_Make(Test_MemmyCliExprFormatsValueScanTextLikeScan),
     TestCase_Make(Test_MemmyCliExprFormatsValueScanJsonlLikeScan),
+    TestCase_Make(Test_MemmyCliExprJsonlScanWriterFailureStopsBeforeSummary),
     TestCase_Make(Test_MemmyCliExprScansWholeProcessValueWithRegions), );

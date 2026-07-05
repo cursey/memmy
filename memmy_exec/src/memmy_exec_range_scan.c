@@ -134,35 +134,34 @@ static Memmy_Status Memmy_Exec_WholeProcessRange_Check(Memmy_Process *process, M
 }
 
 typedef Memmy_Status Memmy_ExecScanFn(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options, void *needle,
-                                      Memmy_ScanResultList *out, Memmy_Error *error);
+                                      Memmy_ScanSink sink, Memmy_Error *error);
 
 static Memmy_Status Memmy_Exec_ScanPattern(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options,
-                                           void *needle, Memmy_ScanResultList *out, Memmy_Error *error)
+                                           void *needle, Memmy_ScanSink sink, Memmy_Error *error)
 {
-    return Memmy_Process_ScanPattern(arena, process, options, *(Memmy_Pattern *)needle, out, error);
+    return Memmy_Process_ScanPattern(arena, process, options, *(Memmy_Pattern *)needle, sink, error);
 }
 
 static Memmy_Status Memmy_Exec_ScanValue(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options, void *needle,
-                                         Memmy_ScanResultList *out, Memmy_Error *error)
+                                         Memmy_ScanSink sink, Memmy_Error *error)
 {
-    return Memmy_Process_ScanValue(arena, process, options, *(Memmy_Value *)needle, out, error);
+    return Memmy_Process_ScanValue(arena, process, options, *(Memmy_Value *)needle, sink, error);
 }
 
 static Memmy_Status Memmy_Exec_ScanRange(Arena *arena, Memmy_Process *process, Memmy_Range range,
-                                         Memmy_ExecScanFn *scan, void *needle, Memmy_ScanResultList *out,
-                                         Memmy_Error *error)
+                                         Memmy_ExecScanFn *scan, void *needle, Memmy_ScanSink sink, Memmy_Error *error)
 {
     Memmy_ScanOptions options = {
         .range = range,
         .limit = 0,
         .chunk_size = 0,
     };
-    return scan(arena, process, &options, needle, out, error);
+    return scan(arena, process, &options, needle, sink, error);
 }
 
 static Memmy_Status Memmy_Exec_ScanWholeProcess(Arena *arena, Memmy_Process *process, Memmy_RangeExpr *range_expr,
                                                 Memmy_RegionList *regions, Memmy_ExecScanFn *scan, void *needle,
-                                                Memmy_ScanResultList *out, Memmy_Error *error)
+                                                Memmy_ScanSink sink, Memmy_Error *error)
 {
     Memmy_Status status = Memmy_Exec_WholeProcessRange_Check(process, range_expr, regions, error);
     if (status != Memmy_Status_Ok)
@@ -170,7 +169,6 @@ static Memmy_Status Memmy_Exec_ScanWholeProcess(Arena *arena, Memmy_Process *pro
         return status;
     }
 
-    *out = (Memmy_ScanResultList){0};
     Scratch scratch = Scratch_Begin(&arena, 1);
     Memmy_Range *scan_ranges = Arena_PushArrayNoZero(scratch.arena, Memmy_Range, regions->list.count);
     U64 scan_range_count = 0;
@@ -209,18 +207,11 @@ static Memmy_Status Memmy_Exec_ScanWholeProcess(Arena *arena, Memmy_Process *pro
             i++;
         }
 
-        Memmy_ScanResultList region_results = {0};
-        status = Memmy_Exec_ScanRange(arena, process, merged_range, scan, needle, &region_results, error);
+        status = Memmy_Exec_ScanRange(arena, process, merged_range, scan, needle, sink, error);
         if (status != Memmy_Status_Ok)
         {
             Scratch_End(scratch);
             return status;
-        }
-
-        List_ForEach(Memmy_ScanResult, result, &region_results.list, link)
-        {
-            Memmy_ScanResult *copy = Memmy_ScanResultList_Push(arena, out);
-            copy->address = result->address;
         }
     }
 
@@ -296,13 +287,13 @@ Memmy_Status Memmy_RangeExpr_Resolve(Memmy_Process *process, Memmy_ModuleList *m
 }
 
 Memmy_Status Memmy_MemoryExpr_ExecutePatternScan(Arena *arena, Memmy_Process *process, Memmy_ModuleList *modules,
-                                                 Memmy_RegionList *regions, Memmy_MemoryExpr *expr,
-                                                 Memmy_ScanResultList *out, Memmy_Error *error)
+                                                 Memmy_RegionList *regions, Memmy_MemoryExpr *expr, Memmy_ScanSink sink,
+                                                 Memmy_Error *error)
 {
-    if (expr == 0 || out == 0)
+    if (expr == 0 || sink.callback == 0)
     {
         Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("expr"),
-                        String8_Lit("missing memory expression or scan result output"));
+                        String8_Lit("missing memory expression or scan sink"));
         return Memmy_Status_InvalidArgument;
     }
     if (expr->kind != Memmy_MemoryExprKind_PatternScan)
@@ -315,7 +306,7 @@ Memmy_Status Memmy_MemoryExpr_ExecutePatternScan(Arena *arena, Memmy_Process *pr
     if (expr->range.kind == Memmy_RangeExprKind_Target && expr->range.target.kind == Memmy_TargetExprKind_WholeProcess)
     {
         return Memmy_Exec_ScanWholeProcess(arena, process, &expr->range, regions, Memmy_Exec_ScanPattern,
-                                           &expr->pattern, out, error);
+                                           &expr->pattern, sink, error);
     }
 
     Memmy_Range range = {0};
@@ -325,17 +316,17 @@ Memmy_Status Memmy_MemoryExpr_ExecutePatternScan(Arena *arena, Memmy_Process *pr
         return status;
     }
 
-    return Memmy_Exec_ScanRange(arena, process, range, Memmy_Exec_ScanPattern, &expr->pattern, out, error);
+    return Memmy_Exec_ScanRange(arena, process, range, Memmy_Exec_ScanPattern, &expr->pattern, sink, error);
 }
 
 Memmy_Status Memmy_MemoryExpr_ExecuteValueScan(Arena *arena, Memmy_Process *process, Memmy_ModuleList *modules,
-                                               Memmy_RegionList *regions, Memmy_MemoryExpr *expr,
-                                               Memmy_ScanResultList *out, Memmy_Error *error)
+                                               Memmy_RegionList *regions, Memmy_MemoryExpr *expr, Memmy_ScanSink sink,
+                                               Memmy_Error *error)
 {
-    if (expr == 0 || out == 0)
+    if (expr == 0 || sink.callback == 0)
     {
         Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("expr"),
-                        String8_Lit("missing memory expression or scan result output"));
+                        String8_Lit("missing memory expression or scan sink"));
         return Memmy_Status_InvalidArgument;
     }
     if (expr->kind != Memmy_MemoryExprKind_ValueScan)
@@ -360,7 +351,7 @@ Memmy_Status Memmy_MemoryExpr_ExecuteValueScan(Arena *arena, Memmy_Process *proc
 
     if (expr->range.kind == Memmy_RangeExprKind_Target && expr->range.target.kind == Memmy_TargetExprKind_WholeProcess)
     {
-        return Memmy_Exec_ScanWholeProcess(arena, process, &expr->range, regions, Memmy_Exec_ScanValue, &value, out,
+        return Memmy_Exec_ScanWholeProcess(arena, process, &expr->range, regions, Memmy_Exec_ScanValue, &value, sink,
                                            error);
     }
 
@@ -371,5 +362,5 @@ Memmy_Status Memmy_MemoryExpr_ExecuteValueScan(Arena *arena, Memmy_Process *proc
         return status;
     }
 
-    return Memmy_Exec_ScanRange(arena, process, range, Memmy_Exec_ScanValue, &value, out, error);
+    return Memmy_Exec_ScanRange(arena, process, range, Memmy_Exec_ScanValue, &value, sink, error);
 }

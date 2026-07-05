@@ -128,8 +128,9 @@ Test(Test_MemmyDefaultBackendSelfProcessInventoryAndScan)
         .range = {.start = (Memmy_Addr)(uintptr_t)fixture, .end = (Memmy_Addr)(uintptr_t)(fixture + sizeof(fixture))},
         .chunk_size = 3,
     };
-    Memmy_ScanResultList results = {0};
-    AssertEq(Memmy_Process_ScanPattern(arena, process, &options, pattern, &results, &error), Memmy_Status_Ok);
+    Test_ScanResultList results = {0};
+    AssertEq(Memmy_Process_ScanPattern(arena, process, &options, pattern, Test_ScanSink(&results, arena), &error),
+             Memmy_Status_Ok);
     Memmy_Addr expected[] = {fixture_addr};
     Test_AssertScanAddresses(&results, expected, ArrayCount(expected));
 
@@ -137,7 +138,8 @@ Test(Test_MemmyDefaultBackendSelfProcessInventoryAndScan)
         .type = {.kind = Memmy_TypeKind_Bytes},
         .bytes = String8_Make(pattern_bytes, ArrayCount(pattern_bytes)),
     };
-    AssertEq(Memmy_Process_ScanValue(arena, process, &options, value, &results, &error), Memmy_Status_Ok);
+    AssertEq(Memmy_Process_ScanValue(arena, process, &options, value, Test_ScanSink(&results, arena), &error),
+             Memmy_Status_Ok);
     Test_AssertScanAddresses(&results, expected, ArrayCount(expected));
 
     Memmy_Process_Close(process);
