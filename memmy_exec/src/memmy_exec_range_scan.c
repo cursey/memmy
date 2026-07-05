@@ -334,7 +334,7 @@ Memmy_Status Memmy_RangeExpr_ResolveWithEnv(Memmy_ExecEnv *env, Memmy_Process *p
         return status;
     }
 
-    if (expr->kind == Memmy_RangeExprKind_ModuleOffset || expr->kind == Memmy_RangeExprKind_ModuleSized)
+    if (expr->kind == Memmy_RangeExprKind_TargetOffset || expr->kind == Memmy_RangeExprKind_TargetSized)
     {
         I64 start_offset = expr->start_offset;
         I64 end_offset = expr->end_offset;
@@ -351,7 +351,7 @@ Memmy_Status Memmy_RangeExpr_ResolveWithEnv(Memmy_ExecEnv *env, Memmy_Process *p
                 return status;
             }
         }
-        if (expr->kind == Memmy_RangeExprKind_ModuleOffset && expr->end_offset_expr.contains_variable)
+        if (expr->kind == Memmy_RangeExprKind_TargetOffset && expr->end_offset_expr.contains_variable)
         {
             if (env == 0)
             {
@@ -363,7 +363,7 @@ Memmy_Status Memmy_RangeExpr_ResolveWithEnv(Memmy_ExecEnv *env, Memmy_Process *p
                 return status;
             }
         }
-        if (expr->kind == Memmy_RangeExprKind_ModuleSized && expr->size_expr.contains_variable)
+        if (expr->kind == Memmy_RangeExprKind_TargetSized && expr->size_expr.contains_variable)
         {
             if (env == 0)
             {
@@ -409,7 +409,7 @@ Memmy_Status Memmy_RangeExpr_ResolveWithEnv(Memmy_ExecEnv *env, Memmy_Process *p
             return status;
         }
 
-        if (expr->kind == Memmy_RangeExprKind_ModuleSized)
+        if (expr->kind == Memmy_RangeExprKind_TargetSized)
         {
             return Memmy_Range_FromStartLength(start, (Memmy_Size)size_value, out, error);
         }

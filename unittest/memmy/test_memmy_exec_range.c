@@ -105,6 +105,30 @@ Test(Test_MemmyExecRangeResolvesAbsoluteAddressSizedRange)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyExecRangeResolvesWholeProcessBracketRangesAsAbsolute)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    Memmy_Process process = Test_MemmyExecRange_Process(&backend);
+
+    Memmy_RangeExpr offset = {0};
+    Memmy_RangeExpr sized = {0};
+    Test_MemmyExecRange_Parse(arena, "<4242!>[0x1000..0x1020]", &offset);
+    Test_MemmyExecRange_Parse(arena, "<4242!>[0x1000:+0x20]", &sized);
+
+    Memmy_Range range = {0};
+    Memmy_Error error = {0};
+    AssertEq(Memmy_RangeExpr_Resolve(&process, &offset, &range, &error), Memmy_Status_Ok);
+    AssertEq(range.start, 0x1000);
+    AssertEq(range.end, 0x1020);
+    AssertEq(Memmy_RangeExpr_Resolve(&process, &sized, &range, &error), Memmy_Status_Ok);
+    AssertEq(range.start, 0x1000);
+    AssertEq(range.end, 0x1020);
+
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyExecRangeRejectsAddressExprDotDotRanges)
 {
     Arena *arena = Arena_CreateDefault();
@@ -161,5 +185,6 @@ TestSuite suite_memmy_exec_range =
                    TestCase_Make(Test_MemmyExecRangeResolvesModuleBracketAndSizedRanges),
                    TestCase_Make(Test_MemmyExecRangeResolvesModuleAddressSizedRange),
                    TestCase_Make(Test_MemmyExecRangeResolvesAbsoluteAddressSizedRange),
+                   TestCase_Make(Test_MemmyExecRangeResolvesWholeProcessBracketRangesAsAbsolute),
                    TestCase_Make(Test_MemmyExecRangeRejectsAddressExprDotDotRanges),
                    TestCase_Make(Test_MemmyExecRangeRejectsUnresolvedVariables), );

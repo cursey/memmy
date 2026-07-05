@@ -82,7 +82,7 @@ Test(Test_MemmyDslStatementParsesAssignmentPrecedence)
 
     AssertEq(range.kind, Memmy_StatementKind_Assignment);
     AssertEq(range.assignment.kind, Memmy_VariableExprKind_Range);
-    AssertEq(range.assignment.range.kind, Memmy_RangeExprKind_ModuleSized);
+    AssertEq(range.assignment.range.kind, Memmy_RangeExprKind_TargetSized);
     AssertEq(range.assignment.range.size, 0x4000);
 
     Arena_Destroy(arena);

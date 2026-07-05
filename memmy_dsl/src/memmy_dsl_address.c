@@ -428,6 +428,25 @@ static Memmy_Status Memmy_AddressParser_ParseOps(Memmy_AddressParser *parser, Me
     return Memmy_Status_Ok;
 }
 
+/*
+address_expr          = address_base, { address_op }
+address_base          = variable
+                      | integer
+                      | module_target_ref
+                      | process_absolute_base
+process_absolute_base = whole_process_target_ref, integer
+address_op            = add | sub | deref_offset | deref
+add                   = "+", offset
+sub                   = "-", offset
+deref                 = "->"
+deref_offset          = "->", offset
+offset                = integer | variable | "(", const_expr, ")"
+
+Whitespace is not allowed inside address_expr except inside parenthesized
+const_expr. Whole-process targets such as <game.exe!> must be followed by an
+absolute integer address. Module targets remain module-relative bases; use
+operators such as <process!module>+0x1234 for module offsets.
+*/
 Memmy_Status Memmy_AddressExpr_Parse(Arena *arena, String8 text, Memmy_AddressExpr *out, Memmy_Error *error)
 {
     if (arena == 0 || out == 0)

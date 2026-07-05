@@ -150,8 +150,8 @@ static Memmy_ProcessSelector Memmy_CliRepl_AddressProcessSelector(Memmy_ExecEnv 
 static Memmy_ProcessSelector Memmy_CliRepl_RangeProcessSelector(Memmy_ExecEnv *env, Memmy_RangeExpr *range)
 {
     Memmy_ProcessSelector selector = {0};
-    if (range->kind == Memmy_RangeExprKind_Target || range->kind == Memmy_RangeExprKind_ModuleOffset ||
-        range->kind == Memmy_RangeExprKind_ModuleSized)
+    if (range->kind == Memmy_RangeExprKind_Target || range->kind == Memmy_RangeExprKind_TargetOffset ||
+        range->kind == Memmy_RangeExprKind_TargetSized)
     {
         selector = range->target.process;
     }

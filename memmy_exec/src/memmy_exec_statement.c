@@ -59,8 +59,8 @@ static void Memmy_Exec_AddressExprNeeds(Memmy_ExecEnv *env, Memmy_AddressExpr *a
 
 static void Memmy_Exec_RangeExprNeeds(Memmy_ExecEnv *env, Memmy_RangeExpr *range, Memmy_ExecExprNeeds *needs)
 {
-    if (range->kind == Memmy_RangeExprKind_Target || range->kind == Memmy_RangeExprKind_ModuleOffset ||
-        range->kind == Memmy_RangeExprKind_ModuleSized)
+    if (range->kind == Memmy_RangeExprKind_Target || range->kind == Memmy_RangeExprKind_TargetOffset ||
+        range->kind == Memmy_RangeExprKind_TargetSized)
     {
         Memmy_Exec_TargetExprNeeds(&range->target, needs);
     }
@@ -134,8 +134,8 @@ static Memmy_ProcessSelector Memmy_Exec_AddressExprProcessSelector(Memmy_ExecEnv
 static Memmy_ProcessSelector Memmy_Exec_RangeExprProcessSelector(Memmy_ExecEnv *env, Memmy_RangeExpr *expr)
 {
     Memmy_ProcessSelector selector = {0};
-    if (expr->kind == Memmy_RangeExprKind_Target || expr->kind == Memmy_RangeExprKind_ModuleOffset ||
-        expr->kind == Memmy_RangeExprKind_ModuleSized)
+    if (expr->kind == Memmy_RangeExprKind_Target || expr->kind == Memmy_RangeExprKind_TargetOffset ||
+        expr->kind == Memmy_RangeExprKind_TargetSized)
     {
         selector = expr->target.process;
     }

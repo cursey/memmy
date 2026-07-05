@@ -689,6 +689,22 @@ static Memmy_Status Memmy_ConstAstParser_ParseSum(Memmy_ConstAstParser *parser, 
     return Memmy_Status_Ok;
 }
 
+/*
+const_expr      = sum
+sum             = product, { ws_opt, ("+" | "-"), ws_opt, product }
+product         = unary, { ws_opt, ("*" | "/" | "%"), ws_opt, unary }
+unary           = ws_opt, ( ("+" | "-"), unary | primary )
+primary         = integer | variable | "(", const_expr, ")"
+integer         = hex_integer | decimal_integer
+hex_integer     = ("0x" | "0X"), hex_digit, { hex_digit }
+decimal_integer = digit, { digit }
+variable        = "$", ident
+ident           = [A-Za-z_], { [A-Za-z0-9_] }
+ws_char         = " " | "\t" | "\n" | "\r"
+
+Evaluation uses I64 arithmetic. Integer literal overflow, arithmetic overflow,
+division by zero, and modulo by zero are parse-time failures.
+*/
 Memmy_Status Memmy_ConstExpr_Parse(Arena *arena, String8 text, Memmy_ConstExpr *out, Memmy_Error *error)
 {
     if (arena == 0 || out == 0)

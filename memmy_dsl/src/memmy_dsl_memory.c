@@ -393,7 +393,7 @@ static Memmy_Status Memmy_RangeExpr_ParseModuleBracket(Arena *arena, String8 tex
             return status;
         }
         *out = (Memmy_RangeExpr){
-            .kind = Memmy_RangeExprKind_ModuleOffset,
+            .kind = Memmy_RangeExprKind_TargetOffset,
             .target = target,
             .start_offset = start_offset,
             .end_offset = end_offset,
@@ -427,7 +427,7 @@ static Memmy_Status Memmy_RangeExpr_ParseModuleBracket(Arena *arena, String8 tex
             return Memmy_Status_ParseError;
         }
         *out = (Memmy_RangeExpr){
-            .kind = Memmy_RangeExprKind_ModuleSized,
+            .kind = Memmy_RangeExprKind_TargetSized,
             .target = target,
             .start_offset = start_offset,
             .size = (Memmy_Size)size_value,
@@ -442,6 +442,22 @@ static Memmy_Status Memmy_RangeExpr_ParseModuleBracket(Arena *arena, String8 tex
     return Memmy_Status_ParseError;
 }
 
+/*
+range_expr          = target_offset_range
+                    | target_sized_range
+                    | address_sized_range
+                    | target_ref
+                    | variable
+target_offset_range = target_ref, "[", const_expr, "..", const_expr, "]"
+target_sized_range  = target_ref, "[", const_expr, ":+", const_expr, "]"
+address_sized_range = address_expr, ":+", size
+size                = integer | variable | "(", const_expr, ")"
+
+For module targets, bracket ranges are module-relative offsets. For
+whole-process targets, bracket ranges are absolute addresses. Range boundaries
+reject whitespace. Address ".." address ranges are intentionally unsupported;
+use ":+ size".
+*/
 Memmy_Status Memmy_RangeExpr_Parse(Arena *arena, String8 text, Memmy_RangeExpr *out, Memmy_Error *error)
 {
     if (arena == 0 || out == 0)
@@ -651,6 +667,18 @@ static Memmy_Status Memmy_MemoryExpr_ParsePattern(Arena *arena, String8 text, Me
     return Memmy_Status_Ok;
 }
 
+/*
+typed_expr      = poke_expr | value_scan_expr | peek_expr
+peek_expr       = address_expr, ws_opt, ":", ws_opt, type
+poke_expr       = address_expr, ws_opt, ":", ws_opt, type,
+                  ws_opt, "=", ws_opt, value_text
+value_scan_expr = range_expr, ws_opt, ":", ws_opt, type,
+                  ws_opt, "==", ws_opt, value_text
+
+Ordering comparisons are not v1 syntax. value_text is a trimmed, non-empty
+remainder validated later by Memmy_Value_Parse. Poke rejects RHS text that looks
+like a target/address-operation address expression.
+*/
 static Memmy_Status Memmy_MemoryExpr_ParseTyped(Arena *arena, String8 text, Memmy_ExprSlice source,
                                                 Memmy_MemoryExpr *out, Memmy_Error *error)
 {
@@ -782,6 +810,13 @@ static Memmy_Status Memmy_MemoryExpr_ParseTyped(Arena *arena, String8 text, Memm
     return Memmy_Status_ParseError;
 }
 
+/*
+memory_expr       = pattern_scan_expr | typed_expr | address_expr
+pattern_scan_expr = range_expr, ws_opt, "{", ws_opt, pattern, ws_opt, "}"
+
+Whitespace is allowed around top-level ":", "=", "==", pattern braces, inside
+patterns, and inside const_expr.
+*/
 Memmy_Status Memmy_MemoryExpr_Parse(Arena *arena, String8 text, Memmy_MemoryExpr *out, Memmy_Error *error)
 {
     if (arena == 0 || out == 0)

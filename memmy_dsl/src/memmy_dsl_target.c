@@ -108,6 +108,21 @@ static Memmy_Status Memmy_TargetExpr_ValidateNamePart(String8 input, String8 par
     return Memmy_Status_Ok;
 }
 
+/*
+target_ref       = "<", module_name, ">"
+                 | "<", process_selector, "!", module_name, ">"
+                 | "<", process_selector, "!", ">"
+process_selector = pid | process_name
+pid              = decimal_integer
+module_name      = name_part
+process_name     = name_part
+name_part        = name_char, { name_char }
+name_char        = any_char - "<" - ">" - "!"
+
+Name parts are non-empty and must not have leading or trailing whitespace.
+Interior whitespace is preserved. A numeric selector requires "!", so <123> is
+a module named "123", while <123!> selects pid 123.
+*/
 Memmy_Status Memmy_TargetExpr_Parse(String8 text, Memmy_TargetExpr *out, Memmy_Error *error)
 {
     if (out == 0)

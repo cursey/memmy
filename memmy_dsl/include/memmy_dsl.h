@@ -104,8 +104,8 @@ typedef U32 Memmy_RangeExprKind;
 enum
 {
     Memmy_RangeExprKind_Target,
-    Memmy_RangeExprKind_ModuleOffset,
-    Memmy_RangeExprKind_ModuleSized,
+    Memmy_RangeExprKind_TargetOffset,
+    Memmy_RangeExprKind_TargetSized,
     Memmy_RangeExprKind_AddressSized,
     Memmy_RangeExprKind_Variable,
 };

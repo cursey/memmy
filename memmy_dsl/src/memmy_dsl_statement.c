@@ -173,6 +173,12 @@ static B32 Memmy_Statement_IsWrappedInTopLevelParens(String8 text)
     return result;
 }
 
+/*
+variable_expr = range_expr | address_expr | "(", const_expr, ")"
+
+Parentheses force const_expr parsing. Otherwise address_expr is tried first,
+then range_expr.
+*/
 Memmy_Status Memmy_VariableExpr_Parse(Arena *arena, String8 text, Memmy_VariableExpr *out, Memmy_Error *error)
 {
     if (arena == 0 || out == 0)
@@ -244,6 +250,19 @@ Memmy_Status Memmy_VariableExpr_Parse(Arena *arena, String8 text, Memmy_Variable
     return Memmy_Status_Ok;
 }
 
+/*
+statement       = meta_stmt | assignment_stmt | memory_expr
+meta_stmt       = "procs", [ ws, procs_filter ]
+                | "vars"
+                | "unset", ws, variable
+                | "exit"
+                | "quit"
+assignment_stmt = variable, ws_opt, "=", ws_opt, variable_expr
+
+Top-level statement input is trimmed before parsing. A single "=" is assignment
+only when the statement starts with a variable; "==" remains part of memory_expr
+value scans.
+*/
 Memmy_Status Memmy_Statement_Parse(Arena *arena, String8 text, Memmy_Statement *out, Memmy_Error *error)
 {
     if (arena == 0 || out == 0)

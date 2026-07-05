@@ -67,7 +67,7 @@ Test(Test_MemmyExprMemoryParsesPatternScansWithWildcards)
     Test_ParseMemoryExpr(arena, "<client.dll>[0x1000:+0x4000]{48 8b ?? ?? 89}", &expr);
 
     AssertEq(expr.kind, Memmy_MemoryExprKind_PatternScan);
-    AssertEq(expr.range.kind, Memmy_RangeExprKind_ModuleSized);
+    AssertEq(expr.range.kind, Memmy_RangeExprKind_TargetSized);
     AssertEq(expr.pattern.count, 5);
     AssertEq(expr.pattern.bytes[0].value, 0x48);
     AssertEq(expr.pattern.bytes[1].value, 0x8b);
@@ -85,7 +85,7 @@ Test(Test_MemmyExprMemoryParsesPatternScanWithModuleConstSize)
     Test_ParseMemoryExpr(arena, "<client.dll>[0x1000:+0x2000*2]{90}", &expr);
 
     AssertEq(expr.kind, Memmy_MemoryExprKind_PatternScan);
-    AssertEq(expr.range.kind, Memmy_RangeExprKind_ModuleSized);
+    AssertEq(expr.range.kind, Memmy_RangeExprKind_TargetSized);
     AssertEq(expr.range.size, 0x4000);
     AssertEq(expr.pattern.count, 1);
     AssertEq(expr.pattern.bytes[0].value, 0x90);

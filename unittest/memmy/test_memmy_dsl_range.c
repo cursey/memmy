@@ -34,7 +34,7 @@ Test(Test_MemmyExprRangeParsesModuleBracketRange)
     Memmy_RangeExpr range = {0};
     Test_ParseRangeExpr(arena, "<game.exe!client.dll>[0x1000..0x5000]", &range);
 
-    AssertEq(range.kind, Memmy_RangeExprKind_ModuleOffset);
+    AssertEq(range.kind, Memmy_RangeExprKind_TargetOffset);
     AssertEq(range.target.kind, Memmy_TargetExprKind_Module);
     AssertStrEq(range.target.process.name, String8_Lit("game.exe"));
     AssertStrEq(range.target.module_name, String8_Lit("client.dll"));
@@ -44,13 +44,13 @@ Test(Test_MemmyExprRangeParsesModuleBracketRange)
     Arena_Destroy(arena);
 }
 
-Test(Test_MemmyExprRangeParsesModuleSizedRange)
+Test(Test_MemmyExprRangeParsesTargetSizedRange)
 {
     Arena *arena = Arena_CreateDefault();
     Memmy_RangeExpr range = {0};
     Test_ParseRangeExpr(arena, "<client.dll>[0x1000:+0x4000]", &range);
 
-    AssertEq(range.kind, Memmy_RangeExprKind_ModuleSized);
+    AssertEq(range.kind, Memmy_RangeExprKind_TargetSized);
     AssertEq(range.target.kind, Memmy_TargetExprKind_Module);
     AssertStrEq(range.target.module_name, String8_Lit("client.dll"));
     AssertEq(range.start_offset, 0x1000);
@@ -59,13 +59,13 @@ Test(Test_MemmyExprRangeParsesModuleSizedRange)
     Arena_Destroy(arena);
 }
 
-Test(Test_MemmyExprRangeParsesModuleSizedRangeConstSize)
+Test(Test_MemmyExprRangeParsesTargetSizedRangeConstSize)
 {
     Arena *arena = Arena_CreateDefault();
     Memmy_RangeExpr range = {0};
     Test_ParseRangeExpr(arena, "<client.dll>[0x1000:+0x2000*2]", &range);
 
-    AssertEq(range.kind, Memmy_RangeExprKind_ModuleSized);
+    AssertEq(range.kind, Memmy_RangeExprKind_TargetSized);
     AssertEq(range.start_offset, 0x1000);
     AssertEq(range.size, 0x4000);
 
@@ -132,14 +132,14 @@ Test(Test_MemmyExprRangeParsesWholeProcessBracketRanges)
     Memmy_RangeExpr range = {0};
     Memmy_Error error = {0};
     AssertEq(Memmy_RangeExpr_Parse(arena, String8_Lit("<game.exe!>[0x1000:+0x20]"), &range, &error), Memmy_Status_Ok);
-    AssertEq(range.kind, Memmy_RangeExprKind_ModuleSized);
+    AssertEq(range.kind, Memmy_RangeExprKind_TargetSized);
     AssertEq(range.target.kind, Memmy_TargetExprKind_WholeProcess);
     AssertEq(range.start_offset, 0x1000);
     AssertEq(range.size, 0x20);
     Arena_Destroy(arena);
 }
 
-Test(Test_MemmyExprRangeRejectsNegativeModuleSizedRangeSize)
+Test(Test_MemmyExprRangeRejectsNegativeTargetSizedRangeSize)
 {
     Arena *arena = Arena_CreateDefault();
     Memmy_RangeExpr range = {0};
@@ -163,10 +163,10 @@ Test(Test_MemmyExprRangeReportsByteOffsets)
 
 TestSuite suite_memmy_dsl_range = TestSuite_Make("Memmy DSL Range", TestCase_Make(Test_MemmyExprRangeParsesTargetRefs),
                                                  TestCase_Make(Test_MemmyExprRangeParsesModuleBracketRange),
-                                                 TestCase_Make(Test_MemmyExprRangeParsesModuleSizedRange),
+                                                 TestCase_Make(Test_MemmyExprRangeParsesTargetSizedRange),
                                                  TestCase_Make(Test_MemmyExprRangeParsesAddressSizedRange),
-                                                 TestCase_Make(Test_MemmyExprRangeParsesModuleSizedRangeConstSize),
+                                                 TestCase_Make(Test_MemmyExprRangeParsesTargetSizedRangeConstSize),
                                                  TestCase_Make(Test_MemmyExprRangeRejectsAddressExprDotDotRanges),
                                                  TestCase_Make(Test_MemmyExprRangeParsesWholeProcessBracketRanges),
-                                                 TestCase_Make(Test_MemmyExprRangeRejectsNegativeModuleSizedRangeSize),
+                                                 TestCase_Make(Test_MemmyExprRangeRejectsNegativeTargetSizedRangeSize),
                                                  TestCase_Make(Test_MemmyExprRangeReportsByteOffsets), );
