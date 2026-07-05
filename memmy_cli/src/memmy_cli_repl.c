@@ -126,7 +126,8 @@ static Memmy_ProcessSelector Memmy_CliRepl_RangeProcessSelector(Memmy_ExecEnv *e
 static Memmy_ProcessSelector Memmy_CliRepl_AddressProcessSelector(Memmy_ExecEnv *env, Memmy_AddressExpr *address)
 {
     Memmy_ProcessSelector selector = {0};
-    if (address->base_kind == Memmy_AddressExprBaseKind_Target)
+    if (address->base_kind == Memmy_AddressExprBaseKind_Target ||
+        address->base_kind == Memmy_AddressExprBaseKind_ProcessAbsolute)
     {
         selector = address->target.process;
     }

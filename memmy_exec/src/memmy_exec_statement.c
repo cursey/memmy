@@ -29,7 +29,8 @@ static void Memmy_Exec_RangeExprNeeds(Memmy_ExecEnv *env, Memmy_RangeExpr *range
 
 static void Memmy_Exec_AddressExprNeeds(Memmy_ExecEnv *env, Memmy_AddressExpr *address, Memmy_ExecExprNeeds *needs)
 {
-    if (address->base_kind == Memmy_AddressExprBaseKind_Target)
+    if (address->base_kind == Memmy_AddressExprBaseKind_Target ||
+        address->base_kind == Memmy_AddressExprBaseKind_ProcessAbsolute)
     {
         Memmy_Exec_TargetExprNeeds(&address->target, needs);
     }
@@ -108,7 +109,8 @@ static Memmy_ProcessSelector Memmy_Exec_RangeExprProcessSelector(Memmy_ExecEnv *
 static Memmy_ProcessSelector Memmy_Exec_AddressExprProcessSelector(Memmy_ExecEnv *env, Memmy_AddressExpr *expr)
 {
     Memmy_ProcessSelector selector = {0};
-    if (expr->base_kind == Memmy_AddressExprBaseKind_Target)
+    if (expr->base_kind == Memmy_AddressExprBaseKind_Target ||
+        expr->base_kind == Memmy_AddressExprBaseKind_ProcessAbsolute)
     {
         selector = expr->target.process;
     }

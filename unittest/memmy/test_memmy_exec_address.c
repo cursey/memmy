@@ -85,6 +85,24 @@ Test(Test_MemmyExecAddressResolvesModuleBases)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyExecAddressResolvesProcessQualifiedAbsoluteAddresses)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+
+    Memmy_Process process = Test_ProcessForBackend(&backend, Memmy_PointerWidth_64);
+    Memmy_AddressExpr expr = {0};
+    Test_ParseAddress(arena, "<4242!>0x1010", &expr);
+
+    Memmy_Error error = {0};
+    Memmy_Addr addr = 0;
+    AssertEq(Memmy_AddressExpr_Resolve(&process, &expr, &addr, &error), Memmy_Status_Ok);
+    AssertEq(addr, 0x1010);
+
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyExecAddressResolvesModulePlusMinusOffsets)
 {
     Arena *arena = Arena_CreateDefault();
@@ -424,6 +442,7 @@ Test(Test_MemmyExecAddressRejectsUnresolvedVariables)
 TestSuite suite_memmy_exec_address =
     TestSuite_Make("Memmy Exec Address", TestCase_Make(Test_MemmyExecAddressResolvesAbsoluteAddresses),
                    TestCase_Make(Test_MemmyExecAddressResolvesModuleBases),
+                   TestCase_Make(Test_MemmyExecAddressResolvesProcessQualifiedAbsoluteAddresses),
                    TestCase_Make(Test_MemmyExecAddressResolvesModulePlusMinusOffsets),
                    TestCase_Make(Test_MemmyExecAddressResolvesMemoryAddressExpressions),
                    TestCase_Make(Test_MemmyExecAddressDetectsArithmeticOverflowAndUnderflow),

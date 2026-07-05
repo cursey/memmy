@@ -208,6 +208,15 @@ Memmy_Status Memmy_AddressExpr_ResolveWithEnv(Memmy_ExecEnv *env, Memmy_Process 
             return status;
         }
     }
+    else if (expr->base_kind == Memmy_AddressExprBaseKind_ProcessAbsolute)
+    {
+        Memmy_Status status = Memmy_TargetExpr_CheckProcess(process, &expr->target, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        addr = expr->absolute;
+    }
     else if (expr->base_kind == Memmy_AddressExprBaseKind_Variable)
     {
         if (env == 0)

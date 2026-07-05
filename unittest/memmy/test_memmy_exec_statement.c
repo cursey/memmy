@@ -121,6 +121,58 @@ Test(Test_MemmyExecStatementAddressEmitsStructuredAddress)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyExecStatementResolvesProcessQualifiedAbsoluteAddress)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&backend)};
+    Memmy_Context_Set(&ctx);
+
+    Memmy_Statement statement = {0};
+    Test_ParseStatement(arena, "<4242!>0x1010", &statement);
+    Test_ExecResultList results = {0};
+    Memmy_Error error = {0};
+    AssertEq(Memmy_Statement_Execute(arena, &statement, (Memmy_ExecProcessSelection){0},
+                                     Test_ExecResultSink(&results, arena), &error),
+             Memmy_Status_Ok);
+
+    AssertEq(backend.open_call_count, 1);
+    AssertEq(backend.last_open_pid, 4242);
+    Test_ExecResultNode *node = ContainerOf(results.list.first, Test_ExecResultNode, link);
+    AssertEq(node->result.kind, Memmy_ExecResultKind_Address);
+    AssertEq(node->result.address.address, 0x1010);
+    AssertEq(node->result.address.pointer_width, Memmy_PointerWidth_64);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyExecStatementRejectsProcessQualifiedAbsoluteAddressConflict)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    Test_MemmyBackend_AddProcess(&backend, 5678, String8_Lit("other-process"), String8_Lit("C:\\test\\other.exe"),
+                                 Memmy_PointerWidth_64);
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&backend)};
+    Memmy_Context_Set(&ctx);
+
+    Memmy_Statement statement = {0};
+    Test_ParseStatement(arena, "<4242!>0x1010", &statement);
+    Test_ExecResultList results = {0};
+    Memmy_Error error = {0};
+    Memmy_ExecProcessSelection selection = {.has_pid = 1, .pid = 5678};
+    AssertEq(Memmy_Statement_Execute(arena, &statement, selection, Test_ExecResultSink(&results, arena), &error),
+             Memmy_Status_InvalidArgument);
+    AssertStrEq(error.context, String8_Lit("cli"));
+    AssertStrEq(error.message, String8_Lit("external process selector conflicts with expression process selector"));
+    AssertEq(backend.open_call_count, 0);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyExecStatementPeekPokeEmitStructuredValues)
 {
     Arena *arena = Arena_CreateDefault();
@@ -445,6 +497,8 @@ Test(Test_MemmyExecStatementRejectsVariableCycles)
 TestSuite suite_memmy_exec_statement = TestSuite_Make(
     "Memmy Exec Statement", TestCase_Make(Test_MemmyExecStatementProcsEmitsProcessResults),
     TestCase_Make(Test_MemmyExecStatementAddressEmitsStructuredAddress),
+    TestCase_Make(Test_MemmyExecStatementResolvesProcessQualifiedAbsoluteAddress),
+    TestCase_Make(Test_MemmyExecStatementRejectsProcessQualifiedAbsoluteAddressConflict),
     TestCase_Make(Test_MemmyExecStatementPeekPokeEmitStructuredValues),
     TestCase_Make(Test_MemmyExecStatementScanEmitsMatchesAndSummary),
     TestCase_Make(Test_MemmyExecStatementExitEmitsControlResult),

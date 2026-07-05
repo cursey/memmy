@@ -75,6 +75,31 @@ Test(Test_MemmyExecPeekExecutesModuleAddressPeek)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyExecPeekExecutesProcessQualifiedAbsoluteAddressPeek)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    Test_MemmyExecPeekPoke_WriteLE(&backend, 0x1010, 0x12345678, 4);
+
+    Memmy_Process process = Test_MemmyExecPeekPoke_Process(&backend);
+    Memmy_MemoryExpr expr = {0};
+    Test_MemmyExecPeekPoke_Parse(arena, "<4242!>0x1010 : u32", &expr);
+
+    Memmy_Error error = {0};
+    Memmy_ExecPeekResult result = {0};
+    AssertEq(Memmy_MemoryExpr_ExecutePeek(arena, &process, &expr, &result, &error), Memmy_Status_Ok);
+    AssertEq(result.address, 0x1010);
+    U8 expected[] = {0x78, 0x56, 0x34, 0x12};
+    AssertEq(result.value.bytes.len, sizeof(expected));
+    for (U64 i = 0; i < sizeof(expected); i++)
+    {
+        AssertEq(result.value.bytes.data[i], expected[i]);
+    }
+
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyExecPeekExecutesPointerChainPeek)
 {
     Arena *arena = Arena_CreateDefault();
@@ -248,6 +273,29 @@ Test(Test_MemmyExecPokeExecutesModuleAddressPoke)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyExecPokeExecutesProcessQualifiedAbsoluteAddressPoke)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    Test_MemmyExecPeekPoke_WriteLE(&backend, 0x1030, 1, 4);
+
+    Memmy_Process process = Test_MemmyExecPeekPoke_Process(&backend);
+    Memmy_MemoryExpr expr = {0};
+    Test_MemmyExecPeekPoke_Parse(arena, "<4242!>0x1030 : u32 = 42", &expr);
+
+    Memmy_Error error = {0};
+    Memmy_ExecPokeResult result = {0};
+    AssertEq(Memmy_MemoryExpr_ExecutePoke(arena, &process, &expr, &result, &error), Memmy_Status_Ok);
+    AssertEq(result.address, 0x1030);
+    AssertEq(backend.memory[0x30], 42);
+    AssertEq(backend.memory[0x31], 0);
+    AssertEq(backend.memory[0x32], 0);
+    AssertEq(backend.memory[0x33], 0);
+
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyExecPokeRejectsRhsAddressExpressions)
 {
     Arena *arena = Arena_CreateDefault();
@@ -312,11 +360,13 @@ Test(Test_MemmyExecPokePropagatesWriteErrors)
 TestSuite suite_memmy_exec_peek_poke = TestSuite_Make(
     "Memmy Exec Peek Poke", TestCase_Make(Test_MemmyExecPeekExecutesAbsoluteAddressPeek),
     TestCase_Make(Test_MemmyExecPeekExecutesModuleAddressPeek),
+    TestCase_Make(Test_MemmyExecPeekExecutesProcessQualifiedAbsoluteAddressPeek),
     TestCase_Make(Test_MemmyExecPeekExecutesPointerChainPeek),
     TestCase_Make(Test_MemmyExecPeekReadsStringUntilTerminator),
     TestCase_Make(Test_MemmyExecPeekReadsStringUntilNonPrintable), TestCase_Make(Test_MemmyExecPeekReadsUtf8String),
     TestCase_Make(Test_MemmyExecPeekReadsWStringUntilTerminator),
     TestCase_Make(Test_MemmyExecPokeExecutesAbsoluteAddressPoke),
     TestCase_Make(Test_MemmyExecPokeExecutesModuleAddressPoke),
+    TestCase_Make(Test_MemmyExecPokeExecutesProcessQualifiedAbsoluteAddressPoke),
     TestCase_Make(Test_MemmyExecPokeRejectsRhsAddressExpressions),
     TestCase_Make(Test_MemmyExecPeekPropagatesReadErrors), TestCase_Make(Test_MemmyExecPokePropagatesWriteErrors), );
