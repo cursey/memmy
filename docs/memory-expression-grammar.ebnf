@@ -67,7 +67,10 @@ any_char           = ? any input character ? ;
 
 address_expr       = address_base, { address_op } ;
 
-address_base       = variable | integer | module_target_ref ;
+address_base       = variable | integer | module_target_ref
+                   | process_absolute_base ;
+
+process_absolute_base = whole_process_target_ref, integer ;
 
 address_op         = add | sub | deref_offset | deref ;
 
@@ -94,6 +97,8 @@ module_sized_range = module_target_ref, "[", const_expr, ":+", const_expr, "]" ;
 address_sized_range = address_expr, ":+", size ;
 
 module_target_ref  = target_ref ;
+
+whole_process_target_ref = target_ref ;
 
 size               = integer | "(", const_expr, ")" ;
 
@@ -189,8 +194,17 @@ ws_char            = " " | "\t" | "\n" | "\r" ;
 
    2. module_target_ref means target_ref whose parsed target kind is Module.
       Whole-process targets such as <game.exe!> and <123!> are valid range
-      targets for scans, but are not valid address bases or module bracket
+      targets for scans and may qualify absolute address bases as in
+      <game.exe!>0x1234 and <123!>0x1234, but are not valid module bracket
       range bases.
+
+   2a. whole_process_target_ref means target_ref whose parsed target kind is
+      whole-process. Bare <game.exe!> and <123!> remain whole-process range
+      targets, not address zero. Bare <game.exe!>0x1234 is an address
+      expression, <game.exe!>0x1234 : u32 is a peek, and
+      <game.exe!>0x1234 : u32 = 42 is a poke. Module targets remain
+      module-relative bases; <process!module>0x1234 is invalid unless using
+      existing address operators such as <process!module>+0x1234.
 
    3. target_ref name parts are non-empty and must not have leading or trailing
       whitespace. Interior whitespace is preserved as part of the name.
