@@ -349,6 +349,27 @@ static Memmy_AstNode *Memmy_Parser_PushNode(Memmy_Parser *parser, Memmy_AstNodeK
 static Memmy_AstStatus Memmy_Parser_ParseConstSum(Memmy_Parser *parser, Memmy_AstNode **out);
 static Memmy_AstStatus Memmy_Parser_ParseExpr(Memmy_Parser *parser, Memmy_AstNode **out);
 
+static B32 Memmy_AstNode_CanFoldConst(Memmy_AstNode *node)
+{
+    B32 result = 0;
+    if (node != 0 && node->kind == Memmy_AstNodeKind_ConstArithmetic && !node->contains_variable)
+    {
+        if (node->op == Memmy_AstConstOp_None)
+        {
+            result = 1;
+        }
+        else if (node->op == Memmy_AstConstOp_Pos || node->op == Memmy_AstConstOp_Neg)
+        {
+            result = Memmy_AstNode_CanFoldConst(node->lhs);
+        }
+        else
+        {
+            result = Memmy_AstNode_CanFoldConst(node->lhs) && Memmy_AstNode_CanFoldConst(node->rhs);
+        }
+    }
+    return result;
+}
+
 static void Memmy_Parser_NodeCoverInput(Memmy_Parser *parser, Memmy_AstNode *node, U64 start, U64 end)
 {
     node->byte_offset = start;
@@ -477,7 +498,7 @@ static Memmy_AstStatus Memmy_Parser_ParseConstPrimary(Memmy_Parser *parser, Memm
         {
             return status;
         }
-        status = Memmy_Parser_ParseConstSum(parser, out);
+        status = Memmy_Parser_ParseExpr(parser, out);
         if (status != Memmy_AstStatus_Ok)
         {
             return status;
@@ -544,7 +565,7 @@ static Memmy_AstStatus Memmy_Parser_ParseConstUnary(Memmy_Parser *parser, Memmy_
         node->lhs = operand;
         node->contains_variable = operand->contains_variable;
         node->byte_count = operand->byte_offset + operand->byte_count - token.byte_offset;
-        if (!node->contains_variable)
+        if (Memmy_AstNode_CanFoldConst(operand))
         {
             if (node->op == Memmy_AstConstOp_Neg && !SubI64Checked(0, operand->value, &node->value))
             {
@@ -599,7 +620,7 @@ static Memmy_AstStatus Memmy_Parser_CombineConst(Memmy_Parser *parser, Memmy_Ast
         break;
     }
 
-    if (!node->contains_variable)
+    if (Memmy_AstNode_CanFoldConst(lhs) && Memmy_AstNode_CanFoldConst(rhs))
     {
         B32 ok = 1;
         if (node->op == Memmy_AstConstOp_Add)

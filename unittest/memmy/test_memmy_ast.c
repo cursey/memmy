@@ -58,6 +58,22 @@ Test(Test_MemmyAstParsesVariablesInConstExpressions)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyAstParsesParenthesizedTypedReadsInArithmetic)
+{
+    Arena *arena = Arena_CreateDefault();
+    Memmy_AstNode *expr = 0;
+    Test_ParseAstExpr(arena, "$entity_list_mov + 7 + ($entity_list_mov + 3 as i32)", &expr);
+
+    AssertEq(expr->kind, Memmy_AstNodeKind_ConstArithmetic);
+    AssertEq(expr->op, Memmy_AstConstOp_Add);
+    AssertEq(expr->rhs->kind, Memmy_AstNodeKind_TypedRead);
+    AssertStrEq(expr->rhs->type_name, String8_Lit("i32"));
+    AssertEq(expr->rhs->lhs->kind, Memmy_AstNodeKind_ConstArithmetic);
+    AssertEq(expr->rhs->lhs->op, Memmy_AstConstOp_Add);
+
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyAstRejectsInvalidIdentifiers)
 {
     String8 rejected[] = {
@@ -526,6 +542,7 @@ Test(Test_MemmyAstParsesPocketReferenceCommands)
 TestSuite suite_memmy_ast = TestSuite_Make(
     "Memmy AST", TestCase_Make(Test_MemmyAstParsesConstantsWithPrecedence),
     TestCase_Make(Test_MemmyAstParsesVariablesInConstExpressions),
+    TestCase_Make(Test_MemmyAstParsesParenthesizedTypedReadsInArithmetic),
     TestCase_Make(Test_MemmyAstRejectsInvalidIdentifiers), TestCase_Make(Test_MemmyAstParsesPocketReferenceTargets),
     TestCase_Make(Test_MemmyAstParsesPocketReferenceCoreValues),
     TestCase_Make(Test_MemmyAstParsesPocketReferenceRanges), TestCase_Make(Test_MemmyAstParsesPocketReferenceAddresses),

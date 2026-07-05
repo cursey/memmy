@@ -539,6 +539,28 @@ Test(Test_MemmyEvalAnchorTargetExampleFlow)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyEvalParenthesizedTypedReadsInAddressArithmetic)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Memmy_EvalEnv *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+    backend.memory[0x07] = 5;
+    backend.memory[0x08] = 0;
+    backend.memory[0x09] = 0;
+    backend.memory[0x0a] = 0;
+
+    Test_EvalStatementText(env, arena, "$entity_list_mov = @0x1004");
+
+    Memmy_EvalValue value = {0};
+    Test_EvalExprText(env, arena, "$entity_list_mov + 7 + ($entity_list_mov + 3 as i32)", &value);
+    AssertEq(value.kind, Memmy_EvalValueKind_Address);
+    AssertEq(value.address, 0x1010);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyEvalCommandsListProcessesModulesAndRegionsWithFuzzyFilters)
 {
     Arena *arena = Arena_CreateDefault();
@@ -664,6 +686,7 @@ TestSuite suite_memmy_eval = TestSuite_Make(
     TestCase_Make(Test_MemmyEvalValueScanAssignmentMaterializesAddressList),
     TestCase_Make(Test_MemmyEvalIndexesAssignedAddressLists), TestCase_Make(Test_MemmyEvalIndexesValueScanExpressions),
     TestCase_Make(Test_MemmyEvalAnchorTargetExampleFlow),
+    TestCase_Make(Test_MemmyEvalParenthesizedTypedReadsInAddressArithmetic),
     TestCase_Make(Test_MemmyEvalCommandsListProcessesModulesAndRegionsWithFuzzyFilters),
     TestCase_Make(Test_MemmyEvalVarsUnsetAndClearCommands),
     TestCase_Make(Test_MemmyEvalHelpAndExitCommandsEmitControlResults), );
