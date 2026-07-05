@@ -86,6 +86,9 @@ struct Memmy_AstNode
     Memmy_AstNode *value_expr;
     B32 range_is_sized;
     String8 name;
+    String8 type_name;
+    String8 pattern;
+    String8 value_text;
     String8 target_process;
     String8 target_module;
     B32 target_has_process;

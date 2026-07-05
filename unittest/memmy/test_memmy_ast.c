@@ -295,6 +295,163 @@ Test(Test_MemmyAstParsesAssignmentBasics)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyAstParsesPocketReferenceReads)
+{
+    Arena *arena = Arena_CreateDefault();
+
+    Memmy_AstNode *absolute_read = 0;
+    Test_ParseAstExpr(arena, "@0x1234 as u32", &absolute_read);
+    AssertEq(absolute_read->kind, Memmy_AstNodeKind_TypedRead);
+    AssertEq(absolute_read->lhs->kind, Memmy_AstNodeKind_Address);
+    AssertStrEq(absolute_read->type_name, String8_Lit("u32"));
+
+    Memmy_AstNode *deref_read = 0;
+    Test_ParseAstExpr(arena, "<client.dll>+0x1234-> as str", &deref_read);
+    AssertEq(deref_read->kind, Memmy_AstNodeKind_TypedRead);
+    AssertEq(deref_read->lhs->kind, Memmy_AstNodeKind_Deref);
+    AssertStrEq(deref_read->type_name, String8_Lit("str"));
+
+    Memmy_AstNode *variable_read = 0;
+    Test_ParseAstExpr(arena, "$player->$hp_offset as f32", &variable_read);
+    AssertEq(variable_read->kind, Memmy_AstNodeKind_TypedRead);
+    AssertEq(variable_read->lhs->kind, Memmy_AstNodeKind_Deref);
+    AssertStrEq(variable_read->type_name, String8_Lit("f32"));
+
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyAstParsesPocketReferenceWrites)
+{
+    Arena *arena = Arena_CreateDefault();
+
+    Memmy_AstNode *absolute_write = 0;
+    Test_ParseAstExpr(arena, "@0x1234 as u32 = 0x42", &absolute_write);
+    AssertEq(absolute_write->kind, Memmy_AstNodeKind_TypedWrite);
+    AssertEq(absolute_write->lhs->kind, Memmy_AstNodeKind_Address);
+    AssertStrEq(absolute_write->type_name, String8_Lit("u32"));
+    AssertStrEq(absolute_write->value_text, String8_Lit("0x42"));
+
+    Memmy_AstNode *string_write = 0;
+    Test_ParseAstExpr(arena, "<client.dll>+0x1234-> as wstr = \"hello, world\"", &string_write);
+    AssertEq(string_write->kind, Memmy_AstNodeKind_TypedWrite);
+    AssertEq(string_write->lhs->kind, Memmy_AstNodeKind_Deref);
+    AssertStrEq(string_write->type_name, String8_Lit("wstr"));
+    AssertStrEq(string_write->value_text, String8_Lit("\"hello, world\""));
+
+    Memmy_AstNode *float_write = 0;
+    Test_ParseAstExpr(arena, "$player->$hp_offset as f32 = 100.0", &float_write);
+    AssertEq(float_write->kind, Memmy_AstNodeKind_TypedWrite);
+    AssertEq(float_write->lhs->kind, Memmy_AstNodeKind_Deref);
+    AssertStrEq(float_write->type_name, String8_Lit("f32"));
+    AssertStrEq(float_write->value_text, String8_Lit("100.0"));
+
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyAstParsesPocketReferenceAddressLists)
+{
+    Arena *arena = Arena_CreateDefault();
+
+    Memmy_AstNode *module_pattern = 0;
+    Test_ParseAstExpr(arena, "<client.dll>{AB CD ?? ?? 12 34}", &module_pattern);
+    AssertEq(module_pattern->kind, Memmy_AstNodeKind_PatternScan);
+    AssertEq(module_pattern->lhs->kind, Memmy_AstNodeKind_Target);
+    AssertStrEq(module_pattern->pattern, String8_Lit("AB CD ?? ?? 12 34"));
+
+    Memmy_AstNode *process_pattern = 0;
+    Test_ParseAstExpr(arena, "<game.exe!>{48 8B ? ? ? ? ? E8 ? ? ? ?}", &process_pattern);
+    AssertEq(process_pattern->kind, Memmy_AstNodeKind_PatternScan);
+    AssertEq(process_pattern->lhs->kind, Memmy_AstNodeKind_Target);
+    AssertStrEq(process_pattern->pattern, String8_Lit("48 8B ? ? ? ? ? E8 ? ? ? ?"));
+
+    Memmy_AstNode *range_pattern = 0;
+    Test_ParseAstExpr(arena, "[@0x1234..@0x5678]{ab cd ? ? 12 34}", &range_pattern);
+    AssertEq(range_pattern->kind, Memmy_AstNodeKind_PatternScan);
+    AssertEq(range_pattern->lhs->kind, Memmy_AstNodeKind_Range);
+    AssertStrEq(range_pattern->pattern, String8_Lit("ab cd ? ? 12 34"));
+
+    Memmy_AstNode *float_scan = 0;
+    Test_ParseAstExpr(arena, "<client.dll> as f32 == 42.777", &float_scan);
+    AssertEq(float_scan->kind, Memmy_AstNodeKind_ValueScan);
+    AssertEq(float_scan->lhs->kind, Memmy_AstNodeKind_Target);
+    AssertStrEq(float_scan->type_name, String8_Lit("f32"));
+    AssertStrEq(float_scan->value_text, String8_Lit("42.777"));
+
+    Memmy_AstNode *string_scan = 0;
+    Test_ParseAstExpr(arena, "<game.exe!> as str == \"hello\"", &string_scan);
+    AssertEq(string_scan->kind, Memmy_AstNodeKind_ValueScan);
+    AssertEq(string_scan->lhs->kind, Memmy_AstNodeKind_Target);
+    AssertStrEq(string_scan->type_name, String8_Lit("str"));
+    AssertStrEq(string_scan->value_text, String8_Lit("\"hello\""));
+
+    Memmy_AstNode *integer_scan = 0;
+    Test_ParseAstExpr(arena, "[@0x1234..@0x5678] as u32 == 123", &integer_scan);
+    AssertEq(integer_scan->kind, Memmy_AstNodeKind_ValueScan);
+    AssertEq(integer_scan->lhs->kind, Memmy_AstNodeKind_Range);
+    AssertStrEq(integer_scan->type_name, String8_Lit("u32"));
+    AssertStrEq(integer_scan->value_text, String8_Lit("123"));
+
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyAstParsesPocketReferenceIndexingAddressLists)
+{
+    Arena *arena = Arena_CreateDefault();
+
+    Memmy_AstNode *pattern_index = 0;
+    Test_ParseAstExpr(arena, "<client.dll>{ab cd ? ? 12 34}[0]", &pattern_index);
+    AssertEq(pattern_index->kind, Memmy_AstNodeKind_Index);
+    AssertEq(pattern_index->lhs->kind, Memmy_AstNodeKind_PatternScan);
+    AssertEq(pattern_index->rhs->kind, Memmy_AstNodeKind_ConstArithmetic);
+    AssertEq(pattern_index->rhs->value, 0);
+
+    Memmy_AstNode *value_scan_index = 0;
+    Test_ParseAstExpr(arena, "(<client.dll> as f32 == 42.777)[2]", &value_scan_index);
+    AssertEq(value_scan_index->kind, Memmy_AstNodeKind_Index);
+    AssertEq(value_scan_index->lhs->kind, Memmy_AstNodeKind_ValueScan);
+    AssertEq(value_scan_index->rhs->value, 2);
+
+    Memmy_AstStatement matches_assignment = {0};
+    Test_ParseAstStatement(arena, "$matches = <client.dll>{aa bb ?? ?? 11 22}", &matches_assignment);
+    AssertEq(matches_assignment.kind, Memmy_AstNodeKind_Assignment);
+    AssertEq(matches_assignment.assignment_value->kind, Memmy_AstNodeKind_PatternScan);
+    AssertStrEq(matches_assignment.assignment_value->pattern, String8_Lit("aa bb ?? ?? 11 22"));
+
+    Memmy_AstNode *variable_index = 0;
+    Test_ParseAstExpr(arena, "$matches[3]", &variable_index);
+    AssertEq(variable_index->kind, Memmy_AstNodeKind_Index);
+    AssertEq(variable_index->lhs->kind, Memmy_AstNodeKind_Variable);
+    AssertStrEq(variable_index->lhs->name, String8_Lit("matches"));
+    AssertEq(variable_index->rhs->value, 3);
+
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyAstParsesPocketReferencePhase4Assignments)
+{
+    Arena *arena = Arena_CreateDefault();
+
+    Memmy_AstStatement pattern_index_assignment = {0};
+    Test_ParseAstStatement(arena, "$foo = <client.dll>{ab cd ? ? 12 34}[0]", &pattern_index_assignment);
+    AssertEq(pattern_index_assignment.kind, Memmy_AstNodeKind_Assignment);
+    AssertEq(pattern_index_assignment.assignment_value->kind, Memmy_AstNodeKind_Index);
+    AssertEq(pattern_index_assignment.assignment_value->lhs->kind, Memmy_AstNodeKind_PatternScan);
+
+    Memmy_AstStatement value_scan_index_assignment = {0};
+    Test_ParseAstStatement(arena, "$foo = (<client.dll> as f32 == 42.777)[2]", &value_scan_index_assignment);
+    AssertEq(value_scan_index_assignment.kind, Memmy_AstNodeKind_Assignment);
+    AssertEq(value_scan_index_assignment.assignment_value->kind, Memmy_AstNodeKind_Index);
+    AssertEq(value_scan_index_assignment.assignment_value->lhs->kind, Memmy_AstNodeKind_ValueScan);
+
+    Memmy_AstStatement pattern_assignment = {0};
+    Test_ParseAstStatement(arena, "$foo = <client.dll>{aa bb ?? ?? 11 22}", &pattern_assignment);
+    AssertEq(pattern_assignment.kind, Memmy_AstNodeKind_Assignment);
+    AssertEq(pattern_assignment.assignment_value->kind, Memmy_AstNodeKind_PatternScan);
+    AssertStrEq(pattern_assignment.assignment_value->pattern, String8_Lit("aa bb ?? ?? 11 22"));
+
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyAstReportsPreciseDiagnosticOffsets)
 {
     Arena *arena = Arena_CreateDefault();
@@ -323,14 +480,9 @@ Test(Test_MemmyAstRejectsOldAddressSpellings)
     Test_RejectAstExpr("<1234!>0x1234");
 }
 
-Test(Test_MemmyAstKeepsLaterPhaseSyntaxOutOfScope)
+Test(Test_MemmyAstKeepsCommandSyntaxOutOfScope)
 {
     String8 rejected[] = {
-        String8_Lit("<client.dll>{ab cd}"),
-        String8_Lit("$foo[0]"),
-        String8_Lit("@0x1234 as u32"),
-        String8_Lit("@0x1234 as u32 = 0x42"),
-        String8_Lit("<client.dll> as f32 == 42"),
         String8_Lit("/procs"),
     };
 
@@ -351,5 +503,9 @@ TestSuite suite_memmy_ast = TestSuite_Make(
     TestCase_Make(Test_MemmyAstParsesPocketReferenceCoreValues),
     TestCase_Make(Test_MemmyAstParsesPocketReferenceRanges), TestCase_Make(Test_MemmyAstParsesPocketReferenceAddresses),
     TestCase_Make(Test_MemmyAstParsesAssignmentBasics), TestCase_Make(Test_MemmyAstReportsPreciseDiagnosticOffsets),
-    TestCase_Make(Test_MemmyAstRejectsOldAddressSpellings),
-    TestCase_Make(Test_MemmyAstKeepsLaterPhaseSyntaxOutOfScope), );
+    TestCase_Make(Test_MemmyAstRejectsOldAddressSpellings), TestCase_Make(Test_MemmyAstParsesPocketReferenceReads),
+    TestCase_Make(Test_MemmyAstParsesPocketReferenceWrites),
+    TestCase_Make(Test_MemmyAstParsesPocketReferenceAddressLists),
+    TestCase_Make(Test_MemmyAstParsesPocketReferenceIndexingAddressLists),
+    TestCase_Make(Test_MemmyAstParsesPocketReferencePhase4Assignments),
+    TestCase_Make(Test_MemmyAstKeepsCommandSyntaxOutOfScope), );
