@@ -77,12 +77,14 @@ Test(Test_MemmyDefaultBackendSelfProcessInventoryAndScan)
     AssertEq(Memmy_Process_Open(arena, Os_GetProcessId(), &process, &error), Memmy_Status_Ok);
     AssertTrue(process->pointer_width == Memmy_PointerWidth_32 || process->pointer_width == Memmy_PointerWidth_64);
 
-    Memmy_ModuleList modules = {0};
-    AssertEq(Memmy_Process_ListModules(arena, process, &modules, &error), Memmy_Status_Ok);
+    Test_ModuleList modules = {0};
+    AssertEq(Memmy_Process_EnumerateModules(arena, process, Test_ModuleSink(&modules, arena), &error),
+             Memmy_Status_Ok);
     AssertTrue(modules.list.count > 0);
     B32 saw_module_metadata = 0;
-    List_ForEach(Memmy_Module, module, &modules.list, link)
+    List_ForEach(Test_ModuleNode, module_node, &modules.list, link)
     {
+        Memmy_Module *module = &module_node->module;
         if (module->name.len != 0 && module->path.len != 0 && module->base != 0 && module->size != 0)
         {
             saw_module_metadata = 1;
@@ -92,17 +94,20 @@ Test(Test_MemmyDefaultBackendSelfProcessInventoryAndScan)
     AssertTrue(saw_module_metadata);
 
 #if OS_MACOS
-    Memmy_Module *main_module = ContainerOf(modules.list.first, Memmy_Module, link);
+    Test_ModuleNode *main_module_node = ContainerOf(modules.list.first, Test_ModuleNode, link);
+    Memmy_Module *main_module = &main_module_node->module;
     AssertTrue(main_module->size < Gigabytes(1));
 #endif
 
-    Memmy_RegionList regions = {0};
-    AssertEq(Memmy_Process_ListRegions(arena, process, &regions, &error), Memmy_Status_Ok);
+    Test_RegionList regions = {0};
+    AssertEq(Memmy_Process_EnumerateRegions(arena, process, Test_RegionSink(&regions, arena), &error),
+             Memmy_Status_Ok);
     AssertTrue(regions.list.count > 0);
     B32 saw_fixture_region = 0;
     Memmy_Addr fixture_addr = (Memmy_Addr)(uintptr_t)(fixture + 8);
-    List_ForEach(Memmy_Region, region, &regions.list, link)
+    List_ForEach(Test_RegionNode, region_node, &regions.list, link)
     {
+        Memmy_Region *region = &region_node->region;
         Memmy_Addr region_end = region->base + region->size;
         if (fixture_addr >= region->base && fixture_addr < region_end)
         {

@@ -10,11 +10,11 @@ Test(Test_MemmyTestBackendReadWrite)
     Memmy_Context ctx = {.backend = backend};
     Memmy_Context_Set(&ctx);
 
-    Memmy_ProcessList processes = {0};
-    AssertEq(Memmy_ListProcesses(arena, &processes, 0), Memmy_Status_Ok);
+    Test_ProcessInfoList processes = {0};
+    AssertEq(Memmy_EnumerateProcesses(arena, Test_ProcessInfoSink(&processes, arena), 0), Memmy_Status_Ok);
     AssertEq(processes.list.count, 1);
-    Memmy_ProcessInfo *info = ContainerOf(processes.list.first, Memmy_ProcessInfo, link);
-    AssertEq(info->pid, 4242);
+    Test_ProcessInfoNode *info = ContainerOf(processes.list.first, Test_ProcessInfoNode, link);
+    AssertEq(info->info.pid, 4242);
 
     Memmy_Process *process = 0;
     AssertEq(Memmy_Process_Open(arena, 4242, &process, 0), Memmy_Status_Ok);
@@ -38,12 +38,12 @@ Test(Test_MemmyTestBackendReadWrite)
     AssertEq(test_backend.memory[4], 99);
     AssertEq(test_backend.memory[5], 100);
 
-    Memmy_ModuleList modules = {0};
-    AssertEq(Memmy_Process_ListModules(arena, process, &modules, 0), Memmy_Status_Ok);
+    Test_ModuleList modules = {0};
+    AssertEq(Memmy_Process_EnumerateModules(arena, process, Test_ModuleSink(&modules, arena), 0), Memmy_Status_Ok);
     AssertEq(modules.list.count, 1);
 
-    Memmy_RegionList regions = {0};
-    AssertEq(Memmy_Process_ListRegions(arena, process, &regions, 0), Memmy_Status_Ok);
+    Test_RegionList regions = {0};
+    AssertEq(Memmy_Process_EnumerateRegions(arena, process, Test_RegionSink(&regions, arena), 0), Memmy_Status_Ok);
     AssertEq(regions.list.count, 1);
 
     Memmy_Process_Close(process);
@@ -66,9 +66,10 @@ Test(Test_MemmyProcessMissingBackendCallbacksReturnUnsupported)
     AssertEq(Memmy_Process_Open(arena, 4242, &process, 0), Memmy_Status_Ok);
 
     Memmy_Error error = {0};
-    Memmy_ProcessList processes = {0};
-    test_backend.backend.list_processes = 0;
-    AssertEq(Memmy_ListProcesses(arena, &processes, &error), Memmy_Status_Unsupported);
+    Test_ProcessInfoList processes = {0};
+    test_backend.backend.enumerate_processes = 0;
+    AssertEq(Memmy_EnumerateProcesses(arena, Test_ProcessInfoSink(&processes, arena), &error),
+             Memmy_Status_Unsupported);
 
     U8 buffer[4] = {0};
     U64 byte_count = 0;
@@ -80,13 +81,15 @@ Test(Test_MemmyProcessMissingBackendCallbacksReturnUnsupported)
     AssertEq(Memmy_Process_Write(process, test_backend.memory_base, buffer, sizeof(buffer), &byte_count, &error),
              Memmy_Status_Unsupported);
 
-    Memmy_ModuleList modules = {0};
-    test_backend.backend.list_modules = 0;
-    AssertEq(Memmy_Process_ListModules(arena, process, &modules, &error), Memmy_Status_Unsupported);
+    Test_ModuleList modules = {0};
+    test_backend.backend.enumerate_modules = 0;
+    AssertEq(Memmy_Process_EnumerateModules(arena, process, Test_ModuleSink(&modules, arena), &error),
+             Memmy_Status_Unsupported);
 
-    Memmy_RegionList regions = {0};
-    test_backend.backend.list_regions = 0;
-    AssertEq(Memmy_Process_ListRegions(arena, process, &regions, &error), Memmy_Status_Unsupported);
+    Test_RegionList regions = {0};
+    test_backend.backend.enumerate_regions = 0;
+    AssertEq(Memmy_Process_EnumerateRegions(arena, process, Test_RegionSink(&regions, arena), &error),
+             Memmy_Status_Unsupported);
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -183,6 +186,99 @@ Test(Test_MemmyProcessWriteDispatchAndFailureMapping)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyProcessEnumerationPreservesCallbackOrder)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    test_backend.process_count = 0;
+    test_backend.module_count = 0;
+    test_backend.region_count = 0;
+    Test_MemmyBackend_AddProcess(&test_backend, 111, String8_Lit("alpha.exe"), String8_Lit(""), Memmy_PointerWidth_64);
+    Test_MemmyBackend_AddProcess(&test_backend, 222, String8_Lit("beta.exe"), String8_Lit(""), Memmy_PointerWidth_64);
+    Test_MemmyBackend_AddModule(&test_backend, 111, String8_Lit("a.dll"), String8_Lit(""), 0x1000, 0x100);
+    Test_MemmyBackend_AddModule(&test_backend, 111, String8_Lit("b.dll"), String8_Lit(""), 0x2000, 0x100);
+    Test_MemmyBackend_AddRegion(&test_backend, 111, 0x3000, 0x100, Memmy_RegionAccess_Read,
+                                Memmy_RegionState_Committed);
+    Test_MemmyBackend_AddRegion(&test_backend, 111, 0x4000, 0x100, Memmy_RegionAccess_Read,
+                                Memmy_RegionState_Committed);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    Test_ProcessInfoList processes = {0};
+    AssertEq(Memmy_EnumerateProcesses(arena, Test_ProcessInfoSink(&processes, arena), 0), Memmy_Status_Ok);
+    Test_ProcessInfoNode *process_a = ContainerOf(processes.list.first, Test_ProcessInfoNode, link);
+    Test_ProcessInfoNode *process_b = ContainerOf(processes.list.last, Test_ProcessInfoNode, link);
+    AssertEq(process_a->info.pid, 111);
+    AssertEq(process_b->info.pid, 222);
+
+    Memmy_Process *process = 0;
+    AssertEq(Memmy_Process_Open(arena, 111, &process, 0), Memmy_Status_Ok);
+
+    Test_ModuleList modules = {0};
+    AssertEq(Memmy_Process_EnumerateModules(arena, process, Test_ModuleSink(&modules, arena), 0), Memmy_Status_Ok);
+    Test_ModuleNode *module_a = ContainerOf(modules.list.first, Test_ModuleNode, link);
+    Test_ModuleNode *module_b = ContainerOf(modules.list.last, Test_ModuleNode, link);
+    AssertStrEq(module_a->module.name, String8_Lit("a.dll"));
+    AssertStrEq(module_b->module.name, String8_Lit("b.dll"));
+
+    Test_RegionList regions = {0};
+    AssertEq(Memmy_Process_EnumerateRegions(arena, process, Test_RegionSink(&regions, arena), 0), Memmy_Status_Ok);
+    Test_RegionNode *region_a = ContainerOf(regions.list.first, Test_RegionNode, link);
+    Test_RegionNode *region_b = ContainerOf(regions.list.last, Test_RegionNode, link);
+    AssertEq(region_a->region.base, 0x3000);
+    AssertEq(region_b->region.base, 0x4000);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyProcessEnumerationPropagatesSinkErrors)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    test_backend.process_count = 0;
+    test_backend.module_count = 0;
+    test_backend.region_count = 0;
+    Test_MemmyBackend_AddProcess(&test_backend, 111, String8_Lit("alpha.exe"), String8_Lit(""), Memmy_PointerWidth_64);
+    Test_MemmyBackend_AddProcess(&test_backend, 222, String8_Lit("beta.exe"), String8_Lit(""), Memmy_PointerWidth_64);
+    Test_MemmyBackend_AddModule(&test_backend, 111, String8_Lit("a.dll"), String8_Lit(""), 0x1000, 0x100);
+    Test_MemmyBackend_AddModule(&test_backend, 111, String8_Lit("b.dll"), String8_Lit(""), 0x2000, 0x100);
+    Test_MemmyBackend_AddRegion(&test_backend, 111, 0x3000, 0x100, Memmy_RegionAccess_Read,
+                                Memmy_RegionState_Committed);
+    Test_MemmyBackend_AddRegion(&test_backend, 111, 0x4000, 0x100, Memmy_RegionAccess_Read,
+                                Memmy_RegionState_Committed);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    Test_ProcessInfoList processes = {0};
+    Memmy_ProcessInfoSink process_sink = Test_ProcessInfoSink(&processes, arena);
+    processes.status = Memmy_Status_AccessDenied;
+    AssertEq(Memmy_EnumerateProcesses(arena, process_sink, 0), Memmy_Status_AccessDenied);
+    AssertEq(processes.list.count, 1);
+
+    Memmy_Process *process = 0;
+    AssertEq(Memmy_Process_Open(arena, 111, &process, 0), Memmy_Status_Ok);
+
+    Test_ModuleList modules = {0};
+    Memmy_ModuleSink module_sink = Test_ModuleSink(&modules, arena);
+    modules.status = Memmy_Status_AccessDenied;
+    AssertEq(Memmy_Process_EnumerateModules(arena, process, module_sink, 0), Memmy_Status_AccessDenied);
+    AssertEq(modules.list.count, 1);
+
+    Test_RegionList regions = {0};
+    Memmy_RegionSink region_sink = Test_RegionSink(&regions, arena);
+    regions.status = Memmy_Status_AccessDenied;
+    AssertEq(Memmy_Process_EnumerateRegions(arena, process, region_sink, 0), Memmy_Status_AccessDenied);
+    AssertEq(regions.list.count, 1);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyTestBackendConfiguredInventory)
 {
     Arena *arena = Arena_CreateDefault();
@@ -203,20 +299,20 @@ Test(Test_MemmyTestBackendConfiguredInventory)
     Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
     Memmy_Context_Set(&ctx);
 
-    Memmy_ProcessList processes = {0};
-    AssertEq(Memmy_ListProcesses(arena, &processes, 0), Memmy_Status_Ok);
+    Test_ProcessInfoList processes = {0};
+    AssertEq(Memmy_EnumerateProcesses(arena, Test_ProcessInfoSink(&processes, arena), 0), Memmy_Status_Ok);
     AssertEq(processes.list.count, 2);
 
     Memmy_Process *process = 0;
     AssertEq(Memmy_Process_Open(arena, 222, &process, 0), Memmy_Status_Ok);
     AssertEq(process->pointer_width, Memmy_PointerWidth_64);
 
-    Memmy_ModuleList modules = {0};
-    AssertEq(Memmy_Process_ListModules(arena, process, &modules, 0), Memmy_Status_Ok);
+    Test_ModuleList modules = {0};
+    AssertEq(Memmy_Process_EnumerateModules(arena, process, Test_ModuleSink(&modules, arena), 0), Memmy_Status_Ok);
     AssertEq(modules.list.count, 1);
 
-    Memmy_RegionList regions = {0};
-    AssertEq(Memmy_Process_ListRegions(arena, process, &regions, 0), Memmy_Status_Ok);
+    Test_RegionList regions = {0};
+    AssertEq(Memmy_Process_EnumerateRegions(arena, process, Test_RegionSink(&regions, arena), 0), Memmy_Status_Ok);
     AssertEq(regions.list.count, 1);
 
     Memmy_Context_Set(0);
@@ -226,4 +322,6 @@ TestSuite suite_memmy_process = TestSuite_Make("Memmy Process", TestCase_Make(Te
                                                TestCase_Make(Test_MemmyProcessMissingBackendCallbacksReturnUnsupported),
                                                TestCase_Make(Test_MemmyProcessReadDispatchAndFailureMapping),
                                                TestCase_Make(Test_MemmyProcessWriteDispatchAndFailureMapping),
+                                               TestCase_Make(Test_MemmyProcessEnumerationPreservesCallbackOrder),
+                                               TestCase_Make(Test_MemmyProcessEnumerationPropagatesSinkErrors),
                                                TestCase_Make(Test_MemmyTestBackendConfiguredInventory), );

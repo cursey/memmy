@@ -240,12 +240,12 @@ Test(Test_MemmyScanFindsPatternAcrossAdjacentReadableRegions)
     Arena_Destroy(arena);
 }
 
-Test(Test_MemmyScanDirectReadsWithoutListRegions)
+Test(Test_MemmyScanDirectReadsWithoutRegionEnumeration)
 {
     Arena *arena = Arena_CreateDefault();
     Test_MemmyBackend test_backend = {0};
     Test_MemmyBackend_Init(&test_backend);
-    Test_DisableListRegions(&test_backend);
+    Test_DisableEnumerateRegions(&test_backend);
     test_backend.region_count = 0;
     test_backend.memory[0x10] = 0xcc;
     test_backend.memory[0x22] = 0xcc;
@@ -274,7 +274,7 @@ Test(Test_MemmyScanSkipsUnreadableHolesAndReportsFullyUnreadableRange)
     Arena *arena = Arena_CreateDefault();
     Test_MemmyBackend test_backend = {0};
     Test_MemmyBackend_Init(&test_backend);
-    Test_DisableListRegions(&test_backend);
+    Test_DisableEnumerateRegions(&test_backend);
     Test_MemmyBackend_AddUnreadableRange(&test_backend, 0x1040, 0x1050);
     test_backend.memory[0x32] = 0xab;
     test_backend.memory[0x52] = 0xab;
@@ -308,7 +308,7 @@ Test(Test_MemmyScanScansPartialReads)
     Arena *arena = Arena_CreateDefault();
     Test_MemmyBackend test_backend = {0};
     Test_MemmyBackend_Init(&test_backend);
-    Test_DisableListRegions(&test_backend);
+    Test_DisableEnumerateRegions(&test_backend);
     Test_MemmyBackend_SetReadLimit(&test_backend, 3);
     U8 bytes[] = {0x80, 0x81};
     memcpy(test_backend.memory + 1, bytes, sizeof(bytes));
@@ -522,7 +522,7 @@ Test(Test_MemmyValueScanRangeChunkLimitRegionAndReadErrors)
     Memmy_Addr region_expected[] = {0x1030};
     Test_AssertScanAddresses(&results, region_expected, ArrayCount(region_expected));
 
-    Test_DisableListRegions(&test_backend);
+    Test_DisableEnumerateRegions(&test_backend);
     Test_MemmyBackend_AddUnreadableRange(&test_backend, 0x1028, 0x1030);
     AssertEq(Memmy_Process_ScanValue(arena, process, &options, value, Test_ScanSink(&results, arena), &error),
              Memmy_Status_Ok);
@@ -581,7 +581,7 @@ TestSuite suite_memmy_scan = TestSuite_Make(
     TestCase_Make(Test_MemmyScanFindsChunkBoundaryMatchesAndHonorsLimit),
     TestCase_Make(Test_MemmyScanUsesRegionIntersectionWhenAvailable),
     TestCase_Make(Test_MemmyScanFindsPatternAcrossAdjacentReadableRegions),
-    TestCase_Make(Test_MemmyScanDirectReadsWithoutListRegions),
+    TestCase_Make(Test_MemmyScanDirectReadsWithoutRegionEnumeration),
     TestCase_Make(Test_MemmyScanSkipsUnreadableHolesAndReportsFullyUnreadableRange),
     TestCase_Make(Test_MemmyScanScansPartialReads), TestCase_Make(Test_MemmyScanSkipsNonReadableRegions),
     TestCase_Make(Test_MemmyValueScanFindsScalarValuesAtMultipleAlignments),

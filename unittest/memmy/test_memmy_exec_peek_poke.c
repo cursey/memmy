@@ -8,14 +8,6 @@ static void Test_MemmyExecPeekPoke_Parse(Arena *arena, char *text, Memmy_MemoryE
     AssertEq(Memmy_MemoryExpr_Parse(arena, String8_FromCStr(text), out, &error), Memmy_Status_Ok);
 }
 
-static void Test_MemmyExecPeekPoke_AddModule(Arena *arena, Memmy_ModuleList *modules, String8 name, Memmy_Addr base)
-{
-    Memmy_Module *module = Memmy_ModuleList_Push(arena, modules);
-    module->name = name;
-    module->base = base;
-    module->size = 0x1000;
-}
-
 static Memmy_Process Test_MemmyExecPeekPoke_Process(Test_MemmyBackend *backend)
 {
     return (Memmy_Process){
@@ -48,7 +40,7 @@ Test(Test_MemmyExecPeekExecutesAbsoluteAddressPeek)
 
     Memmy_Error error = {0};
     Memmy_ExecPeekResult result = {0};
-    AssertEq(Memmy_MemoryExpr_ExecutePeek(arena, &process, 0, &expr, &result, &error), Memmy_Status_Ok);
+    AssertEq(Memmy_MemoryExpr_ExecutePeek(arena, &process, &expr, &result, &error), Memmy_Status_Ok);
     AssertEq(result.address, 0x1010);
     U8 expected[] = {0x78, 0x56, 0x34, 0x12};
     AssertEq(result.value.bytes.len, sizeof(expected));
@@ -67,15 +59,15 @@ Test(Test_MemmyExecPeekExecutesModuleAddressPeek)
     Test_MemmyBackend_Init(&backend);
     Test_MemmyExecPeekPoke_WriteLE(&backend, 0x1020, 0x7f, 1);
 
-    Memmy_ModuleList modules = {0};
-    Test_MemmyExecPeekPoke_AddModule(arena, &modules, String8_Lit("client.dll"), 0x1000);
+    backend.module_count = 0;
+    Test_MemmyBackend_AddModule(&backend, 4242, String8_Lit("client.dll"), String8_Lit(""), 0x1000, 0x1000);
     Memmy_Process process = Test_MemmyExecPeekPoke_Process(&backend);
     Memmy_MemoryExpr expr = {0};
     Test_MemmyExecPeekPoke_Parse(arena, "<client.dll>+0x20 : u8", &expr);
 
     Memmy_Error error = {0};
     Memmy_ExecPeekResult result = {0};
-    AssertEq(Memmy_MemoryExpr_ExecutePeek(arena, &process, &modules, &expr, &result, &error), Memmy_Status_Ok);
+    AssertEq(Memmy_MemoryExpr_ExecutePeek(arena, &process, &expr, &result, &error), Memmy_Status_Ok);
     AssertEq(result.address, 0x1020);
     AssertEq(result.value.bytes.len, 1);
     AssertEq(result.value.bytes.data[0], 0x7f);
@@ -97,7 +89,7 @@ Test(Test_MemmyExecPeekExecutesPointerChainPeek)
 
     Memmy_Error error = {0};
     Memmy_ExecPeekResult result = {0};
-    AssertEq(Memmy_MemoryExpr_ExecutePeek(arena, &process, 0, &expr, &result, &error), Memmy_Status_Ok);
+    AssertEq(Memmy_MemoryExpr_ExecutePeek(arena, &process, &expr, &result, &error), Memmy_Status_Ok);
     AssertEq(result.address, 0x1048);
     AssertEq(result.value.bytes.data[0], 0x11);
     AssertEq(result.value.bytes.data[1], 0x22);
@@ -123,7 +115,7 @@ Test(Test_MemmyExecPeekReadsStringUntilTerminator)
 
     Memmy_Error error = {0};
     Memmy_ExecPeekResult result = {0};
-    AssertEq(Memmy_MemoryExpr_ExecutePeek(arena, &process, 0, &expr, &result, &error), Memmy_Status_Ok);
+    AssertEq(Memmy_MemoryExpr_ExecutePeek(arena, &process, &expr, &result, &error), Memmy_Status_Ok);
     AssertStrEq(result.value.bytes, String8_Lit("hello"));
 
     Arena_Destroy(arena);
@@ -146,7 +138,7 @@ Test(Test_MemmyExecPeekReadsStringUntilNonPrintable)
 
     Memmy_Error error = {0};
     Memmy_ExecPeekResult result = {0};
-    AssertEq(Memmy_MemoryExpr_ExecutePeek(arena, &process, 0, &expr, &result, &error), Memmy_Status_Ok);
+    AssertEq(Memmy_MemoryExpr_ExecutePeek(arena, &process, &expr, &result, &error), Memmy_Status_Ok);
     AssertStrEq(result.value.bytes, String8_Lit("ab"));
 
     Arena_Destroy(arena);
@@ -169,7 +161,7 @@ Test(Test_MemmyExecPeekReadsUtf8String)
 
     Memmy_Error error = {0};
     Memmy_ExecPeekResult result = {0};
-    AssertEq(Memmy_MemoryExpr_ExecutePeek(arena, &process, 0, &expr, &result, &error), Memmy_Status_Ok);
+    AssertEq(Memmy_MemoryExpr_ExecutePeek(arena, &process, &expr, &result, &error), Memmy_Status_Ok);
     AssertEq(result.value.bytes.len, 5);
     AssertEq(result.value.bytes.data[0], 'c');
     AssertEq(result.value.bytes.data[1], 'a');
@@ -197,7 +189,7 @@ Test(Test_MemmyExecPeekReadsWStringUntilTerminator)
 
     Memmy_Error error = {0};
     Memmy_ExecPeekResult result = {0};
-    AssertEq(Memmy_MemoryExpr_ExecutePeek(arena, &process, 0, &expr, &result, &error), Memmy_Status_Ok);
+    AssertEq(Memmy_MemoryExpr_ExecutePeek(arena, &process, &expr, &result, &error), Memmy_Status_Ok);
     AssertEq(result.value.bytes.len, 4);
     AssertEq(result.value.bytes.data[0], 'H');
     AssertEq(result.value.bytes.data[1], 0);
@@ -220,7 +212,7 @@ Test(Test_MemmyExecPokeExecutesAbsoluteAddressPoke)
 
     Memmy_Error error = {0};
     Memmy_ExecPokeResult result = {0};
-    AssertEq(Memmy_MemoryExpr_ExecutePoke(arena, &process, 0, &expr, &result, &error), Memmy_Status_Ok);
+    AssertEq(Memmy_MemoryExpr_ExecutePoke(arena, &process, &expr, &result, &error), Memmy_Status_Ok);
     AssertEq(result.address, 0x1030);
     AssertEq(result.old_value.bytes.data[0], 1);
     AssertEq(backend.memory[0x30], 0x39);
@@ -238,15 +230,15 @@ Test(Test_MemmyExecPokeExecutesModuleAddressPoke)
     Test_MemmyBackend_Init(&backend);
     Test_MemmyExecPeekPoke_WriteLE(&backend, 0x1050, 2, 4);
 
-    Memmy_ModuleList modules = {0};
-    Test_MemmyExecPeekPoke_AddModule(arena, &modules, String8_Lit("client.dll"), 0x1000);
+    backend.module_count = 0;
+    Test_MemmyBackend_AddModule(&backend, 4242, String8_Lit("client.dll"), String8_Lit(""), 0x1000, 0x1000);
     Memmy_Process process = Test_MemmyExecPeekPoke_Process(&backend);
     Memmy_MemoryExpr expr = {0};
     Test_MemmyExecPeekPoke_Parse(arena, "<client.dll>+0x50 : i32 = -3", &expr);
 
     Memmy_Error error = {0};
     Memmy_ExecPokeResult result = {0};
-    AssertEq(Memmy_MemoryExpr_ExecutePoke(arena, &process, &modules, &expr, &result, &error), Memmy_Status_Ok);
+    AssertEq(Memmy_MemoryExpr_ExecutePoke(arena, &process, &expr, &result, &error), Memmy_Status_Ok);
     AssertEq(result.address, 0x1050);
     AssertEq(backend.memory[0x50], 0xfd);
     AssertEq(backend.memory[0x51], 0xff);
@@ -281,13 +273,13 @@ Test(Test_MemmyExecPeekPropagatesReadErrors)
     Test_MemmyBackend_SetReadLimit(&backend, 2);
     Memmy_Error error = {0};
     Memmy_ExecPeekResult result = {0};
-    AssertEq(Memmy_MemoryExpr_ExecutePeek(arena, &process, 0, &expr, &result, &error), Memmy_Status_PartialRead);
+    AssertEq(Memmy_MemoryExpr_ExecutePeek(arena, &process, &expr, &result, &error), Memmy_Status_PartialRead);
     AssertEq(error.status, Memmy_Status_PartialRead);
 
     Test_MemmyBackend_SetReadLimit(&backend, 0);
     Test_MemmyBackend_SetReadStatus(&backend, Memmy_Status_AccessDenied);
     error = (Memmy_Error){0};
-    AssertEq(Memmy_MemoryExpr_ExecutePeek(arena, &process, 0, &expr, &result, &error), Memmy_Status_AccessDenied);
+    AssertEq(Memmy_MemoryExpr_ExecutePeek(arena, &process, &expr, &result, &error), Memmy_Status_AccessDenied);
     AssertEq(error.status, Memmy_Status_AccessDenied);
 
     Arena_Destroy(arena);
@@ -305,13 +297,13 @@ Test(Test_MemmyExecPokePropagatesWriteErrors)
     Test_MemmyBackend_SetWriteLimit(&backend, 2);
     Memmy_Error error = {0};
     Memmy_ExecPokeResult result = {0};
-    AssertEq(Memmy_MemoryExpr_ExecutePoke(arena, &process, 0, &expr, &result, &error), Memmy_Status_PartialWrite);
+    AssertEq(Memmy_MemoryExpr_ExecutePoke(arena, &process, &expr, &result, &error), Memmy_Status_PartialWrite);
     AssertEq(error.status, Memmy_Status_PartialWrite);
 
     Test_MemmyBackend_SetWriteLimit(&backend, 0);
     Test_MemmyBackend_SetWriteStatus(&backend, Memmy_Status_AccessDenied);
     error = (Memmy_Error){0};
-    AssertEq(Memmy_MemoryExpr_ExecutePoke(arena, &process, 0, &expr, &result, &error), Memmy_Status_AccessDenied);
+    AssertEq(Memmy_MemoryExpr_ExecutePoke(arena, &process, &expr, &result, &error), Memmy_Status_AccessDenied);
     AssertEq(error.status, Memmy_Status_AccessDenied);
 
     Arena_Destroy(arena);

@@ -40,12 +40,12 @@ static Memmy_Status memmy_Unsupported(Memmy_Error *error, char *message)
     return Memmy_Status_Unsupported;
 }
 
-Memmy_Status Memmy_ListProcesses(Arena *arena, Memmy_ProcessList *out, Memmy_Error *error)
+Memmy_Status Memmy_EnumerateProcesses(Arena *arena, Memmy_ProcessInfoSink sink, Memmy_Error *error)
 {
-    if (arena == 0 || out == 0)
+    if (arena == 0 || sink.callback == 0)
     {
         Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("backend"),
-                        String8_Lit("missing output arena or process list"));
+                        String8_Lit("missing output arena or process sink"));
         return Memmy_Status_InvalidArgument;
     }
 
@@ -55,12 +55,12 @@ Memmy_Status Memmy_ListProcesses(Arena *arena, Memmy_ProcessList *out, Memmy_Err
     {
         return status;
     }
-    if (backend->list_processes == 0)
+    if (backend->enumerate_processes == 0)
     {
         return memmy_Unsupported(error, "backend cannot list processes");
     }
 
-    return backend->list_processes(arena, out, error);
+    return backend->enumerate_processes(arena, sink, error);
 }
 
 Memmy_Status Memmy_Process_Open(Arena *arena, U32 pid, Memmy_Process **out, Memmy_Error *error)
@@ -105,12 +105,13 @@ void Memmy_Process_Close(Memmy_Process *process)
     }
 }
 
-Memmy_Status Memmy_Process_ListModules(Arena *arena, Memmy_Process *process, Memmy_ModuleList *out, Memmy_Error *error)
+Memmy_Status Memmy_Process_EnumerateModules(Arena *arena, Memmy_Process *process, Memmy_ModuleSink sink,
+                                            Memmy_Error *error)
 {
-    if (arena == 0 || out == 0)
+    if (arena == 0 || sink.callback == 0)
     {
         Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("backend"),
-                        String8_Lit("missing output arena or module list"));
+                        String8_Lit("missing output arena or module sink"));
         return Memmy_Status_InvalidArgument;
     }
 
@@ -120,20 +121,21 @@ Memmy_Status Memmy_Process_ListModules(Arena *arena, Memmy_Process *process, Mem
     {
         return status;
     }
-    if (backend->list_modules == 0)
+    if (backend->enumerate_modules == 0)
     {
         return memmy_Unsupported(error, "backend cannot list modules");
     }
 
-    return backend->list_modules(arena, process, out, error);
+    return backend->enumerate_modules(arena, process, sink, error);
 }
 
-Memmy_Status Memmy_Process_ListRegions(Arena *arena, Memmy_Process *process, Memmy_RegionList *out, Memmy_Error *error)
+Memmy_Status Memmy_Process_EnumerateRegions(Arena *arena, Memmy_Process *process, Memmy_RegionSink sink,
+                                            Memmy_Error *error)
 {
-    if (arena == 0 || out == 0)
+    if (arena == 0 || sink.callback == 0)
     {
         Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("backend"),
-                        String8_Lit("missing output arena or region list"));
+                        String8_Lit("missing output arena or region sink"));
         return Memmy_Status_InvalidArgument;
     }
 
@@ -143,33 +145,12 @@ Memmy_Status Memmy_Process_ListRegions(Arena *arena, Memmy_Process *process, Mem
     {
         return status;
     }
-    if (backend->list_regions == 0)
+    if (backend->enumerate_regions == 0)
     {
         return memmy_Unsupported(error, "backend cannot list regions");
     }
 
-    return backend->list_regions(arena, process, out, error);
-}
-
-Memmy_ProcessInfo *Memmy_ProcessList_Push(Arena *arena, Memmy_ProcessList *list)
-{
-    Memmy_ProcessInfo *info = Arena_PushStruct(arena, Memmy_ProcessInfo);
-    List_PushBack(&list->list, &info->link);
-    return info;
-}
-
-Memmy_Module *Memmy_ModuleList_Push(Arena *arena, Memmy_ModuleList *list)
-{
-    Memmy_Module *module = Arena_PushStruct(arena, Memmy_Module);
-    List_PushBack(&list->list, &module->link);
-    return module;
-}
-
-Memmy_Region *Memmy_RegionList_Push(Arena *arena, Memmy_RegionList *list)
-{
-    Memmy_Region *region = Arena_PushStruct(arena, Memmy_Region);
-    List_PushBack(&list->list, &region->link);
-    return region;
+    return backend->enumerate_regions(arena, process, sink, error);
 }
 
 Memmy_Status Memmy_Process_Read(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size, U64 *bytes_read,

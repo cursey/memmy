@@ -101,39 +101,53 @@ static Memmy_CliExprNeeds Memmy_Cli_MemoryExprNeeds(Memmy_MemoryExpr *expr)
     return needs;
 }
 
+typedef struct Memmy_CliProcessNameResolver Memmy_CliProcessNameResolver;
+struct Memmy_CliProcessNameResolver
+{
+    String8 name;
+    U32 match_pid;
+    U64 match_count;
+};
+
+static Memmy_Status Memmy_CliProcessNameResolver_Push(void *user_data, Memmy_ProcessInfo *info)
+{
+    Memmy_CliProcessNameResolver *resolver = (Memmy_CliProcessNameResolver *)user_data;
+    if (String8_EqNoCase(info->name, resolver->name))
+    {
+        resolver->match_pid = info->pid;
+        resolver->match_count++;
+    }
+    return Memmy_Status_Ok;
+}
+
 static Memmy_Status Memmy_Cli_ResolveProcessName(Arena *arena, String8 name, U32 *out_pid, Memmy_Error *error)
 {
-    Memmy_ProcessList processes = {0};
-    Memmy_Status status = Memmy_ListProcesses(arena, &processes, error);
+    Memmy_CliProcessNameResolver resolver = {
+        .name = name,
+    };
+    Memmy_ProcessInfoSink sink = {
+        .callback = Memmy_CliProcessNameResolver_Push,
+        .user_data = &resolver,
+    };
+    Memmy_Status status = Memmy_EnumerateProcesses(arena, sink, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
     }
 
-    U32 match_pid = 0;
-    U64 match_count = 0;
-    List_ForEach(Memmy_ProcessInfo, info, &processes.list, link)
-    {
-        if (String8_EqNoCase(info->name, name))
-        {
-            match_pid = info->pid;
-            match_count++;
-        }
-    }
-
-    if (match_count == 0)
+    if (resolver.match_count == 0)
     {
         Memmy_Error_Set(error, Memmy_Status_NotFound, String8_Lit("process"), String8_Lit("process was not found"));
         return Memmy_Status_NotFound;
     }
-    if (match_count > 1)
+    if (resolver.match_count > 1)
     {
         Memmy_Error_Set(error, Memmy_Status_Ambiguous, String8_Lit("process"),
                         String8_Lit("process name is ambiguous"));
         return Memmy_Status_Ambiguous;
     }
 
-    *out_pid = match_pid;
+    *out_pid = resolver.match_pid;
     return Memmy_Status_Ok;
 }
 
@@ -299,36 +313,12 @@ Memmy_Status Memmy_Cli_RunExprToWriter(Arena *arena, Memmy_CliOptions *options, 
         pointer_width = process->pointer_width;
     }
 
-    Memmy_ModuleList modules = {0};
-    Memmy_ModuleList *modules_ptr = 0;
-    if (needs.modules)
-    {
-        status = Memmy_Process_ListModules(arena, process, &modules, error);
-        if (status != Memmy_Status_Ok)
-        {
-            Memmy_Process_Close(process);
-            return status;
-        }
-        modules_ptr = &modules;
-    }
-
-    Memmy_RegionList regions = {0};
-    Memmy_RegionList *regions_ptr = 0;
-    if (needs.regions)
-    {
-        status = Memmy_Process_ListRegions(arena, process, &regions, error);
-        if (status != Memmy_Status_Ok)
-        {
-            Memmy_Process_Close(process);
-            return status;
-        }
-        regions_ptr = &regions;
-    }
+    Unused(needs);
 
     if (expr.kind == Memmy_MemoryExprKind_Address)
     {
         Memmy_Addr address = 0;
-        status = Memmy_MemoryExpr_ResolveAddress(process, modules_ptr, &expr, &address, error);
+        status = Memmy_MemoryExpr_ResolveAddress(process, &expr, &address, error);
         if (process != 0)
         {
             Memmy_Process_Close(process);
@@ -358,7 +348,7 @@ Memmy_Status Memmy_Cli_RunExprToWriter(Arena *arena, Memmy_CliOptions *options, 
     else if (expr.kind == Memmy_MemoryExprKind_Peek)
     {
         Memmy_ExecPeekResult result = {0};
-        status = Memmy_MemoryExpr_ExecutePeek(arena, process, modules_ptr, &expr, &result, error);
+        status = Memmy_MemoryExpr_ExecutePeek(arena, process, &expr, &result, error);
         if (process != 0)
         {
             Memmy_Process_Close(process);
@@ -390,7 +380,7 @@ Memmy_Status Memmy_Cli_RunExprToWriter(Arena *arena, Memmy_CliOptions *options, 
     else if (expr.kind == Memmy_MemoryExprKind_Poke)
     {
         Memmy_ExecPokeResult result = {0};
-        status = Memmy_MemoryExpr_ExecutePoke(arena, process, modules_ptr, &expr, &result, error);
+        status = Memmy_MemoryExpr_ExecutePoke(arena, process, &expr, &result, error);
         if (process != 0)
         {
             Memmy_Process_Close(process);
@@ -438,7 +428,7 @@ Memmy_Status Memmy_Cli_RunExprToWriter(Arena *arena, Memmy_CliOptions *options, 
             .callback = Memmy_CliScanOutput_PushMatch,
             .user_data = &scan_output,
         };
-        status = Memmy_MemoryExpr_ExecutePatternScan(arena, process, modules_ptr, regions_ptr, &expr, sink, error);
+        status = Memmy_MemoryExpr_ExecutePatternScan(arena, process, &expr, sink, error);
         if (process != 0)
         {
             Memmy_Process_Close(process);
@@ -470,7 +460,7 @@ Memmy_Status Memmy_Cli_RunExprToWriter(Arena *arena, Memmy_CliOptions *options, 
             .callback = Memmy_CliScanOutput_PushMatch,
             .user_data = &scan_output,
         };
-        status = Memmy_MemoryExpr_ExecuteValueScan(arena, process, modules_ptr, regions_ptr, &expr, sink, error);
+        status = Memmy_MemoryExpr_ExecuteValueScan(arena, process, &expr, sink, error);
         if (process != 0)
         {
             Memmy_Process_Close(process);

@@ -19,8 +19,7 @@ static void Test_MemmyExecValueScan_WriteU32LE(Test_MemmyBackend *backend, Memmy
     }
 }
 
-static void Test_MemmyExecValueScan_Open(Arena *arena, Test_MemmyBackend *backend, Memmy_ModuleList *modules,
-                                         Memmy_RegionList *regions, Memmy_Process **out)
+static void Test_MemmyExecValueScan_Open(Arena *arena, Test_MemmyBackend *backend, Memmy_Process **out)
 {
     Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(backend)};
     Memmy_Context_Set(&ctx);
@@ -28,33 +27,25 @@ static void Test_MemmyExecValueScan_Open(Arena *arena, Test_MemmyBackend *backen
     Memmy_Process *process = 0;
     Memmy_Error error = {0};
     AssertEq(Memmy_Process_Open(arena, 4242, &process, &error), Memmy_Status_Ok);
-    if (modules != 0)
-    {
-        AssertEq(Memmy_Process_ListModules(arena, process, modules, &error), Memmy_Status_Ok);
-    }
-    if (regions != 0)
-    {
-        AssertEq(Memmy_Process_ListRegions(arena, process, regions, &error), Memmy_Status_Ok);
-    }
     *out = process;
 }
 
-Test(Test_MemmyExecValueScanWholeProcessRequiresRegions)
+Test(Test_MemmyExecValueScanWholeProcessRequiresRegionEnumeration)
 {
     Arena *arena = Arena_CreateDefault();
     Test_MemmyBackend backend = {0};
     Test_MemmyBackend_Init(&backend);
+    Test_DisableEnumerateRegions(&backend);
 
     Memmy_Process *process = 0;
-    Test_MemmyExecValueScan_Open(arena, &backend, 0, 0, &process);
+    Test_MemmyExecValueScan_Open(arena, &backend, &process);
     Memmy_MemoryExpr expr = {0};
     Test_MemmyExecValueScan_Parse(arena, "<4242!> : u8 == 42", &expr);
 
     Memmy_Error error = {0};
     Test_ScanResultList results = {0};
-    AssertEq(Memmy_MemoryExpr_ExecuteValueScan(arena, process, 0, 0, &expr, Test_ScanSink(&results, arena), &error),
-             Memmy_Status_InvalidArgument);
-    AssertStrEq(error.context, String8_Lit("range"));
+    AssertEq(Memmy_MemoryExpr_ExecuteValueScan(arena, process, &expr, Test_ScanSink(&results, arena), &error),
+             Memmy_Status_Unsupported);
 
     Memmy_Process_Close(process);
     Memmy_Context_Set(0);
@@ -107,17 +98,15 @@ Test(Test_MemmyExecValueScanScansModuleRange)
     Test_MemmyExecValueScan_WriteU32LE(&backend, 0x1030, 42);
     Test_MemmyExecValueScan_WriteU32LE(&backend, 0x1090, 42);
 
-    Memmy_ModuleList modules = {0};
     Memmy_Process *process = 0;
-    Test_MemmyExecValueScan_Open(arena, &backend, &modules, 0, &process);
+    Test_MemmyExecValueScan_Open(arena, &backend, &process);
     Memmy_MemoryExpr expr = {0};
     Test_MemmyExecValueScan_Parse(arena, "<client.dll> : u32 == 42", &expr);
 
     Memmy_Error error = {0};
     Test_ScanResultList results = {0};
-    AssertEq(
-        Memmy_MemoryExpr_ExecuteValueScan(arena, process, &modules, 0, &expr, Test_ScanSink(&results, arena), &error),
-        Memmy_Status_Ok);
+    AssertEq(Memmy_MemoryExpr_ExecuteValueScan(arena, process, &expr, Test_ScanSink(&results, arena), &error),
+             Memmy_Status_Ok);
     Memmy_Addr expected[] = {0x1010, 0x1030};
     Test_AssertScanAddresses(&results, expected, ArrayCount(expected));
 
@@ -135,13 +124,13 @@ Test(Test_MemmyExecValueScanScansAddressSizedRange)
     backend.memory[0x35] = 171;
 
     Memmy_Process *process = 0;
-    Test_MemmyExecValueScan_Open(arena, &backend, 0, 0, &process);
+    Test_MemmyExecValueScan_Open(arena, &backend, &process);
     Memmy_MemoryExpr expr = {0};
     Test_MemmyExecValueScan_Parse(arena, "0x1020:+0x10 : u8 == 171", &expr);
 
     Memmy_Error error = {0};
     Test_ScanResultList results = {0};
-    AssertEq(Memmy_MemoryExpr_ExecuteValueScan(arena, process, 0, 0, &expr, Test_ScanSink(&results, arena), &error),
+    AssertEq(Memmy_MemoryExpr_ExecuteValueScan(arena, process, &expr, Test_ScanSink(&results, arena), &error),
              Memmy_Status_Ok);
     Memmy_Addr expected[] = {0x1025};
     Test_AssertScanAddresses(&results, expected, ArrayCount(expected));
@@ -164,17 +153,15 @@ Test(Test_MemmyExecValueScanScansWholeProcessRegions)
     backend.memory[0x45] = 42;
     backend.memory[0x85] = 42;
 
-    Memmy_RegionList regions = {0};
     Memmy_Process *process = 0;
-    Test_MemmyExecValueScan_Open(arena, &backend, 0, &regions, &process);
+    Test_MemmyExecValueScan_Open(arena, &backend, &process);
     Memmy_MemoryExpr expr = {0};
     Test_MemmyExecValueScan_Parse(arena, "<4242!> : u8 == 42", &expr);
 
     Memmy_Error error = {0};
     Test_ScanResultList results = {0};
-    AssertEq(
-        Memmy_MemoryExpr_ExecuteValueScan(arena, process, 0, &regions, &expr, Test_ScanSink(&results, arena), &error),
-        Memmy_Status_Ok);
+    AssertEq(Memmy_MemoryExpr_ExecuteValueScan(arena, process, &expr, Test_ScanSink(&results, arena), &error),
+             Memmy_Status_Ok);
     Memmy_Addr expected[] = {0x1012, 0x1045};
     Test_AssertScanAddresses(&results, expected, ArrayCount(expected));
 
@@ -197,17 +184,15 @@ Test(Test_MemmyExecValueScanFindsValueAcrossAdjacentWholeProcessRegions)
     memcpy(backend.memory + 0x2e, bytes, sizeof(bytes));
     memcpy(backend.memory + 0x4e, bytes, sizeof(bytes));
 
-    Memmy_RegionList regions = {0};
     Memmy_Process *process = 0;
-    Test_MemmyExecValueScan_Open(arena, &backend, 0, &regions, &process);
+    Test_MemmyExecValueScan_Open(arena, &backend, &process);
     Memmy_MemoryExpr expr = {0};
     Test_MemmyExecValueScan_Parse(arena, "<4242!> : bytes == ca fe ba be", &expr);
 
     Memmy_Error error = {0};
     Test_ScanResultList results = {0};
-    AssertEq(
-        Memmy_MemoryExpr_ExecuteValueScan(arena, process, 0, &regions, &expr, Test_ScanSink(&results, arena), &error),
-        Memmy_Status_Ok);
+    AssertEq(Memmy_MemoryExpr_ExecuteValueScan(arena, process, &expr, Test_ScanSink(&results, arena), &error),
+             Memmy_Status_Ok);
     Memmy_Addr expected[] = {0x102e};
     Test_AssertScanAddresses(&results, expected, ArrayCount(expected));
 
@@ -227,17 +212,15 @@ Test(Test_MemmyExecValueScanUsesDefaultOptions)
     backend.memory[0x10] = 0x90;
     backend.memory[0x30] = 0x90;
 
-    Memmy_ModuleList modules = {0};
     Memmy_Process *process = 0;
-    Test_MemmyExecValueScan_Open(arena, &backend, &modules, 0, &process);
+    Test_MemmyExecValueScan_Open(arena, &backend, &process);
     Memmy_MemoryExpr expr = {0};
     Test_MemmyExecValueScan_Parse(arena, "<client.dll>[0x10:+0x30] : u8 == 144", &expr);
 
     Memmy_Error error = {0};
     Test_ScanResultList results = {0};
-    AssertEq(
-        Memmy_MemoryExpr_ExecuteValueScan(arena, process, &modules, 0, &expr, Test_ScanSink(&results, arena), &error),
-        Memmy_Status_Ok);
+    AssertEq(Memmy_MemoryExpr_ExecuteValueScan(arena, process, &expr, Test_ScanSink(&results, arena), &error),
+             Memmy_Status_Ok);
     Memmy_Addr expected[] = {0x1010, 0x1030};
     Test_AssertScanAddresses(&results, expected, ArrayCount(expected));
     AssertEq(backend.min_read_addr, 0x1010);
@@ -249,7 +232,8 @@ Test(Test_MemmyExecValueScanUsesDefaultOptions)
 }
 
 TestSuite suite_memmy_exec_value_scan =
-    TestSuite_Make("Memmy Exec Value Scan", TestCase_Make(Test_MemmyExecValueScanWholeProcessRequiresRegions),
+    TestSuite_Make("Memmy Exec Value Scan",
+                   TestCase_Make(Test_MemmyExecValueScanWholeProcessRequiresRegionEnumeration),
                    TestCase_Make(Test_MemmyExecValueScanRejectsWholeProcessAddressPeekPoke),
                    TestCase_Make(Test_MemmyExecValueScanRejectsOrderingComparisons),
                    TestCase_Make(Test_MemmyExecValueScanScansModuleRange),

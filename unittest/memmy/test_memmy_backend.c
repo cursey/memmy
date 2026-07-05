@@ -7,20 +7,26 @@ enum
     Test_MemmyBackend_Pid = 4242,
 };
 
-static Memmy_Status Test_MemmyBackend_ListProcesses(Arena *arena, Memmy_ProcessList *out, Memmy_Error *error)
+static Memmy_Status Test_MemmyBackend_EnumerateProcesses(Arena *arena, Memmy_ProcessInfoSink sink, Memmy_Error *error)
 {
+    Unused(arena);
     Unused(error);
 
-    *out = (Memmy_ProcessList){0};
     Test_MemmyBackend *backend = ContainerOf(Memmy_Context_Get()->backend, Test_MemmyBackend, backend);
     for (U64 i = 0; i < backend->process_count; i++)
     {
         Test_MemmyBackendProcess *src = &backend->processes[i];
-        Memmy_ProcessInfo *info = Memmy_ProcessList_Push(arena, out);
-        info->pid = src->pid;
-        info->name = src->name;
-        info->path = src->path;
-        info->pointer_width = src->pointer_width;
+        Memmy_ProcessInfo info = {
+            .pid = src->pid,
+            .name = src->name,
+            .path = src->path,
+            .pointer_width = src->pointer_width,
+        };
+        Memmy_Status status = sink.callback(sink.user_data, &info);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
     }
     return Memmy_Status_Ok;
 }
@@ -157,45 +163,57 @@ static Memmy_Status Test_MemmyBackend_Write(Memmy_Process *process, Memmy_Addr a
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Test_MemmyBackend_ListModules(Arena *arena, Memmy_Process *process, Memmy_ModuleList *out,
-                                                  Memmy_Error *error)
+static Memmy_Status Test_MemmyBackend_EnumerateModules(Arena *arena, Memmy_Process *process, Memmy_ModuleSink sink,
+                                                       Memmy_Error *error)
 {
+    Unused(arena);
     Unused(error);
 
     Test_MemmyBackend *backend = (Test_MemmyBackend *)process->backend_data;
-    *out = (Memmy_ModuleList){0};
     for (U64 i = 0; i < backend->module_count; i++)
     {
         Test_MemmyBackendModule *src = &backend->modules[i];
         if (src->pid == process->pid)
         {
-            Memmy_Module *module = Memmy_ModuleList_Push(arena, out);
-            module->name = src->name;
-            module->path = src->path;
-            module->base = src->base;
-            module->size = src->size;
+            Memmy_Module module = {
+                .name = src->name,
+                .path = src->path,
+                .base = src->base,
+                .size = src->size,
+            };
+            Memmy_Status status = sink.callback(sink.user_data, &module);
+            if (status != Memmy_Status_Ok)
+            {
+                return status;
+            }
         }
     }
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Test_MemmyBackend_ListRegions(Arena *arena, Memmy_Process *process, Memmy_RegionList *out,
-                                                  Memmy_Error *error)
+static Memmy_Status Test_MemmyBackend_EnumerateRegions(Arena *arena, Memmy_Process *process, Memmy_RegionSink sink,
+                                                       Memmy_Error *error)
 {
+    Unused(arena);
     Unused(error);
 
     Test_MemmyBackend *backend = (Test_MemmyBackend *)process->backend_data;
-    *out = (Memmy_RegionList){0};
     for (U64 i = 0; i < backend->region_count; i++)
     {
         Test_MemmyBackendRegion *src = &backend->regions[i];
         if (src->pid == process->pid)
         {
-            Memmy_Region *region = Memmy_RegionList_Push(arena, out);
-            region->base = src->base;
-            region->size = src->size;
-            region->access = src->access;
-            region->state = src->state;
+            Memmy_Region region = {
+                .base = src->base,
+                .size = src->size,
+                .access = src->access,
+                .state = src->state,
+            };
+            Memmy_Status status = sink.callback(sink.user_data, &region);
+            if (status != Memmy_Status_Ok)
+            {
+                return status;
+            }
         }
     }
     return Memmy_Status_Ok;
@@ -207,13 +225,13 @@ void Test_MemmyBackend_Init(Test_MemmyBackend *backend)
         .backend =
             {
                 .name = String8_Lit("test"),
-                .list_processes = Test_MemmyBackend_ListProcesses,
+                .enumerate_processes = Test_MemmyBackend_EnumerateProcesses,
                 .open_process = Test_MemmyBackend_OpenProcess,
                 .close_process = Test_MemmyBackend_CloseProcess,
                 .read = Test_MemmyBackend_Read,
                 .write = Test_MemmyBackend_Write,
-                .list_modules = Test_MemmyBackend_ListModules,
-                .list_regions = Test_MemmyBackend_ListRegions,
+                .enumerate_modules = Test_MemmyBackend_EnumerateModules,
+                .enumerate_regions = Test_MemmyBackend_EnumerateRegions,
             },
         .memory_base = 0x1000,
         .read_status = Memmy_Status_Ok,

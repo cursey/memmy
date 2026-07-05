@@ -74,10 +74,8 @@ static Memmy_PointerWidth Memmy_Darwin_PointerWidth(void)
     return sizeof(void *) == 8 ? Memmy_PointerWidth_64 : Memmy_PointerWidth_32;
 }
 
-static Memmy_Status Memmy_Darwin_ListProcesses(Arena *arena, Memmy_ProcessList *out, Memmy_Error *error)
+static Memmy_Status Memmy_Darwin_EnumerateProcesses(Arena *arena, Memmy_ProcessInfoSink sink, Memmy_Error *error)
 {
-    *out = (Memmy_ProcessList){0};
-
     int bytes = proc_listpids(PROC_ALL_PIDS, 0, 0, 0);
     if (bytes <= 0)
     {
@@ -125,12 +123,18 @@ static Memmy_Status Memmy_Darwin_ListProcesses(Arena *arena, Memmy_ProcessList *
         String8 path_string =
             path_len > 0 ? String8_Copy(arena, String8_Make((U8 *)path, (U64)path_len)) : (String8){0};
 
-        Memmy_ProcessInfo *info = Memmy_ProcessList_Push(arena, out);
-        info->pid = (U32)pid;
-        info->path = path_string;
-        info->name = name[0] != 0 ? Memmy_Darwin_CopyCString(arena, name)
-                                  : String8_Copy(arena, Memmy_Darwin_Basename(path_string));
-        info->pointer_width = Memmy_Darwin_PointerWidth();
+        Memmy_ProcessInfo info = {
+            .pid = (U32)pid,
+            .path = path_string,
+            .name = name[0] != 0 ? Memmy_Darwin_CopyCString(arena, name)
+                                  : String8_Copy(arena, Memmy_Darwin_Basename(path_string)),
+            .pointer_width = Memmy_Darwin_PointerWidth(),
+        };
+        Memmy_Status status = sink.callback(sink.user_data, &info);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
     }
 
     return Memmy_Status_Ok;
@@ -362,11 +366,9 @@ static String8 Memmy_Darwin_Basename(String8 path)
     return String8_Make(path.data + start, path.len - start);
 }
 
-static Memmy_Status Memmy_Darwin_ListModules(Arena *arena, Memmy_Process *process, Memmy_ModuleList *out,
-                                             Memmy_Error *error)
+static Memmy_Status Memmy_Darwin_EnumerateModules(Arena *arena, Memmy_Process *process, Memmy_ModuleSink sink,
+                                                  Memmy_Error *error)
 {
-    *out = (Memmy_ModuleList){0};
-
     Memmy_DarwinProcessData *data = (Memmy_DarwinProcessData *)process->backend_data;
     task_dyld_info_data_t dyld_info = {0};
     mach_msg_type_number_t dyld_info_count = TASK_DYLD_INFO_COUNT;
@@ -437,11 +439,18 @@ static Memmy_Status Memmy_Darwin_ListModules(Arena *arena, Memmy_Process *proces
             }
         }
 
-        Memmy_Module *module = Memmy_ModuleList_Push(arena, out);
-        module->path = path;
-        module->name = String8_Copy(arena, Memmy_Darwin_Basename(path));
-        module->base = base;
-        module->size = size;
+        Memmy_Module module = {
+            .path = path,
+            .name = String8_Copy(arena, Memmy_Darwin_Basename(path)),
+            .base = base,
+            .size = size,
+        };
+        status = sink.callback(sink.user_data, &module);
+        if (status != Memmy_Status_Ok)
+        {
+            Scratch_End(scratch);
+            return status;
+        }
     }
 
     Scratch_End(scratch);
@@ -466,10 +475,10 @@ static Memmy_RegionAccess Memmy_Darwin_RegionAccess(vm_prot_t protection)
     return result;
 }
 
-static Memmy_Status Memmy_Darwin_ListRegions(Arena *arena, Memmy_Process *process, Memmy_RegionList *out,
-                                             Memmy_Error *error)
+static Memmy_Status Memmy_Darwin_EnumerateRegions(Arena *arena, Memmy_Process *process, Memmy_RegionSink sink,
+                                                  Memmy_Error *error)
 {
-    *out = (Memmy_RegionList){0};
+    Unused(arena);
 
     Memmy_DarwinProcessData *data = (Memmy_DarwinProcessData *)process->backend_data;
     mach_vm_address_t address = 0;
@@ -497,17 +506,23 @@ static Memmy_Status Memmy_Darwin_ListRegions(Arena *arena, Memmy_Process *proces
             continue;
         }
 
-        Memmy_Region *region = Memmy_RegionList_Push(arena, out);
-        region->base = (Memmy_Addr)address;
-        region->size = (Memmy_Size)size;
-        region->access = Memmy_Darwin_RegionAccess(info.protection);
-        region->state = Memmy_RegionState_Committed;
+        Memmy_Region region = {
+            .base = (Memmy_Addr)address,
+            .size = (Memmy_Size)size,
+            .access = Memmy_Darwin_RegionAccess(info.protection),
+            .state = Memmy_RegionState_Committed,
+        };
 
         U64 next = 0;
-        if (!AddU64Checked(region->base, region->size, &next) || next <= region->base)
+        if (!AddU64Checked(region.base, region.size, &next) || next <= region.base)
         {
             Memmy_Error_Set(error, Memmy_Status_Overflow, String8_Lit("darwin"), String8_Lit("region end overflow"));
             return Memmy_Status_Overflow;
+        }
+        Memmy_Status status = sink.callback(sink.user_data, &region);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
         }
         address = (mach_vm_address_t)next;
     }
@@ -520,13 +535,13 @@ Memmy_Backend *Memmy_DarwinBackend_Create(Arena *arena)
     Memmy_DarwinBackend *backend = Arena_PushStruct(arena, Memmy_DarwinBackend);
     backend->backend = (Memmy_Backend){
         .name = String8_Lit("darwin"),
-        .list_processes = Memmy_Darwin_ListProcesses,
+        .enumerate_processes = Memmy_Darwin_EnumerateProcesses,
         .open_process = Memmy_Darwin_OpenProcess,
         .close_process = Memmy_Darwin_CloseProcess,
         .read = Memmy_Darwin_Read,
         .write = Memmy_Darwin_Write,
-        .list_modules = Memmy_Darwin_ListModules,
-        .list_regions = Memmy_Darwin_ListRegions,
+        .enumerate_modules = Memmy_Darwin_EnumerateModules,
+        .enumerate_regions = Memmy_Darwin_EnumerateRegions,
     };
     return &backend->backend;
 }

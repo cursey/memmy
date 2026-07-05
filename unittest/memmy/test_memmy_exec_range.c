@@ -8,27 +8,37 @@ static void Test_MemmyExecRange_Parse(Arena *arena, char *text, Memmy_RangeExpr 
     AssertEq(Memmy_RangeExpr_Parse(arena, String8_FromCStr(text), out, &error), Memmy_Status_Ok);
 }
 
-static void Test_MemmyExecRange_AddModule(Arena *arena, Memmy_ModuleList *modules)
+static void Test_MemmyExecRange_AddModule(Test_MemmyBackend *backend)
 {
-    Memmy_Module *module = Memmy_ModuleList_Push(arena, modules);
-    module->name = String8_Lit("client.dll");
-    module->path = String8_Lit("C:\\game\\client.dll");
-    module->base = 0x1000;
-    module->size = 0x8000;
+    backend->module_count = 0;
+    Test_MemmyBackend_AddModule(backend, 4242, String8_Lit("client.dll"), String8_Lit("C:\\game\\client.dll"),
+                                0x1000, 0x8000);
+}
+
+static Memmy_Process Test_MemmyExecRange_Process(Test_MemmyBackend *backend)
+{
+    return (Memmy_Process){
+        .backend = Test_MemmyBackend_AsBackend(backend),
+        .pid = 4242,
+        .pointer_width = Memmy_PointerWidth_64,
+        .backend_data = backend,
+    };
 }
 
 Test(Test_MemmyExecRangeResolvesModuleFullRange)
 {
     Arena *arena = Arena_CreateDefault();
-    Memmy_ModuleList modules = {0};
-    Test_MemmyExecRange_AddModule(arena, &modules);
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    Test_MemmyExecRange_AddModule(&backend);
+    Memmy_Process process = Test_MemmyExecRange_Process(&backend);
 
     Memmy_RangeExpr expr = {0};
     Test_MemmyExecRange_Parse(arena, "<client.dll>", &expr);
 
     Memmy_Range range = {0};
     Memmy_Error error = {0};
-    AssertEq(Memmy_RangeExpr_Resolve(0, &modules, &expr, &range, &error), Memmy_Status_Ok);
+    AssertEq(Memmy_RangeExpr_Resolve(&process, &expr, &range, &error), Memmy_Status_Ok);
     AssertEq(range.start, 0x1000);
     AssertEq(range.end, 0x9000);
 
@@ -38,8 +48,10 @@ Test(Test_MemmyExecRangeResolvesModuleFullRange)
 Test(Test_MemmyExecRangeResolvesModuleBracketAndSizedRanges)
 {
     Arena *arena = Arena_CreateDefault();
-    Memmy_ModuleList modules = {0};
-    Test_MemmyExecRange_AddModule(arena, &modules);
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    Test_MemmyExecRange_AddModule(&backend);
+    Memmy_Process process = Test_MemmyExecRange_Process(&backend);
 
     Memmy_RangeExpr bracket = {0};
     Memmy_RangeExpr sized = {0};
@@ -48,10 +60,10 @@ Test(Test_MemmyExecRangeResolvesModuleBracketAndSizedRanges)
 
     Memmy_Range range = {0};
     Memmy_Error error = {0};
-    AssertEq(Memmy_RangeExpr_Resolve(0, &modules, &bracket, &range, &error), Memmy_Status_Ok);
+    AssertEq(Memmy_RangeExpr_Resolve(&process, &bracket, &range, &error), Memmy_Status_Ok);
     AssertEq(range.start, 0x2000);
     AssertEq(range.end, 0x6000);
-    AssertEq(Memmy_RangeExpr_Resolve(0, &modules, &sized, &range, &error), Memmy_Status_Ok);
+    AssertEq(Memmy_RangeExpr_Resolve(&process, &sized, &range, &error), Memmy_Status_Ok);
     AssertEq(range.start, 0x2000);
     AssertEq(range.end, 0x6000);
 
@@ -61,15 +73,17 @@ Test(Test_MemmyExecRangeResolvesModuleBracketAndSizedRanges)
 Test(Test_MemmyExecRangeResolvesModuleAddressSizedRange)
 {
     Arena *arena = Arena_CreateDefault();
-    Memmy_ModuleList modules = {0};
-    Test_MemmyExecRange_AddModule(arena, &modules);
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    Test_MemmyExecRange_AddModule(&backend);
+    Memmy_Process process = Test_MemmyExecRange_Process(&backend);
 
     Memmy_RangeExpr expr = {0};
     Test_MemmyExecRange_Parse(arena, "<client.dll>+0x123:+0x500", &expr);
 
     Memmy_Range range = {0};
     Memmy_Error error = {0};
-    AssertEq(Memmy_RangeExpr_Resolve(0, &modules, &expr, &range, &error), Memmy_Status_Ok);
+    AssertEq(Memmy_RangeExpr_Resolve(&process, &expr, &range, &error), Memmy_Status_Ok);
     AssertEq(range.start, 0x1123);
     AssertEq(range.end, 0x1623);
 
@@ -84,7 +98,7 @@ Test(Test_MemmyExecRangeResolvesAbsoluteAddressSizedRange)
 
     Memmy_Range range = {0};
     Memmy_Error error = {0};
-    AssertEq(Memmy_RangeExpr_Resolve(0, 0, &expr, &range, &error), Memmy_Status_Ok);
+    AssertEq(Memmy_RangeExpr_Resolve(0, &expr, &range, &error), Memmy_Status_Ok);
     AssertEq(range.start, 0x1000);
     AssertEq(range.end, 0x1500);
 

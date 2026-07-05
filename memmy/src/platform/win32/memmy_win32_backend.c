@@ -66,10 +66,8 @@ static B32 Memmy_Win32_IsUnsupportedCrossBitness(Memmy_PointerWidth target_width
     return sizeof(void *) == 4 && Memmy_Win32_IsNative64() && target_width == Memmy_PointerWidth_64;
 }
 
-static Memmy_Status Memmy_Win32_ListProcesses(Arena *arena, Memmy_ProcessList *out, Memmy_Error *error)
+static Memmy_Status Memmy_Win32_EnumerateProcesses(Arena *arena, Memmy_ProcessInfoSink sink, Memmy_Error *error)
 {
-    *out = (Memmy_ProcessList){0};
-
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snapshot == INVALID_HANDLE_VALUE)
     {
@@ -98,11 +96,12 @@ static Memmy_Status Memmy_Win32_ListProcesses(Arena *arena, Memmy_ProcessList *o
 
     do
     {
-        Memmy_ProcessInfo *info = Memmy_ProcessList_Push(arena, out);
-        info->pid = entry.th32ProcessID;
-        info->name = Memmy_Win32_CopyCString(arena, entry.szExeFile);
-        info->path = (String8){0};
-        info->pointer_width = Memmy_PointerWidth_Unknown;
+        Memmy_ProcessInfo info = {
+            .pid = entry.th32ProcessID,
+            .name = Memmy_Win32_CopyCString(arena, entry.szExeFile),
+            .path = {0},
+            .pointer_width = Memmy_PointerWidth_Unknown,
+        };
 
         HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, entry.th32ProcessID);
         if (process != 0)
@@ -111,10 +110,17 @@ static Memmy_Status Memmy_Win32_ListProcesses(Arena *arena, Memmy_ProcessList *o
             DWORD path_size = ArrayCount(path);
             if (QueryFullProcessImageNameA(process, 0, path, &path_size))
             {
-                info->path = String8_Copy(arena, String8_Make((U8 *)path, path_size));
+                info.path = String8_Copy(arena, String8_Make((U8 *)path, path_size));
             }
-            info->pointer_width = Memmy_Win32_QueryPointerWidth(process);
+            info.pointer_width = Memmy_Win32_QueryPointerWidth(process);
             CloseHandle(process);
+        }
+
+        Memmy_Status status = sink.callback(sink.user_data, &info);
+        if (status != Memmy_Status_Ok)
+        {
+            CloseHandle(snapshot);
+            return status;
         }
     } while (Process32Next(snapshot, &entry));
 
@@ -278,11 +284,9 @@ static Memmy_Status Memmy_Win32_Write(Memmy_Process *process, Memmy_Addr addr, v
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Win32_ListModules(Arena *arena, Memmy_Process *process, Memmy_ModuleList *out,
-                                            Memmy_Error *error)
+static Memmy_Status Memmy_Win32_EnumerateModules(Arena *arena, Memmy_Process *process, Memmy_ModuleSink sink,
+                                                 Memmy_Error *error)
 {
-    *out = (Memmy_ModuleList){0};
-
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, process->pid);
     if (snapshot == INVALID_HANDLE_VALUE)
     {
@@ -311,11 +315,18 @@ static Memmy_Status Memmy_Win32_ListModules(Arena *arena, Memmy_Process *process
 
     do
     {
-        Memmy_Module *module = Memmy_ModuleList_Push(arena, out);
-        module->name = Memmy_Win32_CopyCString(arena, entry.szModule);
-        module->path = Memmy_Win32_CopyCString(arena, entry.szExePath);
-        module->base = (Memmy_Addr)(uintptr_t)entry.modBaseAddr;
-        module->size = entry.modBaseSize;
+        Memmy_Module module = {
+            .name = Memmy_Win32_CopyCString(arena, entry.szModule),
+            .path = Memmy_Win32_CopyCString(arena, entry.szExePath),
+            .base = (Memmy_Addr)(uintptr_t)entry.modBaseAddr,
+            .size = entry.modBaseSize,
+        };
+        Memmy_Status status = sink.callback(sink.user_data, &module);
+        if (status != Memmy_Status_Ok)
+        {
+            CloseHandle(snapshot);
+            return status;
+        }
     } while (Module32Next(snapshot, &entry));
 
     CloseHandle(snapshot);
@@ -367,10 +378,10 @@ static Memmy_RegionAccess Memmy_Win32_RegionAccess(DWORD protect)
     return result;
 }
 
-static Memmy_Status Memmy_Win32_ListRegions(Arena *arena, Memmy_Process *process, Memmy_RegionList *out,
-                                            Memmy_Error *error)
+static Memmy_Status Memmy_Win32_EnumerateRegions(Arena *arena, Memmy_Process *process, Memmy_RegionSink sink,
+                                                 Memmy_Error *error)
 {
-    *out = (Memmy_RegionList){0};
+    Unused(arena);
 
     Memmy_Win32ProcessData *data = (Memmy_Win32ProcessData *)process->backend_data;
     U8 *addr = 0;
@@ -383,17 +394,23 @@ static Memmy_Status Memmy_Win32_ListRegions(Arena *arena, Memmy_Process *process
             break;
         }
 
-        Memmy_Region *region = Memmy_RegionList_Push(arena, out);
-        region->base = (Memmy_Addr)(uintptr_t)mbi.BaseAddress;
-        region->size = (Memmy_Size)mbi.RegionSize;
-        region->access = Memmy_Win32_RegionAccess(mbi.Protect);
-        region->state = Memmy_Win32_RegionState(mbi.State);
+        Memmy_Region region = {
+            .base = (Memmy_Addr)(uintptr_t)mbi.BaseAddress,
+            .size = (Memmy_Size)mbi.RegionSize,
+            .access = Memmy_Win32_RegionAccess(mbi.Protect),
+            .state = Memmy_Win32_RegionState(mbi.State),
+        };
 
         U64 next = 0;
-        if (!AddU64Checked(region->base, region->size, &next) || next <= region->base)
+        if (!AddU64Checked(region.base, region.size, &next) || next <= region.base)
         {
             Memmy_Error_Set(error, Memmy_Status_Overflow, String8_Lit("win32"), String8_Lit("region end overflow"));
             return Memmy_Status_Overflow;
+        }
+        Memmy_Status status = sink.callback(sink.user_data, &region);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
         }
         addr = (U8 *)(uintptr_t)next;
     }
@@ -406,13 +423,13 @@ Memmy_Backend *Memmy_Win32Backend_Create(Arena *arena)
     Memmy_Win32Backend *backend = Arena_PushStruct(arena, Memmy_Win32Backend);
     backend->backend = (Memmy_Backend){
         .name = String8_Lit("win32"),
-        .list_processes = Memmy_Win32_ListProcesses,
+        .enumerate_processes = Memmy_Win32_EnumerateProcesses,
         .open_process = Memmy_Win32_OpenProcess,
         .close_process = Memmy_Win32_CloseProcess,
         .read = Memmy_Win32_Read,
         .write = Memmy_Win32_Write,
-        .list_modules = Memmy_Win32_ListModules,
-        .list_regions = Memmy_Win32_ListRegions,
+        .enumerate_modules = Memmy_Win32_EnumerateModules,
+        .enumerate_regions = Memmy_Win32_EnumerateRegions,
     };
     return &backend->backend;
 }

@@ -1,6 +1,7 @@
 #include "memmy_scan.h"
 
 #include "base_checked.h"
+#include "base_list.h"
 #include "base_memory.h"
 #include "base_sort.h"
 #include "memmy_backend.h"
@@ -68,6 +69,51 @@ static I32 Memmy_ScanRange_Cmp(void *a, void *b, void *ctx)
         return 1;
     }
     return 0;
+}
+
+typedef struct Memmy_ScanRangeNode Memmy_ScanRangeNode;
+struct Memmy_ScanRangeNode
+{
+    ListLink link;
+    Memmy_Range range;
+};
+
+typedef struct Memmy_ScanRegionCollector Memmy_ScanRegionCollector;
+struct Memmy_ScanRegionCollector
+{
+    Arena *arena;
+    Memmy_ScanOptions *options;
+    List ranges; // Memmy_ScanRangeNode
+    Memmy_Error *error;
+};
+
+static Memmy_Status Memmy_ScanRegionCollector_Push(void *user_data, Memmy_Region *region)
+{
+    Memmy_ScanRegionCollector *collector = (Memmy_ScanRegionCollector *)user_data;
+    if (!Memmy_Scan_IsReadableRegion(region))
+    {
+        return Memmy_Status_Ok;
+    }
+
+    Memmy_Addr region_end = 0;
+    if (!AddU64Checked(region->base, region->size, &region_end))
+    {
+        return Memmy_Status_Ok;
+    }
+
+    Memmy_Range scan_range = {
+        .start = Max(collector->options->range.start, region->base),
+        .end = Min(collector->options->range.end, region_end),
+    };
+    if (scan_range.end <= scan_range.start)
+    {
+        return Memmy_Status_Ok;
+    }
+
+    Memmy_ScanRangeNode *node = Arena_PushStruct(collector->arena, Memmy_ScanRangeNode);
+    node->range = scan_range;
+    List_PushBack(&collector->ranges, &node->link);
+    return Memmy_Status_Ok;
 }
 
 static Memmy_Status Memmy_Scan_EmitMatch(Memmy_ScanSink sink, Memmy_Addr address, Memmy_ScanOptions *options,
@@ -213,11 +259,19 @@ static Memmy_Status Memmy_Process_ScanNeedle(Arena *arena, Memmy_Process *proces
     Memmy_Addr last_match = 0;
     B32 has_last_match = 0;
     Memmy_Backend *backend = process->backend;
-    if (backend != 0 && backend->list_regions != 0)
+    if (backend != 0 && backend->enumerate_regions != 0)
     {
         Scratch scratch = Scratch_Begin(&arena, 1);
-        Memmy_RegionList regions = {0};
-        Memmy_Status status = Memmy_Process_ListRegions(scratch.arena, process, &regions, error);
+        Memmy_ScanRegionCollector collector = {
+            .arena = scratch.arena,
+            .options = options,
+            .error = error,
+        };
+        Memmy_RegionSink region_sink = {
+            .callback = Memmy_ScanRegionCollector_Push,
+            .user_data = &collector,
+        };
+        Memmy_Status status = Memmy_Process_EnumerateRegions(scratch.arena, process, region_sink, error);
         if (status == Memmy_Status_Unsupported)
         {
             Scratch_End(scratch);
@@ -229,31 +283,11 @@ static Memmy_Status Memmy_Process_ScanNeedle(Arena *arena, Memmy_Process *proces
         }
         else
         {
-            Memmy_Range *scan_ranges = Arena_PushArrayNoZero(scratch.arena, Memmy_Range, regions.list.count);
+            Memmy_Range *scan_ranges = Arena_PushArrayNoZero(scratch.arena, Memmy_Range, collector.ranges.count);
             U64 scan_range_count = 0;
-            List_ForEach(Memmy_Region, region, &regions.list, link)
+            List_ForEach(Memmy_ScanRangeNode, node, &collector.ranges, link)
             {
-                if (!Memmy_Scan_IsReadableRegion(region))
-                {
-                    continue;
-                }
-
-                Memmy_Addr region_end = 0;
-                if (!AddU64Checked(region->base, region->size, &region_end))
-                {
-                    continue;
-                }
-
-                Memmy_Range scan_range = {
-                    .start = Max(options->range.start, region->base),
-                    .end = Min(options->range.end, region_end),
-                };
-                if (scan_range.end <= scan_range.start)
-                {
-                    continue;
-                }
-
-                scan_ranges[scan_range_count++] = scan_range;
+                scan_ranges[scan_range_count++] = node->range;
             }
 
             Sort(scan_ranges, scan_range_count, sizeof(scan_ranges[0]), Memmy_ScanRange_Cmp, 0);

@@ -28,44 +28,66 @@ static Memmy_Status Memmy_TargetExpr_CheckProcess(Memmy_Process *process, Memmy_
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_TargetExpr_ResolveModuleBase(Memmy_Process *process, Memmy_ModuleList *modules,
-                                                       Memmy_TargetExpr *target, Memmy_Addr *out, Memmy_Error *error)
+typedef struct Memmy_TargetExprModuleResolver Memmy_TargetExprModuleResolver;
+struct Memmy_TargetExprModuleResolver
 {
-    if (modules == 0)
+    Memmy_TargetExpr *target;
+    Memmy_Module match;
+    U64 match_count;
+    Memmy_Error *error;
+};
+
+static Memmy_Status Memmy_TargetExprModuleResolver_Push(void *user_data, Memmy_Module *module)
+{
+    Memmy_TargetExprModuleResolver *resolver = (Memmy_TargetExprModuleResolver *)user_data;
+    if (!String8_EqNoCase(module->name, resolver->target->module_name))
     {
-        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("target"),
-                        String8_Lit("missing module list for module target"));
-        return Memmy_Status_InvalidArgument;
+        return Memmy_Status_Ok;
     }
 
+    resolver->match_count++;
+    if (resolver->match_count > 1)
+    {
+        Memmy_Error_Set(resolver->error, Memmy_Status_Ambiguous, String8_Lit("target"),
+                        String8_Lit("module target is ambiguous"));
+        return Memmy_Status_Ambiguous;
+    }
+    resolver->match = *module;
+    return Memmy_Status_Ok;
+}
+
+static Memmy_Status Memmy_TargetExpr_ResolveModuleBase(Memmy_Process *process, Memmy_TargetExpr *target,
+                                                       Memmy_Addr *out, Memmy_Error *error)
+{
     Memmy_Status status = Memmy_TargetExpr_CheckProcess(process, target, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
     }
 
-    Memmy_Module *match = 0;
-    List_ForEach(Memmy_Module, module, &modules->list, link)
+    Scratch scratch = Scratch_Begin(0, 0);
+    Memmy_TargetExprModuleResolver resolver = {
+        .target = target,
+        .error = error,
+    };
+    Memmy_ModuleSink sink = {
+        .callback = Memmy_TargetExprModuleResolver_Push,
+        .user_data = &resolver,
+    };
+    status = Memmy_Process_EnumerateModules(scratch.arena, process, sink, error);
+    Scratch_End(scratch);
+    if (status != Memmy_Status_Ok)
     {
-        if (String8_EqNoCase(module->name, target->module_name))
-        {
-            if (match != 0)
-            {
-                Memmy_Error_Set(error, Memmy_Status_Ambiguous, String8_Lit("target"),
-                                String8_Lit("module target is ambiguous"));
-                return Memmy_Status_Ambiguous;
-            }
-            match = module;
-        }
+        return status;
     }
 
-    if (match == 0)
+    if (resolver.match_count == 0)
     {
         Memmy_Error_Set(error, Memmy_Status_NotFound, String8_Lit("target"), String8_Lit("module target not found"));
         return Memmy_Status_NotFound;
     }
 
-    *out = match->base;
+    *out = resolver.match.base;
     return Memmy_Status_Ok;
 }
 
@@ -156,8 +178,8 @@ static Memmy_Status Memmy_AddressExpr_ReadPointer(Memmy_Process *process, Memmy_
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_AddressExpr_Resolve(Memmy_Process *process, Memmy_ModuleList *modules, Memmy_AddressExpr *expr,
-                                       Memmy_Addr *out, Memmy_Error *error)
+Memmy_Status Memmy_AddressExpr_Resolve(Memmy_Process *process, Memmy_AddressExpr *expr, Memmy_Addr *out,
+                                       Memmy_Error *error)
 {
     if (expr == 0 || out == 0)
     {
@@ -173,7 +195,7 @@ Memmy_Status Memmy_AddressExpr_Resolve(Memmy_Process *process, Memmy_ModuleList 
     }
     else if (expr->base_kind == Memmy_AddressExprBaseKind_Target)
     {
-        Memmy_Status status = Memmy_TargetExpr_ResolveModuleBase(process, modules, &expr->target, &addr, error);
+        Memmy_Status status = Memmy_TargetExpr_ResolveModuleBase(process, &expr->target, &addr, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -236,8 +258,8 @@ Memmy_Status Memmy_AddressExpr_Resolve(Memmy_Process *process, Memmy_ModuleList 
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_MemoryExpr_ResolveAddress(Memmy_Process *process, Memmy_ModuleList *modules, Memmy_MemoryExpr *expr,
-                                             Memmy_Addr *out, Memmy_Error *error)
+Memmy_Status Memmy_MemoryExpr_ResolveAddress(Memmy_Process *process, Memmy_MemoryExpr *expr, Memmy_Addr *out,
+                                             Memmy_Error *error)
 {
     if (expr == 0 || out == 0)
     {
@@ -252,5 +274,5 @@ Memmy_Status Memmy_MemoryExpr_ResolveAddress(Memmy_Process *process, Memmy_Modul
         return Memmy_Status_InvalidArgument;
     }
 
-    return Memmy_AddressExpr_Resolve(process, modules, &expr->address, out, error);
+    return Memmy_AddressExpr_Resolve(process, &expr->address, out, error);
 }

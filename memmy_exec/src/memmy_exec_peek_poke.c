@@ -304,8 +304,8 @@ static Memmy_Status Memmy_Exec_ReadValue(Arena *arena, Memmy_Process *process, M
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_MemoryExpr_ExecutePeek(Arena *arena, Memmy_Process *process, Memmy_ModuleList *modules,
-                                          Memmy_MemoryExpr *expr, Memmy_ExecPeekResult *out, Memmy_Error *error)
+Memmy_Status Memmy_MemoryExpr_ExecutePeek(Arena *arena, Memmy_Process *process, Memmy_MemoryExpr *expr,
+                                          Memmy_ExecPeekResult *out, Memmy_Error *error)
 {
     if (arena == 0 || expr == 0 || out == 0)
     {
@@ -327,7 +327,7 @@ Memmy_Status Memmy_MemoryExpr_ExecutePeek(Arena *arena, Memmy_Process *process, 
     }
 
     Memmy_Addr address = 0;
-    status = Memmy_AddressExpr_Resolve(process, modules, &expr->address, &address, error);
+    status = Memmy_AddressExpr_Resolve(process, &expr->address, &address, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
@@ -348,8 +348,8 @@ Memmy_Status Memmy_MemoryExpr_ExecutePeek(Arena *arena, Memmy_Process *process, 
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_MemoryExpr_ExecutePoke(Arena *arena, Memmy_Process *process, Memmy_ModuleList *modules,
-                                          Memmy_MemoryExpr *expr, Memmy_ExecPokeResult *out, Memmy_Error *error)
+Memmy_Status Memmy_MemoryExpr_ExecutePoke(Arena *arena, Memmy_Process *process, Memmy_MemoryExpr *expr,
+                                          Memmy_ExecPokeResult *out, Memmy_Error *error)
 {
     if (arena == 0 || expr == 0 || out == 0)
     {
@@ -371,7 +371,7 @@ Memmy_Status Memmy_MemoryExpr_ExecutePoke(Arena *arena, Memmy_Process *process, 
     }
 
     Memmy_Addr address = 0;
-    status = Memmy_AddressExpr_Resolve(process, modules, &expr->address, &address, error);
+    status = Memmy_AddressExpr_Resolve(process, &expr->address, &address, error);
     if (status != Memmy_Status_Ok)
     {
         return status;

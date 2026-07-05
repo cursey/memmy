@@ -2,7 +2,6 @@
 #define MEMMY_PROCESS_H
 
 #include "base_arena.h"
-#include "base_list.h"
 #include "base_string.h"
 #include "memmy_backend.h"
 #include "memmy_status.h"
@@ -27,31 +26,19 @@ struct Memmy_Process
 typedef struct Memmy_ProcessInfo Memmy_ProcessInfo;
 struct Memmy_ProcessInfo
 {
-    ListLink link;
     U32 pid;
     String8 name;
     String8 path;
     Memmy_PointerWidth pointer_width;
 };
 
-struct Memmy_ProcessList
-{
-    List list; // Memmy_ProcessInfo
-};
-
 typedef struct Memmy_Module Memmy_Module;
 struct Memmy_Module
 {
-    ListLink link;
     String8 name;
     String8 path;
     Memmy_Addr base;
     Memmy_Size size;
-};
-
-struct Memmy_ModuleList
-{
-    List list; // Memmy_Module
 };
 
 typedef U32 Memmy_RegionAccess;
@@ -74,27 +61,20 @@ enum
 typedef struct Memmy_Region Memmy_Region;
 struct Memmy_Region
 {
-    ListLink link;
     Memmy_Addr base;
     Memmy_Size size;
     Memmy_RegionAccess access;
     Memmy_RegionState state;
 };
 
-struct Memmy_RegionList
-{
-    List list; // Memmy_Region
-};
-
-Memmy_Status Memmy_ListProcesses(Arena *arena, Memmy_ProcessList *out, Memmy_Error *error);
+Memmy_Status Memmy_EnumerateProcesses(Arena *arena, Memmy_ProcessInfoSink sink, Memmy_Error *error);
 Memmy_Status Memmy_Process_Open(Arena *arena, U32 pid, Memmy_Process **out, Memmy_Error *error);
 B32 Memmy_Process_IsOpen(Memmy_Process *process);
 void Memmy_Process_Close(Memmy_Process *process);
-Memmy_Status Memmy_Process_ListModules(Arena *arena, Memmy_Process *process, Memmy_ModuleList *out, Memmy_Error *error);
-Memmy_Status Memmy_Process_ListRegions(Arena *arena, Memmy_Process *process, Memmy_RegionList *out, Memmy_Error *error);
-Memmy_ProcessInfo *Memmy_ProcessList_Push(Arena *arena, Memmy_ProcessList *list);
-Memmy_Module *Memmy_ModuleList_Push(Arena *arena, Memmy_ModuleList *list);
-Memmy_Region *Memmy_RegionList_Push(Arena *arena, Memmy_RegionList *list);
+Memmy_Status Memmy_Process_EnumerateModules(Arena *arena, Memmy_Process *process, Memmy_ModuleSink sink,
+                                            Memmy_Error *error);
+Memmy_Status Memmy_Process_EnumerateRegions(Arena *arena, Memmy_Process *process, Memmy_RegionSink sink,
+                                            Memmy_Error *error);
 Memmy_Status Memmy_Process_Read(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size, U64 *bytes_read,
                                 Memmy_Error *error);
 Memmy_Status Memmy_Process_Write(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size, U64 *bytes_written,

@@ -20,16 +20,18 @@ Test(Test_MemmyContextSetPushPop)
 Test(Test_MemmyDispatchRejectsMissingContextAndBackend)
 {
     Arena *arena = Arena_CreateDefault();
-    Memmy_ProcessList list = {0};
+    Test_ProcessInfoList list = {0};
     Memmy_Error error = {0};
 
     Memmy_Context_Set(0);
-    AssertEq(Memmy_ListProcesses(arena, &list, &error), Memmy_Status_InvalidArgument);
+    AssertEq(Memmy_EnumerateProcesses(arena, Test_ProcessInfoSink(&list, arena), &error),
+             Memmy_Status_InvalidArgument);
     AssertEq(error.status, Memmy_Status_InvalidArgument);
 
     Memmy_Context ctx = {0};
     Memmy_Context_Set(&ctx);
-    AssertEq(Memmy_ListProcesses(arena, &list, &error), Memmy_Status_InvalidArgument);
+    AssertEq(Memmy_EnumerateProcesses(arena, Test_ProcessInfoSink(&list, arena), &error),
+             Memmy_Status_InvalidArgument);
     AssertEq(error.status, Memmy_Status_InvalidArgument);
 
     Memmy_Context_Set(0);
@@ -41,11 +43,12 @@ Test(Test_MemmyDispatchRejectsMissingCallback)
     Arena *arena = Arena_CreateDefault();
     Memmy_Backend backend = {.name = String8_Lit("empty")};
     Memmy_Context ctx = {.backend = &backend};
-    Memmy_ProcessList list = {0};
+    Test_ProcessInfoList list = {0};
     Memmy_Error error = {0};
 
     Memmy_Context_Set(&ctx);
-    AssertEq(Memmy_ListProcesses(arena, &list, &error), Memmy_Status_Unsupported);
+    AssertEq(Memmy_EnumerateProcesses(arena, Test_ProcessInfoSink(&list, arena), &error),
+             Memmy_Status_Unsupported);
     AssertEq(error.status, Memmy_Status_Unsupported);
 
     Memmy_Process process = {.backend = &backend};
