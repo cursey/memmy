@@ -1,7 +1,7 @@
 #ifndef MEMMY_CLI_H
 #define MEMMY_CLI_H
 
-#include "memmy.h"
+#include "memmy_exec.h"
 
 typedef Memmy_Status Memmy_CliWriteFn(void *user_data, String8 text);
 
@@ -12,6 +12,15 @@ struct Memmy_CliOutputWriter
     void *user_data;
 };
 
+typedef struct Memmy_CliReplSession Memmy_CliReplSession;
+struct Memmy_CliReplSession
+{
+    Memmy_ExecEnv env;
+};
+
+Memmy_CliReplSession Memmy_CliReplSession_Begin(Arena *arena);
+Memmy_Status Memmy_Cli_RunReplSessionLine(Arena *arena, Memmy_CliReplSession *session, String8 line, String8 *out,
+                                          B32 *out_exit, Memmy_Error *error);
 Memmy_Status Memmy_Cli_RunReplLine(Arena *arena, String8 line, String8 *out, Memmy_Error *error);
 Memmy_Status Memmy_Cli_RunReplString(Arena *arena, String8 input, String8 *out, Memmy_Error *error);
 Memmy_Status Memmy_Cli_RunInputString(Arena *arena, I32 argc, char **argv, String8 input, String8 *out,

@@ -27,28 +27,28 @@ static Memmy_Status Memmy_Main_RunRepl(Arena *arena)
 {
     char line[4096];
     Memmy_Status result = Memmy_Status_Ok;
+    Memmy_CliReplSession session = Memmy_CliReplSession_Begin(arena);
     while (fgets(line, sizeof(line), stdin) != 0)
     {
-        Scratch scratch = Scratch_Begin(&arena, 1);
         Memmy_Error error = {0};
         String8 output = {0};
-        Memmy_Status status = Memmy_Cli_RunReplLine(scratch.arena, String8_FromCStr(line), &output, &error);
+        B32 should_exit = 0;
+        Memmy_Status status =
+            Memmy_Cli_RunReplSessionLine(arena, &session, String8_FromCStr(line), &output, &should_exit, &error);
         if (output.len > 0)
         {
             Os_WriteStdout(output);
         }
         if (status != Memmy_Status_Ok)
         {
-            Memmy_Main_WriteError(scratch.arena, status, &error);
+            Memmy_Main_WriteError(arena, status, &error);
         }
         if (result == Memmy_Status_Ok && status != Memmy_Status_Ok)
         {
             result = status;
         }
 
-        String8 trimmed = String8_TrimWhitespace(String8_FromCStr(line));
-        Scratch_End(scratch);
-        if (String8_Eq(trimmed, String8_Lit("quit")) || String8_Eq(trimmed, String8_Lit("exit")))
+        if (should_exit)
         {
             break;
         }

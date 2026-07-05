@@ -72,25 +72,53 @@ struct Memmy_CliExecResultWriter
     Arena *arena;
     Memmy_CliOutputWriter writer;
     B32 jsonl;
+    B32 process_header_written;
     B32 scan_started;
+    B32 saw_exit;
     Memmy_CliScanOutput scan_output;
 };
+
+static String8 Memmy_Cli_PointerWidthArchString(Memmy_PointerWidth pointer_width)
+{
+    if (pointer_width == Memmy_PointerWidth_32)
+    {
+        return String8_Lit("x86");
+    }
+    if (pointer_width == Memmy_PointerWidth_64)
+    {
+        return String8_Lit("x64");
+    }
+    return String8_Lit("?");
+}
 
 static Memmy_Status Memmy_CliExecResultWriter_WriteProcess(Memmy_CliExecResultWriter *result_writer,
                                                            Memmy_ProcessInfo *info)
 {
     String8 line = {0};
+    String8 arch = Memmy_Cli_PointerWidthArchString(info->pointer_width);
     if (result_writer->jsonl)
     {
         String8 name = Memmy_Cli_FormatJsonString(result_writer->arena, info->name);
         String8 path = Memmy_Cli_FormatJsonString(result_writer->arena, info->path);
-        line = String8_PushF(result_writer->arena, "{\"type\":\"process\",\"pid\":%u,\"name\":%.*s,\"path\":%.*s}\n",
-                             info->pid, (int)name.len, (char *)name.data, (int)path.len, (char *)path.data);
+        line = String8_PushF(result_writer->arena,
+                             "{\"type\":\"process\",\"pid\":%u,\"arch\":\"%.*s\",\"name\":%.*s,\"path\":%.*s}\n",
+                             info->pid, (int)arch.len, (char *)arch.data, (int)name.len, (char *)name.data,
+                             (int)path.len, (char *)path.data);
     }
     else
     {
-        line =
-            String8_PushF(result_writer->arena, "%u %.*s\n", info->pid, (int)info->name.len, (char *)info->name.data);
+        if (!result_writer->process_header_written)
+        {
+            Memmy_Status status =
+                result_writer->writer.write(result_writer->writer.user_data, String8_Lit("PID     ARCH   NAME\n"));
+            if (status != Memmy_Status_Ok)
+            {
+                return status;
+            }
+            result_writer->process_header_written = 1;
+        }
+        line = String8_PushF(result_writer->arena, "%-7u %-5.*s %.*s\n", info->pid, (int)arch.len, (char *)arch.data,
+                             (int)info->name.len, (char *)info->name.data);
     }
     return result_writer->writer.write(result_writer->writer.user_data, line);
 }
@@ -193,8 +221,7 @@ static Memmy_Status Memmy_CliExecResultWriter_Push(void *user_data, Memmy_ExecRe
         }
         else
         {
-            line = String8_PushF(arena, "$%.*s = %.*s\n", (int)result->assignment.name.len,
-                                 (char *)result->assignment.name.data, (int)kind.len, (char *)kind.data);
+            return Memmy_Status_Ok;
         }
         status = result_writer->writer.write(result_writer->writer.user_data, line);
     }
@@ -210,7 +237,7 @@ static Memmy_Status Memmy_CliExecResultWriter_Push(void *user_data, Memmy_ExecRe
         }
         else
         {
-            line = String8_PushF(arena, "$%.*s %.*s\n", (int)result->variable_binding.name.len,
+            line = String8_PushF(arena, "%.*s %.*s\n", (int)result->variable_binding.name.len,
                                  (char *)result->variable_binding.name.data, (int)kind.len, (char *)kind.data);
         }
         status = result_writer->writer.write(result_writer->writer.user_data, line);
@@ -225,9 +252,16 @@ static Memmy_Status Memmy_CliExecResultWriter_Push(void *user_data, Memmy_ExecRe
         }
         else
         {
-            line = String8_PushF(arena, "unset $%.*s\n", (int)result->unset.name.len, (char *)result->unset.name.data);
+            return Memmy_Status_Ok;
         }
         status = result_writer->writer.write(result_writer->writer.user_data, line);
+    }
+    else if (result->kind == Memmy_ExecResultKind_Control)
+    {
+        if (result->control.kind == Memmy_ExecControlKind_Exit)
+        {
+            result_writer->saw_exit = 1;
+        }
     }
     return status;
 }
@@ -254,8 +288,10 @@ Memmy_Status Memmy_Cli_RunExprToWriterWithEnv(Arena *arena, Memmy_ExecEnv *env, 
         return Memmy_Status_InvalidArgument;
     }
 
-    Memmy_Statement statement = {0};
-    Memmy_Status status = Memmy_Statement_Parse(arena, options->expr_text, &statement, error);
+    Memmy_Statement statement = {
+        .kind = Memmy_StatementKind_Memory,
+    };
+    Memmy_Status status = Memmy_MemoryExpr_Parse(arena, options->expr_text, &statement.memory, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
@@ -277,4 +313,49 @@ Memmy_Status Memmy_Cli_RunExprToWriterWithEnv(Arena *arena, Memmy_ExecEnv *env, 
         .name = options->name,
     };
     return Memmy_Statement_ExecuteWithEnv(arena, env, &statement, selection, sink, error);
+}
+
+Memmy_Status Memmy_Cli_RunStatementToWriterWithEnv(Arena *arena, Memmy_ExecEnv *env, Memmy_CliOptions *options,
+                                                   String8 text, Memmy_CliOutputWriter writer, B32 *out_exit,
+                                                   Memmy_Error *error)
+{
+    if (arena == 0 || env == 0 || options == 0 || writer.write == 0)
+    {
+        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("cli"), String8_Lit("missing output writer"));
+        return Memmy_Status_InvalidArgument;
+    }
+
+    if (out_exit != 0)
+    {
+        *out_exit = 0;
+    }
+
+    Memmy_Statement statement = {0};
+    Memmy_Status status = Memmy_Statement_Parse(arena, text, &statement, error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+
+    Memmy_CliExecResultWriter result_writer = {
+        .arena = arena,
+        .writer = writer,
+        .jsonl = options->jsonl,
+    };
+    Memmy_ExecResultSink sink = {
+        .callback = Memmy_CliExecResultWriter_Push,
+        .user_data = &result_writer,
+    };
+    Memmy_ExecProcessSelection selection = {
+        .has_pid = options->has_pid,
+        .pid = options->pid,
+        .has_name = options->has_name,
+        .name = options->name,
+    };
+    status = Memmy_Statement_ExecuteWithEnv(arena, env, &statement, selection, sink, error);
+    if (out_exit != 0)
+    {
+        *out_exit = result_writer.saw_exit;
+    }
+    return status;
 }

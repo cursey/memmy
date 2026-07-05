@@ -346,6 +346,14 @@ static Memmy_Status Memmy_Cli_RunScriptString(Arena *arena, Memmy_CliOptions *op
     return Memmy_Cli_RunReplStringWithOptions(arena, options, input, out, error);
 }
 
+static B32 Memmy_Cli_IsOneShotStatement(Arena *arena, String8 text)
+{
+    Memmy_Statement statement = {0};
+    Memmy_Error ignored_error = {0};
+    Memmy_Status status = Memmy_Statement_Parse(arena, text, &statement, &ignored_error);
+    return status == Memmy_Status_Ok && statement.kind != Memmy_StatementKind_Memory;
+}
+
 typedef struct Memmy_CliStringWriter Memmy_CliStringWriter;
 struct Memmy_CliStringWriter
 {
@@ -463,6 +471,14 @@ Memmy_Status Memmy_Cli_RunToWriter(Arena *arena, I32 argc, char **argv, Memmy_Cl
     {
         String8 help = Memmy_Cli_Help(arena);
         return writer.write(writer.user_data, help);
+    }
+
+    if (Memmy_Cli_IsOneShotStatement(arena, options.input_path))
+    {
+        Memmy_ExecEnv env = Memmy_ExecEnv_Create(arena);
+        B32 should_exit = 0;
+        return Memmy_Cli_RunStatementToWriterWithEnv(arena, &env, &options, options.input_path, writer, &should_exit,
+                                                     error);
     }
 
     String8 input = {0};

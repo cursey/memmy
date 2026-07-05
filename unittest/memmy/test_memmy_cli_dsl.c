@@ -179,7 +179,55 @@ Test(Test_MemmyCliExprFormatsJsonlAddress)
     Arena_Destroy(arena);
 }
 
-Test(Test_MemmyCliExprFormatsProcs)
+Test(Test_MemmyCliOneShotProcsFormatsText)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+    test_backend.processes[1].pointer_width = Memmy_PointerWidth_32;
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy", "procs"};
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("PID     ARCH   NAME\n"
+                                 "4242    x64   test-process\n"
+                                 "1234    x86   game.exe\n"
+                                 "5678    x64   other\n"
+                                 "6789    x64   other.exe\n"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliOneShotProcsFormatsJsonl)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy", "--jsonl", "procs"};
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
+    AssertTrue(String8_Find(out, String8_Lit("{\"type\":\"process\",\"pid\":4242,\"arch\":\"x64\","), 0) !=
+               STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("{\"type\":\"process\",\"pid\":1234,\"arch\":\"x64\","), 0) !=
+               STRING8_NPOS);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliExprRejectsStatementOnlySyntax)
 {
     Arena *arena = Arena_CreateDefault();
     Test_MemmyBackend test_backend = {0};
@@ -192,11 +240,75 @@ Test(Test_MemmyCliExprFormatsProcs)
     Memmy_Error error = {0};
     char *argv[] = {"memmy", "--expr", "procs"};
 
-    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
-    AssertStrEq(out, String8_Lit("4242 test-process\n"
-                                 "1234 game.exe\n"
-                                 "5678 other\n"
-                                 "6789 other.exe\n"));
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_ParseError);
+    AssertStrEq(error.context, String8_Lit("expr"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliScriptMixesStatementsAssignmentsExpressionsAndExit)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+    test_backend.memory[0x20] = 42;
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy"};
+
+    AssertEq(Memmy_Cli_RunInputString(arena, (I32)ArrayCount(argv), argv,
+                                      String8_Lit("procs\n"
+                                                  "$addr = <game.exe!client.dll>+0x20\n"
+                                                  "$addr : u8\n"
+                                                  "exit\n"
+                                                  "0x1000\n"),
+                                      &out, &error),
+             Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("PID     ARCH   NAME\n"
+                                 "4242    x64   test-process\n"
+                                 "1234    x64   game.exe\n"
+                                 "5678    x64   other\n"
+                                 "6789    x64   other.exe\n"
+                                 "0x0000000000001020: u8 42  0x2a\n"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliVarsFormatsTextAndJsonl)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *text_argv[] = {"memmy"};
+    char *jsonl_argv[] = {"memmy", "--jsonl"};
+
+    AssertEq(Memmy_Cli_RunInputString(arena, (I32)ArrayCount(text_argv), text_argv,
+                                      String8_Lit("$addr = <game.exe!client.dll>\n"
+                                                  "vars\n"),
+                                      &out, &error),
+             Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("addr address\n"));
+
+    error = (Memmy_Error){0};
+    AssertEq(Memmy_Cli_RunInputString(arena, (I32)ArrayCount(jsonl_argv), jsonl_argv,
+                                      String8_Lit("$addr = <game.exe!client.dll>\n"
+                                                  "vars\n"),
+                                      &out, &error),
+             Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("{\"type\":\"assignment\",\"name\":\"addr\",\"kind\":\"address\"}\n"
+                                 "{\"type\":\"variable\",\"name\":\"addr\",\"kind\":\"address\"}\n"));
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -596,7 +708,10 @@ TestSuite suite_memmy_cli_dsl = TestSuite_Make(
     TestCase_Make(Test_MemmyCliExprResolvesQualifiedProcessName),
     TestCase_Make(Test_MemmyCliExprRejectsExternalPidConflict),
     TestCase_Make(Test_MemmyCliExprRejectsExternalNameConflict), TestCase_Make(Test_MemmyCliExprFormatsJsonlAddress),
-    TestCase_Make(Test_MemmyCliExprFormatsProcs), TestCase_Make(Test_MemmyCliExprRejectsScanTweakables),
+    TestCase_Make(Test_MemmyCliOneShotProcsFormatsText), TestCase_Make(Test_MemmyCliOneShotProcsFormatsJsonl),
+    TestCase_Make(Test_MemmyCliExprRejectsStatementOnlySyntax),
+    TestCase_Make(Test_MemmyCliScriptMixesStatementsAssignmentsExpressionsAndExit),
+    TestCase_Make(Test_MemmyCliVarsFormatsTextAndJsonl), TestCase_Make(Test_MemmyCliExprRejectsScanTweakables),
     TestCase_Make(Test_MemmyCliExprParseErrorJsonlHasTypedFields),
     TestCase_Make(Test_MemmyCliExprRejectsBareWholeProcessTargetOutsideScans),
     TestCase_Make(Test_MemmyCliExprFormatsPeekTextLikePeekCommand),

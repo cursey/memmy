@@ -72,6 +72,9 @@ Memmy_Status Memmy_Cli_RunExprToWriter(Arena *arena, Memmy_CliOptions *options, 
                                        Memmy_Error *error);
 Memmy_Status Memmy_Cli_RunExprToWriterWithEnv(Arena *arena, Memmy_ExecEnv *env, Memmy_CliOptions *options,
                                               Memmy_CliOutputWriter writer, Memmy_Error *error);
+Memmy_Status Memmy_Cli_RunStatementToWriterWithEnv(Arena *arena, Memmy_ExecEnv *env, Memmy_CliOptions *options,
+                                                   String8 text, Memmy_CliOutputWriter writer, B32 *out_exit,
+                                                   Memmy_Error *error);
 
 Memmy_Status Memmy_Cli_FormatValue(Arena *arena, Memmy_CliValueFormat *format, String8 bytes, String8 *out,
                                    Memmy_Error *error);

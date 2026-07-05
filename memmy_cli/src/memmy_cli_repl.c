@@ -1,7 +1,21 @@
 #include "memmy_cli_internal.h"
 
+typedef struct Memmy_CliReplStringWriter Memmy_CliReplStringWriter;
+struct Memmy_CliReplStringWriter
+{
+    Arena *arena;
+    String8List list;
+};
+
+static Memmy_Status Memmy_CliReplStringWriter_Write(void *user_data, String8 text)
+{
+    Memmy_CliReplStringWriter *writer = (Memmy_CliReplStringWriter *)user_data;
+    String8List_Push(writer->arena, &writer->list, text);
+    return Memmy_Status_Ok;
+}
+
 static Memmy_Status Memmy_Cli_RunReplLineWithEnv(Arena *arena, Memmy_ExecEnv *env, Memmy_CliOptions *base_options,
-                                                 String8 line, String8 *out, Memmy_Error *error);
+                                                 String8 line, String8 *out, B32 *out_exit, Memmy_Error *error);
 
 static String8 Memmy_Cli_FormatTextError(Arena *arena, Memmy_Status status, Memmy_Error *error)
 {
@@ -23,11 +37,11 @@ static Memmy_Status Memmy_Cli_RunReplLineWithOptions(Arena *arena, Memmy_CliOpti
     }
 
     Memmy_ExecEnv env = Memmy_ExecEnv_Create(arena);
-    return Memmy_Cli_RunReplLineWithEnv(arena, &env, base_options, line, out, error);
+    return Memmy_Cli_RunReplLineWithEnv(arena, &env, base_options, line, out, 0, error);
 }
 
 static Memmy_Status Memmy_Cli_RunReplLineWithEnv(Arena *arena, Memmy_ExecEnv *env, Memmy_CliOptions *base_options,
-                                                 String8 line, String8 *out, Memmy_Error *error)
+                                                 String8 line, String8 *out, B32 *out_exit, Memmy_Error *error)
 {
     if (arena == 0 || out == 0)
     {
@@ -36,22 +50,54 @@ static Memmy_Status Memmy_Cli_RunReplLineWithEnv(Arena *arena, Memmy_ExecEnv *en
     }
 
     *out = (String8){0};
-    String8 expr = String8_TrimWhitespace(line);
-    if (expr.len == 0 || String8_Eq(expr, String8_Lit("quit")) || String8_Eq(expr, String8_Lit("exit")))
+    if (out_exit != 0)
+    {
+        *out_exit = 0;
+    }
+    String8 statement = String8_TrimWhitespace(line);
+    if (statement.len == 0)
     {
         return Memmy_Status_Ok;
     }
 
     Memmy_CliOptions options = base_options != 0 ? *base_options : (Memmy_CliOptions){0};
-    options.has_expr = 1;
-    options.expr_text = expr;
-    return Memmy_Cli_RunExprWithEnv(arena, env, &options, out, error);
+    Memmy_CliReplStringWriter string_writer = {
+        .arena = arena,
+    };
+    Memmy_CliOutputWriter writer = {
+        .write = Memmy_CliReplStringWriter_Write,
+        .user_data = &string_writer,
+    };
+    Memmy_Status status =
+        Memmy_Cli_RunStatementToWriterWithEnv(arena, env, &options, statement, writer, out_exit, error);
+    *out = String8List_Join(arena, &string_writer.list, (String8){0});
+    return status;
 }
 
 Memmy_Status Memmy_Cli_RunReplLine(Arena *arena, String8 line, String8 *out, Memmy_Error *error)
 {
+    Memmy_CliReplSession session = Memmy_CliReplSession_Begin(arena);
+    return Memmy_Cli_RunReplSessionLine(arena, &session, line, out, 0, error);
+}
+
+Memmy_CliReplSession Memmy_CliReplSession_Begin(Arena *arena)
+{
+    return (Memmy_CliReplSession){
+        .env = Memmy_ExecEnv_Create(arena),
+    };
+}
+
+Memmy_Status Memmy_Cli_RunReplSessionLine(Arena *arena, Memmy_CliReplSession *session, String8 line, String8 *out,
+                                          B32 *out_exit, Memmy_Error *error)
+{
+    if (session == 0)
+    {
+        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("repl"), String8_Lit("missing session"));
+        return Memmy_Status_InvalidArgument;
+    }
+
     Memmy_CliOptions options = {0};
-    return Memmy_Cli_RunReplLineWithOptions(arena, &options, line, out, error);
+    return Memmy_Cli_RunReplLineWithEnv(arena, &session->env, &options, line, out, out_exit, error);
 }
 
 Memmy_Status Memmy_Cli_RunReplString(Arena *arena, String8 input, String8 *out, Memmy_Error *error)
@@ -88,15 +134,11 @@ Memmy_Status Memmy_Cli_RunReplStringWithOptions(Arena *arena, Memmy_CliOptions *
         String8 line = String8_Substr(input, line_start, line_len);
         line_start = i + 1;
 
-        String8 trimmed = String8_TrimWhitespace(line);
-        if (String8_Eq(trimmed, String8_Lit("quit")) || String8_Eq(trimmed, String8_Lit("exit")))
-        {
-            break;
-        }
-
         Memmy_Error line_error = {0};
         String8 line_out = {0};
-        Memmy_Status status = Memmy_Cli_RunReplLineWithEnv(arena, &env, base_options, line, &line_out, &line_error);
+        B32 should_exit = 0;
+        Memmy_Status status =
+            Memmy_Cli_RunReplLineWithEnv(arena, &env, base_options, line, &line_out, &should_exit, &line_error);
         if (status == Memmy_Status_Ok)
         {
             String8List_Push(arena, &parts, line_out);
@@ -112,6 +154,10 @@ Memmy_Status Memmy_Cli_RunReplStringWithOptions(Arena *arena, Memmy_CliOptions *
                 }
             }
             String8List_Push(arena, &parts, Memmy_Cli_FormatTextError(arena, status, &line_error));
+        }
+        if (should_exit)
+        {
+            break;
         }
     }
 
