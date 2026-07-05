@@ -1,6 +1,7 @@
 #include "memmy_eval.h"
 #include "test_framework.h"
 #include "test_memmy_backend.h"
+#include "test_memmy_common.h"
 
 static void Test_EvalParseExpr(Arena *arena, char *text, Memmy_AstNode **out)
 {
@@ -32,6 +33,7 @@ static void Test_EvalStatementText(Memmy_EvalEnv *env, Arena *arena, char *text)
 typedef struct Test_EvalResultCapture Test_EvalResultCapture;
 struct Test_EvalResultCapture
 {
+    Memmy_EvalResult result;
     Memmy_EvalValue value;
     U64 count;
 };
@@ -39,6 +41,7 @@ struct Test_EvalResultCapture
 static void Test_EvalResultCapture_Push(Memmy_EvalResultSink *sink, Memmy_EvalResult result)
 {
     Test_EvalResultCapture *capture = (Test_EvalResultCapture *)sink->user_data;
+    capture->result = result;
     capture->value = result.value;
     capture->count++;
 }
@@ -55,6 +58,34 @@ static void Test_EvalStatementResult(Memmy_EvalEnv *env, Arena *arena, char *tex
     AssertEq(Memmy_EvalStatement(env, &statement, &sink, 0), Memmy_Status_Ok);
     AssertEq(capture.count, 1);
     *out = capture.value;
+}
+
+static void Test_EvalStatementFullResult(Memmy_EvalEnv *env, Arena *arena, char *text, Memmy_EvalResult *out)
+{
+    Memmy_AstStatement statement = {0};
+    Test_EvalParseStatement(arena, text, &statement);
+    Test_EvalResultCapture capture = {0};
+    Memmy_EvalResultSink sink = {
+        .push = Test_EvalResultCapture_Push,
+        .user_data = &capture,
+    };
+    AssertEq(Memmy_EvalStatement(env, &statement, &sink, 0), Memmy_Status_Ok);
+    AssertEq(capture.count, 1);
+    *out = capture.result;
+}
+
+static void Test_EvalEnvWithProcess(Arena *arena, Test_MemmyBackend *backend, Memmy_EvalEnv **out)
+{
+    Test_MemmyBackend_Init(backend);
+    Memmy_Context *ctx = Arena_PushStruct(arena, Memmy_Context);
+    ctx->backend = Test_MemmyBackend_AsBackend(backend);
+    Memmy_Context_Set(ctx);
+
+    Memmy_Process *process = 0;
+    AssertEq(Memmy_Process_Open(arena, 4242, &process, 0), Memmy_Status_Ok);
+    Memmy_EvalEnv *env = Memmy_EvalEnv_Create(arena);
+    env->process = process;
+    *out = env;
 }
 
 Test(Test_MemmyEvalCreatesEnvAndBindsArenaOwnedValues)
@@ -269,6 +300,210 @@ Test(Test_MemmyEvalMissingProcessDiagnostics)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyEvalTypedReadsAndWritesWithFakeBackend)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Memmy_EvalEnv *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+
+    Memmy_EvalValue read = {0};
+    Test_EvalExprText(env, arena, "@0x1004 as u32", &read);
+    AssertEq(read.kind, Memmy_EvalValueKind_TypedValue);
+    AssertEq(read.address, 0x1004);
+    AssertEq(read.constant, 0x07060504);
+    U8 old_bytes[] = {4, 5, 6, 7};
+    Test_AssertBytes(read.typed_value.bytes, old_bytes, ArrayCount(old_bytes));
+
+    backend.memory[0x40] = 'h';
+    backend.memory[0x41] = 'i';
+    backend.memory[0x42] = 0;
+    Memmy_EvalValue text = {0};
+    Test_EvalExprText(env, arena, "@0x1040 as str", &text);
+    AssertEq(text.kind, Memmy_EvalValueKind_TypedValue);
+    AssertStrEq(text.typed_value.bytes, String8_Lit("hi"));
+
+    Memmy_EvalResult write = {0};
+    Test_EvalStatementFullResult(env, arena, "@0x1004 as u32 = 0x11223344", &write);
+    AssertEq(write.kind, Memmy_EvalResultKind_Write);
+    AssertEq(write.address, 0x1004);
+    Test_AssertBytes(write.old_value.bytes, old_bytes, ArrayCount(old_bytes));
+    U8 new_bytes[] = {0x44, 0x33, 0x22, 0x11};
+    Test_AssertBytes(write.new_value.bytes, new_bytes, ArrayCount(new_bytes));
+    Test_AssertBytes(String8_Make(&backend.memory[4], 4), new_bytes, ArrayCount(new_bytes));
+
+    Test_MemmyBackend_SetReadStatus(&backend, Memmy_Status_AccessDenied);
+    Memmy_AstNode *expr = 0;
+    Test_EvalParseExpr(arena, "@0x1008 as u32 = 1", &expr);
+    Memmy_EvalValue value = {0};
+    AssertEq(Memmy_EvalExpr(env, expr, &value, 0), Memmy_Status_AccessDenied);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalTypedWriteReadsOldValueBeforeRhsEvaluation)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Memmy_EvalEnv *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+
+    Memmy_AstNode *expr = 0;
+    Test_EvalParseExpr(arena, "@0x1004 as u32 = $missing_rhs", &expr);
+    Memmy_EvalValue value = {0};
+    AssertEq(Memmy_EvalExpr(env, expr, &value, 0), Memmy_Status_NotFound);
+    AssertEq(backend.read_call_count, 1);
+    AssertEq(backend.min_read_addr, 0x1004);
+    AssertEq(backend.max_read_end, 0x1008);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalTypedWritePropagatesWriteFailuresAfterOldValueRead)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Memmy_EvalEnv *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+
+    Test_MemmyBackend_SetWriteStatus(&backend, Memmy_Status_AccessDenied);
+    Memmy_AstNode *expr = 0;
+    Test_EvalParseExpr(arena, "@0x1004 as u32 = 0x11223344", &expr);
+    Memmy_EvalValue value = {0};
+    AssertEq(Memmy_EvalExpr(env, expr, &value, 0), Memmy_Status_AccessDenied);
+    AssertEq(backend.read_call_count, 1);
+    U8 old_bytes[] = {4, 5, 6, 7};
+    Test_AssertBytes(String8_Make(&backend.memory[4], 4), old_bytes, ArrayCount(old_bytes));
+
+    Test_MemmyBackend_SetWriteStatus(&backend, Memmy_Status_Ok);
+    Test_MemmyBackend_SetWriteLimit(&backend, 2);
+    backend.read_call_count = 0;
+    Memmy_AstNode *partial_expr = 0;
+    Test_EvalParseExpr(arena, "@0x1008 as u32 = 0x55667788", &partial_expr);
+    AssertEq(Memmy_EvalExpr(env, partial_expr, &value, 0), Memmy_Status_PartialWrite);
+    AssertEq(backend.read_call_count, 1);
+    U8 partial_bytes[] = {0x88, 0x77, 10, 11};
+    Test_AssertBytes(String8_Make(&backend.memory[8], 4), partial_bytes, ArrayCount(partial_bytes));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalPatternScanAssignmentMaterializesAddressList)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Memmy_EvalEnv *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+    backend.memory[0x20] = 0x10;
+    backend.memory[0x21] = 0x11;
+
+    Test_EvalStatementText(env, arena, "$matches = [@0x1000..+0x40]{10 11}");
+    Memmy_EvalValue matches = {0};
+    AssertEq(Memmy_EvalEnv_Find(env, String8_Lit("matches"), &matches), Memmy_Status_Ok);
+    AssertEq(matches.kind, Memmy_EvalValueKind_AddressList);
+    AssertEq(matches.address_count, 2);
+    AssertEq(matches.addresses[0], 0x1010);
+    AssertEq(matches.addresses[1], 0x1020);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalValueScanAssignmentMaterializesAddressList)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Memmy_EvalEnv *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+    backend.memory[0x30] = 0x10;
+    backend.memory[0x31] = 0x11;
+
+    Test_EvalStatementText(env, arena, "$matches = [@0x1000..+0x40] as u16 == 0x1110");
+    Memmy_EvalValue matches = {0};
+    AssertEq(Memmy_EvalEnv_Find(env, String8_Lit("matches"), &matches), Memmy_Status_Ok);
+    AssertEq(matches.kind, Memmy_EvalValueKind_AddressList);
+    AssertEq(matches.address_count, 2);
+    AssertEq(matches.addresses[0], 0x1010);
+    AssertEq(matches.addresses[1], 0x1030);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalIndexesAssignedAddressLists)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Memmy_EvalEnv *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+    backend.memory[0x20] = 0x10;
+    backend.memory[0x21] = 0x11;
+
+    Test_EvalStatementText(env, arena, "$matches = [@0x1000..+0x40]{10 11}");
+    Memmy_EvalValue second = {0};
+    Test_EvalExprText(env, arena, "$matches[1]", &second);
+    AssertEq(second.kind, Memmy_EvalValueKind_Address);
+    AssertEq(second.address, 0x1020);
+
+    Memmy_AstNode *expr = 0;
+    Test_EvalParseExpr(arena, "$matches[2]", &expr);
+    Memmy_Error error = {0};
+    AssertEq(Memmy_EvalExpr(env, expr, &second, &error), Memmy_Status_NotFound);
+    AssertStrEq(error.context, String8_Lit("index"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalIndexesValueScanExpressions)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Memmy_EvalEnv *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+    backend.memory[0x30] = 0x10;
+    backend.memory[0x31] = 0x11;
+
+    Memmy_EvalValue value = {0};
+    Test_EvalExprText(env, arena, "([@0x1000..+0x40] as u16 == 0x1110)[1]", &value);
+    AssertEq(value.kind, Memmy_EvalValueKind_Address);
+    AssertEq(value.address, 0x1030);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalAnchorTargetExampleFlow)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Memmy_EvalEnv *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+    backend.memory[0x20] = 0xaa;
+    backend.memory[0x21] = 0xbb;
+    backend.memory[0x24] = 0xef;
+    backend.memory[0x25] = 0xbe;
+
+    Test_EvalStatementText(env, arena, "$anchor = [@0x1000..+0x40]{aa bb}[0]");
+    Test_EvalStatementText(env, arena, "$target = $anchor + 4");
+
+    Memmy_EvalValue target = {0};
+    Test_EvalExprText(env, arena, "$target", &target);
+    AssertEq(target.kind, Memmy_EvalValueKind_Address);
+    AssertEq(target.address, 0x1024);
+
+    Memmy_EvalValue target_value = {0};
+    Test_EvalExprText(env, arena, "$target as u16", &target_value);
+    AssertEq(target_value.kind, Memmy_EvalValueKind_TypedValue);
+    AssertEq(target_value.constant, 0xbeef);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
 TestSuite suite_memmy_eval = TestSuite_Make(
     "Memmy Eval", TestCase_Make(Test_MemmyEvalCreatesEnvAndBindsArenaOwnedValues),
     TestCase_Make(Test_MemmyEvalExpressionStatementsEmitResults),
@@ -278,4 +513,11 @@ TestSuite suite_memmy_eval = TestSuite_Make(
     TestCase_Make(Test_MemmyEvalImmediateBindingAvoidsVariableCycles), TestCase_Make(Test_MemmyEvalOverflowFails),
     TestCase_Make(Test_MemmyEvalTypedIntegerVariablesWorkAsConstants),
     TestCase_Make(Test_MemmyEvalModuleAndProcessTargetsResolveToRanges),
-    TestCase_Make(Test_MemmyEvalMissingProcessDiagnostics), );
+    TestCase_Make(Test_MemmyEvalMissingProcessDiagnostics),
+    TestCase_Make(Test_MemmyEvalTypedReadsAndWritesWithFakeBackend),
+    TestCase_Make(Test_MemmyEvalTypedWriteReadsOldValueBeforeRhsEvaluation),
+    TestCase_Make(Test_MemmyEvalTypedWritePropagatesWriteFailuresAfterOldValueRead),
+    TestCase_Make(Test_MemmyEvalPatternScanAssignmentMaterializesAddressList),
+    TestCase_Make(Test_MemmyEvalValueScanAssignmentMaterializesAddressList),
+    TestCase_Make(Test_MemmyEvalIndexesAssignedAddressLists),
+    TestCase_Make(Test_MemmyEvalIndexesValueScanExpressions), TestCase_Make(Test_MemmyEvalAnchorTargetExampleFlow), );

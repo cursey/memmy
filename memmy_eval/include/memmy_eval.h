@@ -33,13 +33,27 @@ struct Memmy_EvalValue
     I64 constant;
     Memmy_Addr address;
     Memmy_Range range;
+    Memmy_Addr *addresses;
+    U64 address_count;
     Memmy_Value typed_value;
+    Memmy_Value old_typed_value;
+};
+
+typedef U32 Memmy_EvalResultKind;
+enum
+{
+    Memmy_EvalResultKind_Value,
+    Memmy_EvalResultKind_Write,
 };
 
 typedef struct Memmy_EvalResult Memmy_EvalResult;
 struct Memmy_EvalResult
 {
+    Memmy_EvalResultKind kind;
     Memmy_EvalValue value;
+    Memmy_Addr address;
+    Memmy_Value old_value;
+    Memmy_Value new_value;
 };
 
 typedef struct Memmy_EvalResultSink Memmy_EvalResultSink;
