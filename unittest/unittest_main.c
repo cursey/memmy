@@ -31,6 +31,7 @@ extern TestSuite suite_memmy_dsl_const;
 extern TestSuite suite_memmy_dsl_address;
 extern TestSuite suite_memmy_dsl_memory;
 extern TestSuite suite_memmy_dsl_range;
+extern TestSuite suite_memmy_dsl_statement;
 extern TestSuite suite_memmy_exec_address;
 extern TestSuite suite_memmy_exec_peek_poke;
 extern TestSuite suite_memmy_exec_range;
@@ -72,6 +73,7 @@ int main(int argc, char **argv)
         suite_memmy_dsl_address,
         suite_memmy_dsl_memory,
         suite_memmy_dsl_range,
+        suite_memmy_dsl_statement,
         suite_memmy_exec_address,
         suite_memmy_exec_peek_poke,
         suite_memmy_exec_range,

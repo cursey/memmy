@@ -383,6 +383,44 @@ Test(Test_MemmyExecAddressRejectsMismatchedPidSelector)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyExecAddressRejectsUnresolvedVariables)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    Test_WriteU64LE(&backend, 0x1000, 0x2000, 8);
+    Memmy_Process process = Test_ProcessForBackend(&backend, Memmy_PointerWidth_64);
+
+    Memmy_AddressExpr variable_base = {0};
+    Memmy_AddressExpr variable_offset = {0};
+    Memmy_AddressExpr variable_deref_offset = {0};
+    Test_ParseAddress(arena, "$base", &variable_base);
+    Test_ParseAddress(arena, "0x1000+$offset", &variable_offset);
+    Test_ParseAddress(arena, "0x1000->$offset", &variable_deref_offset);
+
+    Memmy_Error error = {0};
+    Memmy_Addr addr = 0xfeed;
+    AssertEq(Memmy_AddressExpr_Resolve(&process, &variable_base, &addr, &error), Memmy_Status_Unsupported);
+    AssertEq(error.status, Memmy_Status_Unsupported);
+    AssertStrEq(error.context, String8_Lit("address"));
+
+    error = (Memmy_Error){0};
+    addr = 0xfeed;
+    AssertEq(Memmy_AddressExpr_Resolve(&process, &variable_offset, &addr, &error), Memmy_Status_Unsupported);
+    AssertEq(error.status, Memmy_Status_Unsupported);
+    AssertStrEq(error.context, String8_Lit("address"));
+    AssertEq(backend.read_call_count, 0);
+
+    error = (Memmy_Error){0};
+    addr = 0xfeed;
+    AssertEq(Memmy_AddressExpr_Resolve(&process, &variable_deref_offset, &addr, &error), Memmy_Status_Unsupported);
+    AssertEq(error.status, Memmy_Status_Unsupported);
+    AssertStrEq(error.context, String8_Lit("address"));
+    AssertEq(backend.read_call_count, 0);
+
+    Arena_Destroy(arena);
+}
+
 TestSuite suite_memmy_exec_address =
     TestSuite_Make("Memmy Exec Address", TestCase_Make(Test_MemmyExecAddressResolvesAbsoluteAddresses),
                    TestCase_Make(Test_MemmyExecAddressResolvesModuleBases),
@@ -399,4 +437,5 @@ TestSuite suite_memmy_exec_address =
                    TestCase_Make(Test_MemmyExecAddressReportsMissingModule),
                    TestCase_Make(Test_MemmyExecAddressReportsAmbiguousModule),
                    TestCase_Make(Test_MemmyExecAddressDoesNotEnumerateProcesses),
-                   TestCase_Make(Test_MemmyExecAddressRejectsMismatchedPidSelector), );
+                   TestCase_Make(Test_MemmyExecAddressRejectsMismatchedPidSelector),
+                   TestCase_Make(Test_MemmyExecAddressRejectsUnresolvedVariables), );

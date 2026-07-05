@@ -28,6 +28,41 @@ static B32 Memmy_Expr_IsWhitespace(U8 c)
     return c == ' ' || c == '\t' || c == '\n' || c == '\r';
 }
 
+static B32 Memmy_VariableRef_IsIdentStart(U8 c)
+{
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+}
+
+static B32 Memmy_VariableRef_IsIdentContinue(U8 c)
+{
+    return Memmy_VariableRef_IsIdentStart(c) || Char8_IsDigit(c);
+}
+
+static Memmy_Status Memmy_Expr_ParseVariable(String8 text, Memmy_VariableRef *out, Memmy_Error *error)
+{
+    if (text.len < 2 || text.data[0] != '$' || !Memmy_VariableRef_IsIdentStart(text.data[1]))
+    {
+        Memmy_ExprError_SetInput(error, Memmy_Status_ParseError, String8_Lit("expr"),
+                                 String8_Lit("invalid variable name"), text, 0, text.len);
+        return Memmy_Status_ParseError;
+    }
+
+    for (U64 i = 2; i < text.len; i++)
+    {
+        if (!Memmy_VariableRef_IsIdentContinue(text.data[i]))
+        {
+            Memmy_ExprError_SetInput(error, Memmy_Status_ParseError, String8_Lit("expr"),
+                                     String8_Lit("invalid variable name"), text, i, 1);
+            return Memmy_Status_ParseError;
+        }
+    }
+
+    *out = (Memmy_VariableRef){
+        .name = String8_Substr(text, 1, text.len - 1),
+    };
+    return Memmy_Status_Ok;
+}
+
 static Memmy_ExprSlice Memmy_Expr_TrimSlice(String8 text, U64 offset, U64 len)
 {
     U64 start = offset;
@@ -209,7 +244,8 @@ static Memmy_Status Memmy_Expr_ParseTargetAtStart(String8 text, Memmy_TargetExpr
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Expr_ParseConstAt(String8 full_input, Memmy_ExprSlice slice, I64 *out, Memmy_Error *error)
+static Memmy_Status Memmy_Expr_ParseConstExprAt(Arena *arena, String8 full_input, Memmy_ExprSlice slice,
+                                                Memmy_ConstExpr *out, Memmy_Error *error)
 {
     Memmy_Status status = Memmy_Expr_RejectBoundaryWhitespace(full_input, slice, String8_Lit("range"), error);
     if (status != Memmy_Status_Ok)
@@ -218,18 +254,35 @@ static Memmy_Status Memmy_Expr_ParseConstAt(String8 full_input, Memmy_ExprSlice 
     }
 
     Memmy_ConstExpr const_expr = {0};
-    status = Memmy_ConstExpr_Evaluate(slice.text, &const_expr, error);
+    status = Memmy_ConstExpr_Parse(arena, slice.text, &const_expr, error);
     if (status != Memmy_Status_Ok)
     {
         Memmy_Expr_RemapError(error, full_input, slice.offset);
         return status;
     }
-    *out = const_expr.value;
+    *out = const_expr;
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Expr_ParseSizeAt(String8 full_input, Memmy_ExprSlice slice, Memmy_Size *out,
-                                           Memmy_Error *error)
+static Memmy_Status Memmy_Expr_ParseConstAt(Arena *arena, String8 full_input, Memmy_ExprSlice slice, I64 *out,
+                                            Memmy_ConstExpr *out_expr, Memmy_Error *error)
+{
+    Memmy_ConstExpr const_expr = {0};
+    Memmy_Status status = Memmy_Expr_ParseConstExprAt(arena, full_input, slice, &const_expr, error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+    *out = const_expr.value;
+    if (out_expr != 0)
+    {
+        *out_expr = const_expr;
+    }
+    return Memmy_Status_Ok;
+}
+
+static Memmy_Status Memmy_Expr_ParseSizeAt(Arena *arena, String8 full_input, Memmy_ExprSlice slice, Memmy_Size *out,
+                                           Memmy_ConstExpr *out_expr, Memmy_Error *error)
 {
     Memmy_Status status = Memmy_Expr_RejectBoundaryWhitespace(full_input, slice, String8_Lit("range"), error);
     if (status != Memmy_Status_Ok)
@@ -254,18 +307,39 @@ static Memmy_Status Memmy_Expr_ParseSizeAt(String8 full_input, Memmy_ExprSlice s
         }
         Memmy_ExprSlice inner = Memmy_Expr_TrimSlice(full_input, slice.offset + 1, slice.text.len - 2);
         I64 value = 0;
-        status = Memmy_Expr_ParseConstAt(full_input, inner, &value, error);
+        Memmy_ConstExpr expr = {0};
+        status = Memmy_Expr_ParseConstAt(arena, full_input, inner, &value, &expr, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
-        if (value < 0)
+        if (!expr.contains_variable && value < 0)
         {
             Memmy_ExprError_SetInput(error, Memmy_Status_ParseError, String8_Lit("range"),
                                      String8_Lit("size cannot be negative"), full_input, inner.offset, inner.text.len);
             return Memmy_Status_ParseError;
         }
         *out = (Memmy_Size)value;
+        if (out_expr != 0)
+        {
+            *out_expr = expr;
+        }
+        return Memmy_Status_Ok;
+    }
+
+    if (slice.text.data[0] == '$')
+    {
+        Memmy_ConstExpr expr = {0};
+        status = Memmy_Expr_ParseConstExprAt(arena, full_input, slice, &expr, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        *out = (Memmy_Size)expr.value;
+        if (out_expr != 0)
+        {
+            *out_expr = expr;
+        }
         return Memmy_Status_Ok;
     }
 
@@ -273,6 +347,14 @@ static Memmy_Status Memmy_Expr_ParseSizeAt(String8 full_input, Memmy_ExprSlice s
     if (status != Memmy_Status_Ok)
     {
         Memmy_Expr_RemapError(error, full_input, slice.offset);
+        return status;
+    }
+    if (out_expr != 0)
+    {
+        *out_expr = (Memmy_ConstExpr){
+            .kind = Memmy_ConstExprKind_Literal,
+            .value = (I64)*out,
+        };
     }
     return status;
 }
@@ -304,12 +386,14 @@ static Memmy_Status Memmy_RangeExpr_ParseModuleBracket(Arena *arena, String8 tex
         Memmy_ExprSlice end = Memmy_Expr_RawSlice(text, inner_offset + dots + 2, inner.len - dots - 2);
         I64 start_offset = 0;
         I64 end_offset = 0;
-        Memmy_Status status = Memmy_Expr_ParseConstAt(text, start, &start_offset, error);
+        Memmy_ConstExpr start_expr = {0};
+        Memmy_ConstExpr end_expr = {0};
+        Memmy_Status status = Memmy_Expr_ParseConstAt(arena, text, start, &start_offset, &start_expr, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
-        status = Memmy_Expr_ParseConstAt(text, end, &end_offset, error);
+        status = Memmy_Expr_ParseConstAt(arena, text, end, &end_offset, &end_expr, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -319,6 +403,8 @@ static Memmy_Status Memmy_RangeExpr_ParseModuleBracket(Arena *arena, String8 tex
             .target = target,
             .start_offset = start_offset,
             .end_offset = end_offset,
+            .start_offset_expr = start_expr,
+            .end_offset_expr = end_expr,
         };
         return Memmy_Status_Ok;
     }
@@ -328,17 +414,19 @@ static Memmy_Status Memmy_RangeExpr_ParseModuleBracket(Arena *arena, String8 tex
         Memmy_ExprSlice size = Memmy_Expr_RawSlice(text, inner_offset + sized + 2, inner.len - sized - 2);
         I64 start_offset = 0;
         I64 size_value = 0;
-        Memmy_Status status = Memmy_Expr_ParseConstAt(text, start, &start_offset, error);
+        Memmy_ConstExpr start_expr = {0};
+        Memmy_ConstExpr size_expr = {0};
+        Memmy_Status status = Memmy_Expr_ParseConstAt(arena, text, start, &start_offset, &start_expr, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
-        status = Memmy_Expr_ParseConstAt(text, size, &size_value, error);
+        status = Memmy_Expr_ParseConstAt(arena, text, size, &size_value, &size_expr, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
-        if (size_value < 0)
+        if (!size_expr.contains_variable && size_value < 0)
         {
             Memmy_ExprError_SetInput(error, Memmy_Status_ParseError, String8_Lit("range"),
                                      String8_Lit("size cannot be negative"), text, size.offset, size.text.len);
@@ -349,6 +437,8 @@ static Memmy_Status Memmy_RangeExpr_ParseModuleBracket(Arena *arena, String8 tex
             .target = target,
             .start_offset = start_offset,
             .size = (Memmy_Size)size_value,
+            .start_offset_expr = start_expr,
+            .size_expr = size_expr,
         };
         return Memmy_Status_Ok;
     }
@@ -395,7 +485,8 @@ Memmy_Status Memmy_RangeExpr_Parse(Arena *arena, String8 text, Memmy_RangeExpr *
         }
 
         Memmy_Size size_value = 0;
-        status = Memmy_Expr_ParseSizeAt(text, size, &size_value, error);
+        Memmy_ConstExpr size_expr = {0};
+        status = Memmy_Expr_ParseSizeAt(arena, text, size, &size_value, &size_expr, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -405,6 +496,27 @@ Memmy_Status Memmy_RangeExpr_Parse(Arena *arena, String8 text, Memmy_RangeExpr *
             .kind = Memmy_RangeExprKind_AddressSized,
             .address = address_expr,
             .size = size_value,
+            .size_expr = size_expr,
+        };
+        if (error != 0)
+        {
+            *error = (Memmy_Error){0};
+        }
+        return Memmy_Status_Ok;
+    }
+
+    if (source.text.data[0] == '$')
+    {
+        Memmy_VariableRef variable = {0};
+        Memmy_Status status = Memmy_Expr_ParseVariable(source.text, &variable, error);
+        if (status != Memmy_Status_Ok)
+        {
+            Memmy_Expr_RemapError(error, text, source.offset);
+            return status;
+        }
+        *out = (Memmy_RangeExpr){
+            .kind = Memmy_RangeExprKind_Variable,
+            .variable = variable,
         };
         if (error != 0)
         {

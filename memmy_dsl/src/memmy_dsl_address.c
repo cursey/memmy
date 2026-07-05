@@ -45,6 +45,46 @@ static B32 Memmy_AddressParser_IsWhitespace(U8 c)
     return c == ' ' || c == '\t' || c == '\n' || c == '\r';
 }
 
+static B32 Memmy_VariableRef_IsIdentStart(U8 c)
+{
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+}
+
+static B32 Memmy_VariableRef_IsIdentContinue(U8 c)
+{
+    return Memmy_VariableRef_IsIdentStart(c) || Char8_IsDigit(c);
+}
+
+static Memmy_Status Memmy_AddressParser_ParseVariable(Memmy_AddressParser *parser, Memmy_VariableRef *out)
+{
+    U64 start = parser->pos;
+    if (Memmy_AddressParser_Peek(parser) != '$')
+    {
+        Memmy_ExprError_SetInput(parser->error, Memmy_Status_ParseError, String8_Lit("expr"),
+                                 String8_Lit("expected variable"), parser->text, parser->pos, 1);
+        return Memmy_Status_ParseError;
+    }
+
+    parser->pos++;
+    if (Memmy_AddressParser_AtEnd(parser) || !Memmy_VariableRef_IsIdentStart(Memmy_AddressParser_Peek(parser)))
+    {
+        Memmy_ExprError_SetInput(parser->error, Memmy_Status_ParseError, String8_Lit("expr"),
+                                 String8_Lit("invalid variable name"), parser->text, start, parser->pos - start);
+        return Memmy_Status_ParseError;
+    }
+
+    U64 name_start = parser->pos;
+    while (!Memmy_AddressParser_AtEnd(parser) && Memmy_VariableRef_IsIdentContinue(Memmy_AddressParser_Peek(parser)))
+    {
+        parser->pos++;
+    }
+
+    *out = (Memmy_VariableRef){
+        .name = String8_Substr(parser->text, name_start, parser->pos - name_start),
+    };
+    return Memmy_Status_Ok;
+}
+
 static U32 Memmy_AddressParser_HexDigitValue(U8 c)
 {
     U32 result = U32_MAX;
@@ -117,7 +157,7 @@ static Memmy_Status Memmy_AddressParser_ParseUnsigned(Memmy_AddressParser *parse
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_AddressParser_ParseParenthesizedOffset(Memmy_AddressParser *parser, I64 *out)
+static Memmy_Status Memmy_AddressParser_ParseParenthesizedOffset(Memmy_AddressParser *parser, Memmy_ConstExpr *out)
 {
     U64 open = parser->pos;
     U64 depth = 0;
@@ -150,7 +190,7 @@ static Memmy_Status Memmy_AddressParser_ParseParenthesizedOffset(Memmy_AddressPa
 
     String8 inner = String8_Substr(parser->text, open + 1, close - open - 1);
     Memmy_ConstExpr const_expr = {0};
-    Memmy_Status status = Memmy_ConstExpr_Evaluate(inner, &const_expr, parser->error);
+    Memmy_Status status = Memmy_ConstExpr_Parse(parser->arena, inner, &const_expr, parser->error);
     if (status != Memmy_Status_Ok)
     {
         if (parser->error != 0)
@@ -161,11 +201,11 @@ static Memmy_Status Memmy_AddressParser_ParseParenthesizedOffset(Memmy_AddressPa
         return status;
     }
 
-    *out = const_expr.value;
+    *out = const_expr;
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_AddressParser_ParseOffset(Memmy_AddressParser *parser, I64 *out)
+static Memmy_Status Memmy_AddressParser_ParseOffset(Memmy_AddressParser *parser, Memmy_ConstExpr *out)
 {
     if (Memmy_AddressParser_AtEnd(parser))
     {
@@ -178,6 +218,21 @@ static Memmy_Status Memmy_AddressParser_ParseOffset(Memmy_AddressParser *parser,
     {
         return Memmy_AddressParser_ParseParenthesizedOffset(parser, out);
     }
+    if (Memmy_AddressParser_Peek(parser) == '$')
+    {
+        Memmy_VariableRef variable = {0};
+        Memmy_Status status = Memmy_AddressParser_ParseVariable(parser, &variable);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        *out = (Memmy_ConstExpr){
+            .kind = Memmy_ConstExprKind_Variable,
+            .contains_variable = 1,
+            .variable = variable,
+        };
+        return Memmy_Status_Ok;
+    }
 
     U64 value = 0;
     Memmy_Status status =
@@ -187,7 +242,10 @@ static Memmy_Status Memmy_AddressParser_ParseOffset(Memmy_AddressParser *parser,
         return status;
     }
 
-    *out = (I64)value;
+    *out = (Memmy_ConstExpr){
+        .kind = Memmy_ConstExprKind_Literal,
+        .value = (I64)value,
+    };
     return Memmy_Status_Ok;
 }
 
@@ -240,6 +298,18 @@ static Memmy_Status Memmy_AddressParser_ParseBase(Memmy_AddressParser *parser, M
     {
         return Memmy_AddressParser_ParseTargetBase(parser, out);
     }
+    if (Memmy_AddressParser_Peek(parser) == '$')
+    {
+        Memmy_VariableRef variable = {0};
+        Memmy_Status status = Memmy_AddressParser_ParseVariable(parser, &variable);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        out->base_kind = Memmy_AddressExprBaseKind_Variable;
+        out->variable = variable;
+        return Memmy_Status_Ok;
+    }
 
     U64 addr = 0;
     Memmy_Status status =
@@ -255,11 +325,12 @@ static Memmy_Status Memmy_AddressParser_ParseBase(Memmy_AddressParser *parser, M
 }
 
 static void Memmy_AddressParser_PushOp(Memmy_AddressParser *parser, Memmy_AddressExpr *expr, Memmy_AddressOpKind kind,
-                                       I64 offset)
+                                       Memmy_ConstExpr offset_expr)
 {
     Memmy_AddressOp *op = Arena_PushStruct(parser->arena, Memmy_AddressOp);
     op->kind = kind;
-    op->offset = offset;
+    op->offset = offset_expr.value;
+    op->offset_expr = offset_expr;
     List_PushBack(&expr->ops, &op->link);
 }
 
@@ -285,7 +356,7 @@ static Memmy_Status Memmy_AddressParser_ParseOps(Memmy_AddressParser *parser, Me
         if (c == '+')
         {
             parser->pos++;
-            I64 offset = 0;
+            Memmy_ConstExpr offset = {0};
             Memmy_Status status = Memmy_AddressParser_ParseOffset(parser, &offset);
             if (status != Memmy_Status_Ok)
             {
@@ -298,14 +369,14 @@ static Memmy_Status Memmy_AddressParser_ParseOps(Memmy_AddressParser *parser, Me
             if (parser->pos + 1 < parser->text.len && parser->text.data[parser->pos + 1] == '>')
             {
                 parser->pos += 2;
-                I64 offset = 0;
+                Memmy_ConstExpr offset = {0};
                 if (Memmy_AddressParser_AtEnd(parser))
                 {
-                    Memmy_AddressParser_PushOp(parser, expr, Memmy_AddressOpKind_Deref, 0);
+                    Memmy_AddressParser_PushOp(parser, expr, Memmy_AddressOpKind_Deref, (Memmy_ConstExpr){0});
                     continue;
                 }
                 U8 next = Memmy_AddressParser_Peek(parser);
-                if (next == '(' || Char8_IsDigit(next))
+                if (next == '(' || next == '$' || Char8_IsDigit(next))
                 {
                     Memmy_Status status = Memmy_AddressParser_ParseOffset(parser, &offset);
                     if (status != Memmy_Status_Ok)
@@ -316,12 +387,12 @@ static Memmy_Status Memmy_AddressParser_ParseOps(Memmy_AddressParser *parser, Me
                     continue;
                 }
 
-                Memmy_AddressParser_PushOp(parser, expr, Memmy_AddressOpKind_Deref, 0);
+                Memmy_AddressParser_PushOp(parser, expr, Memmy_AddressOpKind_Deref, (Memmy_ConstExpr){0});
             }
             else
             {
                 parser->pos++;
-                I64 offset = 0;
+                Memmy_ConstExpr offset = {0};
                 Memmy_Status status = Memmy_AddressParser_ParseOffset(parser, &offset);
                 if (status != Memmy_Status_Ok)
                 {

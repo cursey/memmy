@@ -11,8 +11,8 @@ static void Test_MemmyExecRange_Parse(Arena *arena, char *text, Memmy_RangeExpr 
 static void Test_MemmyExecRange_AddModule(Test_MemmyBackend *backend)
 {
     backend->module_count = 0;
-    Test_MemmyBackend_AddModule(backend, 4242, String8_Lit("client.dll"), String8_Lit("C:\\game\\client.dll"),
-                                0x1000, 0x8000);
+    Test_MemmyBackend_AddModule(backend, 4242, String8_Lit("client.dll"), String8_Lit("C:\\game\\client.dll"), 0x1000,
+                                0x8000);
 }
 
 static Memmy_Process Test_MemmyExecRange_Process(Test_MemmyBackend *backend)
@@ -118,9 +118,48 @@ Test(Test_MemmyExecRangeRejectsAddressExprDotDotRanges)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyExecRangeRejectsUnresolvedVariables)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    Test_MemmyExecRange_AddModule(&backend);
+    Memmy_Process process = Test_MemmyExecRange_Process(&backend);
+
+    Memmy_RangeExpr variable_range = {0};
+    Memmy_RangeExpr module_start = {0};
+    Memmy_RangeExpr module_end = {0};
+    Memmy_RangeExpr module_size = {0};
+    Memmy_RangeExpr address_size = {0};
+    Memmy_RangeExpr address_base = {0};
+    Test_MemmyExecRange_Parse(arena, "$range", &variable_range);
+    Test_MemmyExecRange_Parse(arena, "<client.dll>[$start..0x20]", &module_start);
+    Test_MemmyExecRange_Parse(arena, "<client.dll>[0x10..$end]", &module_end);
+    Test_MemmyExecRange_Parse(arena, "<client.dll>[0x10:+$size]", &module_size);
+    Test_MemmyExecRange_Parse(arena, "0x1000:+$size", &address_size);
+    Test_MemmyExecRange_Parse(arena, "$base:+0x20", &address_base);
+
+    Memmy_RangeExpr *rejected[] = {
+        &variable_range, &module_start, &module_end, &module_size, &address_size, &address_base,
+    };
+
+    for (U64 i = 0; i < ArrayCount(rejected); i++)
+    {
+        Memmy_Range range = {0};
+        Memmy_Error error = {0};
+        AssertEq(Memmy_RangeExpr_Resolve(&process, rejected[i], &range, &error), Memmy_Status_Unsupported);
+        AssertEq(error.status, Memmy_Status_Unsupported);
+        AssertTrue(String8_Eq(error.context, String8_Lit("range")) ||
+                   String8_Eq(error.context, String8_Lit("address")));
+    }
+
+    Arena_Destroy(arena);
+}
+
 TestSuite suite_memmy_exec_range =
     TestSuite_Make("Memmy Exec Range", TestCase_Make(Test_MemmyExecRangeResolvesModuleFullRange),
                    TestCase_Make(Test_MemmyExecRangeResolvesModuleBracketAndSizedRanges),
                    TestCase_Make(Test_MemmyExecRangeResolvesModuleAddressSizedRange),
                    TestCase_Make(Test_MemmyExecRangeResolvesAbsoluteAddressSizedRange),
-                   TestCase_Make(Test_MemmyExecRangeRejectsAddressExprDotDotRanges), );
+                   TestCase_Make(Test_MemmyExecRangeRejectsAddressExprDotDotRanges),
+                   TestCase_Make(Test_MemmyExecRangeRejectsUnresolvedVariables), );

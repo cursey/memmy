@@ -108,6 +108,13 @@ static Memmy_Status Memmy_Exec_AddOffset(Memmy_Addr base, I64 offset, Memmy_Addr
     return Memmy_Status_Ok;
 }
 
+static Memmy_Status Memmy_Exec_RejectVariableRange(Memmy_Error *error)
+{
+    Memmy_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("range"),
+                    String8_Lit("range variables are not resolved yet"));
+    return Memmy_Status_Unsupported;
+}
+
 static B32 Memmy_Exec_IsReadableRegion(Memmy_Region *region)
 {
     return region->state == Memmy_RegionState_Committed && (region->access & Memmy_RegionAccess_Read) != 0 &&
@@ -296,8 +303,26 @@ Memmy_Status Memmy_RangeExpr_Resolve(Memmy_Process *process, Memmy_RangeExpr *ex
         return Memmy_Range_FromStartLength(module.base, module.size, out, error);
     }
 
+    if (expr->kind == Memmy_RangeExprKind_Variable)
+    {
+        return Memmy_Exec_RejectVariableRange(error);
+    }
+
     if (expr->kind == Memmy_RangeExprKind_ModuleOffset || expr->kind == Memmy_RangeExprKind_ModuleSized)
     {
+        if (expr->start_offset_expr.contains_variable)
+        {
+            return Memmy_Exec_RejectVariableRange(error);
+        }
+        if (expr->kind == Memmy_RangeExprKind_ModuleOffset && expr->end_offset_expr.contains_variable)
+        {
+            return Memmy_Exec_RejectVariableRange(error);
+        }
+        if (expr->kind == Memmy_RangeExprKind_ModuleSized && expr->size_expr.contains_variable)
+        {
+            return Memmy_Exec_RejectVariableRange(error);
+        }
+
         Memmy_Module module = {0};
         Memmy_Status status = Memmy_Exec_ResolveModule(process, &expr->target, &module, error);
         if (status != Memmy_Status_Ok)
@@ -328,6 +353,11 @@ Memmy_Status Memmy_RangeExpr_Resolve(Memmy_Process *process, Memmy_RangeExpr *ex
 
     if (expr->kind == Memmy_RangeExprKind_AddressSized)
     {
+        if (expr->size_expr.contains_variable)
+        {
+            return Memmy_Exec_RejectVariableRange(error);
+        }
+
         Memmy_Addr start = 0;
         Memmy_Status status = Memmy_AddressExpr_Resolve(process, &expr->address, &start, error);
         if (status != Memmy_Status_Ok)

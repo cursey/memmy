@@ -178,6 +178,13 @@ static Memmy_Status Memmy_AddressExpr_ReadPointer(Memmy_Process *process, Memmy_
     return Memmy_Status_Ok;
 }
 
+static Memmy_Status Memmy_AddressExpr_RejectVariable(Memmy_Error *error)
+{
+    Memmy_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("address"),
+                    String8_Lit("address variables are not resolved yet"));
+    return Memmy_Status_Unsupported;
+}
+
 Memmy_Status Memmy_AddressExpr_Resolve(Memmy_Process *process, Memmy_AddressExpr *expr, Memmy_Addr *out,
                                        Memmy_Error *error)
 {
@@ -201,6 +208,10 @@ Memmy_Status Memmy_AddressExpr_Resolve(Memmy_Process *process, Memmy_AddressExpr
             return status;
         }
     }
+    else if (expr->base_kind == Memmy_AddressExprBaseKind_Variable)
+    {
+        return Memmy_AddressExpr_RejectVariable(error);
+    }
     else
     {
         Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("address"),
@@ -210,6 +221,11 @@ Memmy_Status Memmy_AddressExpr_Resolve(Memmy_Process *process, Memmy_AddressExpr
 
     List_ForEach(Memmy_AddressOp, op, &expr->ops, link)
     {
+        if (op->offset_expr.contains_variable)
+        {
+            return Memmy_AddressExpr_RejectVariable(error);
+        }
+
         if (op->kind == Memmy_AddressOpKind_Add)
         {
             Memmy_Status status = Memmy_AddressExpr_ApplyOffset(addr, op->offset, &addr, error);
