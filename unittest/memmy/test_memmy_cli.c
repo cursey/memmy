@@ -18,14 +18,26 @@ Test(Test_MemmyCliHelpAndVersion)
     Memmy_Error error = {0};
     char *help_argv[] = {"memmy", "--help"};
     char *version_argv[] = {"memmy", "--version"};
+    char *jsonl_help_argv[] = {"memmy", "--jsonl", "--help"};
+    char *jsonl_version_argv[] = {"memmy", "--jsonl", "--version"};
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(help_argv), help_argv, &out, &error), Memmy_Status_Ok);
     AssertTrue(String8_Find(out, String8_Lit("memmy [global-options] [--pid <pid>|--name <name>] <file>"), 0) !=
                STRING8_NPOS);
     AssertTrue(String8_Find(out, String8_Lit("--expr <memory-expr>"), 0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("--json\n"), 0) == STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("--jsonl"), 0) != STRING8_NPOS);
     AssertTrue(String8_Find(out, String8_Lit("procs"), 0) == STRING8_NPOS);
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(version_argv), version_argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("memmy 0.0.0\n"));
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(jsonl_help_argv), jsonl_help_argv, &out, &error),
+             Memmy_Status_Ok);
+    AssertTrue(String8_Find(out, String8_Lit("Global options:"), 0) != STRING8_NPOS);
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(jsonl_version_argv), jsonl_version_argv, &out, &error),
+             Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("memmy 0.0.0\n"));
 
     Arena_Destroy(arena);
@@ -131,13 +143,11 @@ Test(Test_MemmyCliFormerSubcommandNamesAreFilePaths)
     Arena_Destroy(arena);
 }
 
-Test(Test_MemmyCliJsonHelpers)
+Test(Test_MemmyCliJsonlHelpers)
 {
     Arena *arena = Arena_CreateDefault();
     U8 bytes[] = {0x00, 0x0a, 0xff};
-    char *json_flag[] = {"memmy", "--json", "--expr", "0x1000"};
     char *jsonl_flag[] = {"memmy", "--jsonl", "--expr", "0x1000:+0x10 : u8 == 1"};
-    char *json_value[] = {"memmy", "--expr", "--json"};
     char *jsonl_value[] = {"memmy", "--expr", "--jsonl"};
     char *help_flag[] = {"memmy", "--help"};
     char *version_flag[] = {"memmy", "--version"};
@@ -148,9 +158,7 @@ Test(Test_MemmyCliJsonHelpers)
     AssertStrEq(Memmy_Cli_FormatAddress(arena, Memmy_PointerWidth_32, 0x4242), String8_Lit("0x00004242"));
     AssertStrEq(Memmy_Cli_FormatHexBytes(arena, String8_Make(bytes, ArrayCount(bytes))), String8_Lit("00 0a ff"));
     AssertStrEq(Memmy_Cli_FormatJsonString(arena, String8_Lit("a\0b\n\"\\")), String8_Lit("\"a\\u0000b\\n\\\"\\\\\""));
-    AssertEq(Memmy_Cli_ArgvHasJson((I32)ArrayCount(json_flag), json_flag), 1);
     AssertEq(Memmy_Cli_ArgvHasJsonl((I32)ArrayCount(jsonl_flag), jsonl_flag), 1);
-    AssertEq(Memmy_Cli_ArgvHasJson((I32)ArrayCount(json_value), json_value), 0);
     AssertEq(Memmy_Cli_ArgvHasJsonl((I32)ArrayCount(jsonl_value), jsonl_value), 0);
     AssertEq(Memmy_Cli_ArgvHasHelp((I32)ArrayCount(help_flag), help_flag), 1);
     AssertEq(Memmy_Cli_ArgvHasVersion((I32)ArrayCount(version_flag), version_flag), 1);
@@ -166,14 +174,10 @@ Test(Test_MemmyCliJsonHelpers)
         .byte_count = 1,
         .os_code = 5,
     };
-    AssertStrEq(Memmy_Cli_FormatJsonError(arena, &error),
-                String8_Lit("{\"ok\":false,\"error\":{\"status\":\"parse_error\",\"message\":\"bad "
-                            "\\\"address\\\"\",\"context\":\"address\",\"input\":\"0x\",\"byte_offset\":2,"
-                            "\"byte_count\":1,\"os_code\":5}}\n"));
     AssertStrEq(Memmy_Cli_FormatJsonlError(arena, &error),
-                String8_Lit("{\"ok\":false,\"error\":{\"status\":\"parse_error\",\"message\":\"bad "
+                String8_Lit("{\"type\":\"error\",\"status\":\"parse_error\",\"message\":\"bad "
                             "\\\"address\\\"\",\"context\":\"address\",\"input\":\"0x\",\"byte_offset\":2,"
-                            "\"byte_count\":1,\"os_code\":5}}\n"));
+                            "\"byte_count\":1,\"os_code\":5}\n"));
 
     Arena_Destroy(arena);
 }
@@ -183,13 +187,14 @@ Test(Test_MemmyCliInvalidOptions)
     Arena *arena = Arena_CreateDefault();
     String8 out = {0};
     Memmy_Error error = {0};
-    char *duplicate_json[] = {"memmy", "--json", "--json", "--expr", "0x1000"};
+    char *json_option[] = {"memmy", "--json", "--expr", "0x1000"};
     char *invalid_script_option[] = {"memmy", "--addr", "0x1000", "script.memmy"};
 
-    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(duplicate_json), duplicate_json, &out, &error),
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(json_option), json_option, &out, &error),
              Memmy_Status_InvalidArgument);
     AssertStrEq(error.context, String8_Lit("cli"));
     AssertStrEq(error.input, String8_Lit("--json"));
+    AssertStrEq(error.message, String8_Lit("unknown option"));
 
     error = (Memmy_Error){0};
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(invalid_script_option), invalid_script_option, &out, &error),
@@ -222,5 +227,5 @@ TestSuite suite_memmy_cli = TestSuite_Make(
     "Memmy CLI", TestCase_Make(Test_MemmyCliHelpAndVersion), TestCase_Make(Test_MemmyCliRejectsAmbiguousInputSources),
     TestCase_Make(Test_MemmyCliInputStringEvaluatesWithOptions),
     TestCase_Make(Test_MemmyCliFileInputEvaluatesReplString),
-    TestCase_Make(Test_MemmyCliFormerSubcommandNamesAreFilePaths), TestCase_Make(Test_MemmyCliJsonHelpers),
+    TestCase_Make(Test_MemmyCliFormerSubcommandNamesAreFilePaths), TestCase_Make(Test_MemmyCliJsonlHelpers),
     TestCase_Make(Test_MemmyCliInvalidOptions), TestCase_Make(Test_MemmyCliExitCodeMapping), );

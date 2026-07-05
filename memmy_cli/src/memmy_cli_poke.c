@@ -1,6 +1,6 @@
 #include "memmy_cli_internal.h"
 
-Memmy_Status Memmy_Cli_FormatPokeOutput(Arena *arena, Memmy_CliPokeOutput *poke, B32 json, String8 *out,
+Memmy_Status Memmy_Cli_FormatPokeOutput(Arena *arena, Memmy_CliPokeOutput *poke, B32 jsonl, String8 *out,
                                         Memmy_Error *error)
 {
     Memmy_CliValueFormat format = {
@@ -22,14 +22,14 @@ Memmy_Status Memmy_Cli_FormatPokeOutput(Arena *arena, Memmy_CliPokeOutput *poke,
     }
 
     String8 address = Memmy_Cli_FormatAddress(arena, poke->pointer_width, poke->address);
-    if (json)
+    if (jsonl)
     {
         String8 type_json = Memmy_Cli_FormatJsonString(arena, format.type_text);
         String8 old_json = Memmy_Cli_FormatJsonString(arena, old_value);
         String8 new_json = Memmy_Cli_FormatJsonString(arena, new_display);
         *out = String8_PushF(arena,
-                             "{\"process\":%u,\"address\":\"%.*s\",\"type\":%.*s,\"old\":%.*s,\"new\":%.*s,"
-                             "\"dry_run\":%s}\n",
+                             "{\"type\":\"poke\",\"process\":%u,\"address\":\"%.*s\",\"value_type\":%.*s,"
+                             "\"old\":%.*s,\"new\":%.*s,\"dry_run\":%s}\n",
                              poke->pid, (int)address.len, (char *)address.data, (int)type_json.len,
                              (char *)type_json.data, (int)old_json.len, (char *)old_json.data, (int)new_json.len,
                              (char *)new_json.data, poke->dry_run ? "true" : "false");

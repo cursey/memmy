@@ -93,11 +93,6 @@ static B32 Memmy_Cli_ArgvHasFormatFlag(I32 argc, char **argv, String8 flag)
     return 0;
 }
 
-B32 Memmy_Cli_ArgvHasJson(I32 argc, char **argv)
-{
-    return Memmy_Cli_ArgvHasFormatFlag(argc, argv, String8_Lit("--json"));
-}
-
 B32 Memmy_Cli_ArgvHasJsonl(I32 argc, char **argv)
 {
     return Memmy_Cli_ArgvHasFormatFlag(argc, argv, String8_Lit("--jsonl"));
@@ -175,7 +170,7 @@ String8 Memmy_Cli_FormatHexBytes(Arena *arena, String8 bytes)
     return String8List_Join(arena, &parts, (String8){0});
 }
 
-String8 Memmy_Cli_FormatJsonError(Arena *arena, Memmy_Error *error)
+String8 Memmy_Cli_FormatJsonlError(Arena *arena, Memmy_Error *error)
 {
     Memmy_Error fallback = {0};
     if (error == 0)
@@ -188,17 +183,12 @@ String8 Memmy_Cli_FormatJsonError(Arena *arena, Memmy_Error *error)
     String8 context_json = Memmy_Cli_FormatJsonString(arena, error->context);
     String8 input_json = Memmy_Cli_FormatJsonString(arena, error->input);
     return String8_PushF(arena,
-                         "{\"ok\":false,\"error\":{\"status\":%.*s,\"message\":%.*s,\"context\":%.*s,"
-                         "\"input\":%.*s,\"byte_offset\":%llu,\"byte_count\":%llu,\"os_code\":%u}}\n",
+                         "{\"type\":\"error\",\"status\":%.*s,\"message\":%.*s,\"context\":%.*s,"
+                         "\"input\":%.*s,\"byte_offset\":%llu,\"byte_count\":%llu,\"os_code\":%u}\n",
                          (int)status_json.len, (char *)status_json.data, (int)message_json.len,
                          (char *)message_json.data, (int)context_json.len, (char *)context_json.data,
                          (int)input_json.len, (char *)input_json.data, (unsigned long long)error->byte_offset,
                          (unsigned long long)error->byte_count, error->os_code);
-}
-
-String8 Memmy_Cli_FormatJsonlError(Arena *arena, Memmy_Error *error)
-{
-    return Memmy_Cli_FormatJsonError(arena, error);
 }
 
 static Memmy_Status Memmy_Cli_ParsePid(String8 text, U32 *out, Memmy_Error *error)
@@ -240,14 +230,6 @@ static Memmy_Status Memmy_Cli_ParseOptions(I32 argc, char **argv, Memmy_CliOptio
                 return Memmy_Cli_InvalidOption(error, String8_Lit("duplicate --version"), arg);
             }
             out->version = 1;
-        }
-        else if (String8_Eq(arg, String8_Lit("--json")))
-        {
-            if (out->json)
-            {
-                return Memmy_Cli_InvalidOption(error, String8_Lit("duplicate --json"), arg);
-            }
-            out->json = 1;
         }
         else if (String8_Eq(arg, String8_Lit("--jsonl")))
         {
@@ -323,11 +305,6 @@ static Memmy_Status Memmy_Cli_ParseOptions(I32 argc, char **argv, Memmy_CliOptio
             return Memmy_Status_ParseError;
         }
     }
-
-    if (out->json && out->jsonl)
-    {
-        return Memmy_Cli_InvalidOption(error, String8_Lit("use --json or --jsonl, not both"), String8_Lit("--jsonl"));
-    }
     return Memmy_Status_Ok;
 }
 
@@ -341,7 +318,6 @@ static String8 Memmy_Cli_Help(Arena *arena)
                                            "Run without arguments to start a simple expression REPL.\n"
                                            "\n"
                                            "Global options:\n"
-                                           "  --json\n"
                                            "  --jsonl\n"
                                            "  --help\n"
                                            "  --version\n"

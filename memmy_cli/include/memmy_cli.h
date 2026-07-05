@@ -11,12 +11,10 @@ Memmy_Status Memmy_Cli_RunToString(Arena *arena, I32 argc, char **argv, String8 
 I32 Memmy_Cli_ExitCodeFromStatus(Memmy_Status status);
 B32 Memmy_Cli_ArgvHasHelp(I32 argc, char **argv);
 B32 Memmy_Cli_ArgvHasVersion(I32 argc, char **argv);
-B32 Memmy_Cli_ArgvHasJson(I32 argc, char **argv);
 B32 Memmy_Cli_ArgvHasJsonl(I32 argc, char **argv);
 String8 Memmy_Cli_FormatAddress(Arena *arena, Memmy_PointerWidth pointer_width, Memmy_Addr address);
 String8 Memmy_Cli_FormatJsonString(Arena *arena, String8 text);
 String8 Memmy_Cli_FormatHexBytes(Arena *arena, String8 bytes);
-String8 Memmy_Cli_FormatJsonError(Arena *arena, Memmy_Error *error);
 String8 Memmy_Cli_FormatJsonlError(Arena *arena, Memmy_Error *error);
 
 #endif // MEMMY_CLI_H

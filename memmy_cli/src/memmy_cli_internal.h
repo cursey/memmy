@@ -9,7 +9,6 @@ struct Memmy_CliOptions
     String8 input_path;
     B32 help;
     B32 version;
-    B32 json;
     B32 jsonl;
     B32 has_pid;
     U32 pid;
@@ -59,11 +58,11 @@ Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 
 Memmy_Status Memmy_Cli_FormatValue(Arena *arena, Memmy_CliValueFormat *format, String8 bytes, String8 *out,
                                    Memmy_Error *error);
 String8 Memmy_Cli_TypeString(Memmy_Type type);
-Memmy_Status Memmy_Cli_FormatPeekOutput(Arena *arena, Memmy_CliPeekOutput *peek, B32 json, String8 *out,
+Memmy_Status Memmy_Cli_FormatPeekOutput(Arena *arena, Memmy_CliPeekOutput *peek, B32 jsonl, String8 *out,
                                         Memmy_Error *error);
-Memmy_Status Memmy_Cli_FormatPokeOutput(Arena *arena, Memmy_CliPokeOutput *poke, B32 json, String8 *out,
+Memmy_Status Memmy_Cli_FormatPokeOutput(Arena *arena, Memmy_CliPokeOutput *poke, B32 jsonl, String8 *out,
                                         Memmy_Error *error);
 String8 Memmy_Cli_FormatScanResults(Arena *arena, Memmy_ScanResultList *results, Memmy_PointerWidth pointer_width,
-                                    B32 json, B32 jsonl);
+                                    B32 jsonl);
 
 #endif // MEMMY_CLI_INTERNAL_H

@@ -77,7 +77,6 @@ int main(int argc, char **argv)
     }
 
     String8 output = {0};
-    B32 json = Memmy_Cli_ArgvHasJson(argc, argv);
     B32 jsonl = Memmy_Cli_ArgvHasJsonl(argc, argv);
     if (Memmy_Cli_ArgvHasHelp(argc, argv) || Memmy_Cli_ArgvHasVersion(argc, argv))
     {
@@ -99,11 +98,7 @@ int main(int argc, char **argv)
     {
         status = Memmy_Cli_RunToString(arena, argc, argv, &output, &error);
     }
-    if (status != Memmy_Status_Ok && json)
-    {
-        output = Memmy_Cli_FormatJsonError(arena, &error);
-    }
-    else if (status != Memmy_Status_Ok && jsonl)
+    if (status != Memmy_Status_Ok && jsonl)
     {
         output = Memmy_Cli_FormatJsonlError(arena, &error);
     }
@@ -112,7 +107,7 @@ int main(int argc, char **argv)
         Os_WriteStdout(output);
     }
 
-    if (status != Memmy_Status_Ok && !json && !jsonl)
+    if (status != Memmy_Status_Ok && !jsonl)
     {
         Memmy_Main_WriteError(arena, status, &error);
     }

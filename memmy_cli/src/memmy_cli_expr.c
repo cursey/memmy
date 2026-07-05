@@ -236,12 +236,6 @@ Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 
                         String8_Lit("only address, peek, poke, and scan expressions are implemented"));
         return Memmy_Status_Unsupported;
     }
-    if (options->jsonl && expr.kind != Memmy_MemoryExprKind_PatternScan && expr.kind != Memmy_MemoryExprKind_ValueScan)
-    {
-        return Memmy_Cli_InvalidOption(error, String8_Lit("--jsonl is only valid for scan expressions"),
-                                       String8_Lit("--jsonl"));
-    }
-
     Memmy_CliExprNeeds needs = Memmy_Cli_MemoryExprNeeds(&expr);
     Memmy_ProcessSelector expr_selector = Memmy_Cli_ExprProcessSelector(&expr);
     B32 process_required = needs.process || expr_selector.kind != Memmy_ProcessSelectorKind_None;
@@ -304,9 +298,10 @@ Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 
         }
 
         String8 address_text = Memmy_Cli_FormatAddress(arena, pointer_width, address);
-        if (options->json)
+        if (options->jsonl)
         {
-            *out = String8_PushF(arena, "{\"address\":\"%.*s\"}\n", (int)address_text.len, (char *)address_text.data);
+            *out = String8_PushF(arena, "{\"type\":\"address\",\"address\":\"%.*s\"}\n", (int)address_text.len,
+                                 (char *)address_text.data);
         }
         else
         {
@@ -333,7 +328,7 @@ Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 
             .type_text = Memmy_Cli_TypeString(result.type),
             .bytes = result.value.bytes,
         };
-        status = Memmy_Cli_FormatPeekOutput(arena, &peek, options->json, out, error);
+        status = Memmy_Cli_FormatPeekOutput(arena, &peek, options->jsonl, out, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -362,7 +357,7 @@ Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 
             .new_bytes = result.new_value.bytes,
             .dry_run = 0,
         };
-        status = Memmy_Cli_FormatPokeOutput(arena, &poke, options->json, out, error);
+        status = Memmy_Cli_FormatPokeOutput(arena, &poke, options->jsonl, out, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -381,7 +376,7 @@ Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 
             return status;
         }
 
-        *out = Memmy_Cli_FormatScanResults(arena, &results, pointer_width, options->json, options->jsonl);
+        *out = Memmy_Cli_FormatScanResults(arena, &results, pointer_width, options->jsonl);
     }
     else
     {
@@ -396,7 +391,7 @@ Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 
             return status;
         }
 
-        *out = Memmy_Cli_FormatScanResults(arena, &results, pointer_width, options->json, options->jsonl);
+        *out = Memmy_Cli_FormatScanResults(arena, &results, pointer_width, options->jsonl);
     }
     return Memmy_Status_Ok;
 }

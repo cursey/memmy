@@ -219,6 +219,18 @@ static void Memmy_Cli_PushHexBytes(Arena *arena, String8List *lines, String8 byt
     }
 }
 
+static String8 Memmy_Cli_FormatJsonHexBytes(Arena *arena, String8 bytes)
+{
+    String8List parts = {0};
+    String8List_Push(arena, &parts, String8_Lit("\"0x"));
+    for (U64 i = 0; i < bytes.len; i++)
+    {
+        Memmy_Cli_PushLine(arena, &parts, "%02x", bytes.data[i]);
+    }
+    String8List_Push(arena, &parts, String8_Lit("\""));
+    return String8List_Join(arena, &parts, (String8){0});
+}
+
 static Memmy_Status Memmy_Cli_FormatPeekValue(Arena *arena, Memmy_CliValueFormat *format, String8 bytes,
                                               String8List *lines, Memmy_Error *error)
 {
@@ -314,33 +326,37 @@ static Memmy_Status Memmy_Cli_FormatJsonValueFields(Arena *arena, Memmy_CliValue
     case Memmy_TypeKind_F32: {
         F32 value = 0;
         Memory_Copy(&value, bytes.data, sizeof(value));
+        String8 hex = Memmy_Cli_FormatJsonHexBytes(arena, bytes);
         if (F32_IsFinite(value))
         {
-            *out = String8_PushF(arena, "\"value\":%g", (double)value);
+            *out = String8_PushF(arena, "\"value\":%g,\"hex\":%.*s", (double)value, (int)hex.len, (char *)hex.data);
         }
         else
         {
-            *out = String8_Lit("\"value\":null");
+            *out = String8_PushF(arena, "\"value\":null,\"hex\":%.*s", (int)hex.len, (char *)hex.data);
         }
     }
     break;
     case Memmy_TypeKind_F64: {
         F64 value = 0;
         Memory_Copy(&value, bytes.data, sizeof(value));
+        String8 hex = Memmy_Cli_FormatJsonHexBytes(arena, bytes);
         if (F64_IsFinite(value))
         {
-            *out = String8_PushF(arena, "\"value\":%g", value);
+            *out = String8_PushF(arena, "\"value\":%g,\"hex\":%.*s", value, (int)hex.len, (char *)hex.data);
         }
         else
         {
-            *out = String8_Lit("\"value\":null");
+            *out = String8_PushF(arena, "\"value\":null,\"hex\":%.*s", (int)hex.len, (char *)hex.data);
         }
     }
     break;
     case Memmy_TypeKind_Bytes: {
         String8 hex_bytes = Memmy_Cli_FormatHexBytes(arena, bytes);
         String8 value = Memmy_Cli_FormatJsonString(arena, hex_bytes);
-        *out = String8_PushF(arena, "\"value\":%.*s", (int)value.len, (char *)value.data);
+        String8 hex = Memmy_Cli_FormatJsonHexBytes(arena, bytes);
+        *out = String8_PushF(arena, "\"value\":%.*s,\"hex\":%.*s", (int)value.len, (char *)value.data, (int)hex.len,
+                             (char *)hex.data);
     }
     break;
     case Memmy_TypeKind_Str: {
@@ -350,7 +366,9 @@ static Memmy_Status Memmy_Cli_FormatJsonValueFields(Arena *arena, Memmy_CliValue
             return status;
         }
         String8 value = Memmy_Cli_FormatJsonString(arena, bytes);
-        *out = String8_PushF(arena, "\"value\":%.*s", (int)value.len, (char *)value.data);
+        String8 hex = Memmy_Cli_FormatJsonHexBytes(arena, bytes);
+        *out = String8_PushF(arena, "\"value\":%.*s,\"hex\":%.*s", (int)value.len, (char *)value.data, (int)hex.len,
+                             (char *)hex.data);
     }
     break;
     case Memmy_TypeKind_WStr: {
@@ -361,7 +379,9 @@ static Memmy_Status Memmy_Cli_FormatJsonValueFields(Arena *arena, Memmy_CliValue
         }
         String8 text = Memmy_Cli_DecodeWStr(arena, bytes);
         String8 value = Memmy_Cli_FormatJsonString(arena, text);
-        *out = String8_PushF(arena, "\"value\":%.*s", (int)value.len, (char *)value.data);
+        String8 hex = Memmy_Cli_FormatJsonHexBytes(arena, bytes);
+        *out = String8_PushF(arena, "\"value\":%.*s,\"hex\":%.*s", (int)value.len, (char *)value.data, (int)hex.len,
+                             (char *)hex.data);
     }
     break;
     }
@@ -404,7 +424,7 @@ String8 Memmy_Cli_TypeString(Memmy_Type type)
     return String8_Lit("?");
 }
 
-Memmy_Status Memmy_Cli_FormatPeekOutput(Arena *arena, Memmy_CliPeekOutput *peek, B32 json, String8 *out,
+Memmy_Status Memmy_Cli_FormatPeekOutput(Arena *arena, Memmy_CliPeekOutput *peek, B32 jsonl, String8 *out,
                                         Memmy_Error *error)
 {
     Memmy_CliValueFormat format = {
@@ -412,7 +432,7 @@ Memmy_Status Memmy_Cli_FormatPeekOutput(Arena *arena, Memmy_CliPeekOutput *peek,
         .type_text = peek->type_text.len != 0 ? peek->type_text : Memmy_Cli_TypeString(peek->type),
     };
     String8 address = Memmy_Cli_FormatAddress(arena, peek->pointer_width, peek->address);
-    if (json)
+    if (jsonl)
     {
         String8 value_fields = {0};
         Memmy_Status status = Memmy_Cli_FormatJsonValueFields(arena, &format, peek->bytes, &value_fields, error);
@@ -421,9 +441,9 @@ Memmy_Status Memmy_Cli_FormatPeekOutput(Arena *arena, Memmy_CliPeekOutput *peek,
             return status;
         }
         String8 type_json = Memmy_Cli_FormatJsonString(arena, format.type_text);
-        *out =
-            String8_PushF(arena, "{\"address\":\"%.*s\",\"type\":%.*s,%.*s}\n", (int)address.len, (char *)address.data,
-                          (int)type_json.len, (char *)type_json.data, (int)value_fields.len, (char *)value_fields.data);
+        *out = String8_PushF(arena, "{\"type\":\"peek\",\"address\":\"%.*s\",\"value_type\":%.*s,%.*s}\n",
+                             (int)address.len, (char *)address.data, (int)type_json.len, (char *)type_json.data,
+                             (int)value_fields.len, (char *)value_fields.data);
     }
     else
     {
