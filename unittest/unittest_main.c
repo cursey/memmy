@@ -26,6 +26,8 @@ extern TestSuite suite_memmy_range;
 extern TestSuite suite_memmy_scan;
 extern TestSuite suite_memmy_context;
 extern TestSuite suite_memmy_process;
+extern TestSuite suite_memmy_ast;
+extern TestSuite suite_memmy_eval;
 extern TestSuite suite_memmy_dsl_target;
 extern TestSuite suite_memmy_dsl_const;
 extern TestSuite suite_memmy_dsl_address;
@@ -69,6 +71,8 @@ int main(int argc, char **argv)
         suite_memmy_scan,
         suite_memmy_context,
         suite_memmy_process,
+        suite_memmy_ast,
+        suite_memmy_eval,
         suite_memmy_dsl_target,
         suite_memmy_dsl_const,
         suite_memmy_dsl_address,
