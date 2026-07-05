@@ -76,19 +76,6 @@ static String8 Memmy_Cli_FormatTextError(Arena *arena, Memmy_Status status, Memm
     return String8_PushF(arena, "memmy: %s\n", Memmy_Status_Name(status));
 }
 
-static Memmy_Status Memmy_Cli_RunReplLineWithOptions(Arena *arena, Memmy_CliOptions *base_options, String8 line,
-                                                     String8 *out, Memmy_Error *error)
-{
-    if (arena == 0)
-    {
-        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("repl"), String8_Lit("missing arena"));
-        return Memmy_Status_InvalidArgument;
-    }
-
-    Memmy_EvalEnv *env = Memmy_EvalEnv_Create(arena);
-    return Memmy_Cli_RunReplLineWithEnv(arena, env, base_options, line, out, 0, error);
-}
-
 static Memmy_Status Memmy_Cli_RunReplLineWithEnv(Arena *arena, Memmy_EvalEnv *env, Memmy_CliOptions *base_options,
                                                  String8 line, String8 *out, B32 *out_exit, Memmy_Error *error)
 {

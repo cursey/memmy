@@ -1,12 +1,5 @@
 #include "memmy_cli_internal.h"
 
-typedef struct Memmy_CliExprStringWriter Memmy_CliExprStringWriter;
-struct Memmy_CliExprStringWriter
-{
-    Arena *arena;
-    String8List list;
-};
-
 typedef struct Memmy_CliProcessInfoResolver Memmy_CliProcessInfoResolver;
 struct Memmy_CliProcessInfoResolver
 {
@@ -34,13 +27,6 @@ struct Memmy_CliEvalResultWriter
     String8 assignment_name;
     Memmy_CliScanOutput scan_output;
 };
-
-static Memmy_Status Memmy_CliExprStringWriter_Write(void *user_data, String8 text)
-{
-    Memmy_CliExprStringWriter *writer = (Memmy_CliExprStringWriter *)user_data;
-    String8List_Push(writer->arena, &writer->list, text);
-    return Memmy_Status_Ok;
-}
 
 static void Memmy_Cli_SetAstError(Memmy_Error *error, Memmy_Status status, Memmy_AstDiagnostic *diagnostic)
 {
@@ -734,39 +720,6 @@ static void Memmy_CliEvalResultWriter_Push(Memmy_EvalResultSink *sink, Memmy_Eva
     {
         result_writer->saw_exit = 1;
     }
-}
-
-Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 *out, Memmy_Error *error)
-{
-    if (arena == 0)
-    {
-        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("cli"), String8_Lit("missing arena"));
-        return Memmy_Status_InvalidArgument;
-    }
-
-    Memmy_EvalEnv *env = Memmy_EvalEnv_Create(arena);
-    return Memmy_Cli_RunExprWithEnv(arena, env, options, out, error);
-}
-
-Memmy_Status Memmy_Cli_RunExprWithEnv(Arena *arena, Memmy_EvalEnv *env, Memmy_CliOptions *options, String8 *out,
-                                      Memmy_Error *error)
-{
-    if (out == 0)
-    {
-        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("cli"), String8_Lit("missing output"));
-        return Memmy_Status_InvalidArgument;
-    }
-
-    Memmy_CliExprStringWriter string_writer = {
-        .arena = arena,
-    };
-    Memmy_CliOutputWriter writer = {
-        .write = Memmy_CliExprStringWriter_Write,
-        .user_data = &string_writer,
-    };
-    Memmy_Status status = Memmy_Cli_RunExprToWriterWithEnv(arena, env, options, writer, error);
-    *out = String8List_Join(arena, &string_writer.list, (String8){0});
-    return status;
 }
 
 Memmy_Status Memmy_Cli_RunExprToWriter(Arena *arena, Memmy_CliOptions *options, Memmy_CliOutputWriter writer,

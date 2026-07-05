@@ -74,9 +74,6 @@ Memmy_Status Memmy_Cli_InvalidOption(Memmy_Error *error, String8 message, String
 Memmy_Status Memmy_Cli_RunReplStringWithOptions(Arena *arena, Memmy_CliOptions *base_options, String8 input,
                                                 String8 *out, Memmy_Error *error);
 
-Memmy_Status Memmy_Cli_RunExpr(Arena *arena, Memmy_CliOptions *options, String8 *out, Memmy_Error *error);
-Memmy_Status Memmy_Cli_RunExprWithEnv(Arena *arena, Memmy_EvalEnv *env, Memmy_CliOptions *options, String8 *out,
-                                      Memmy_Error *error);
 Memmy_Status Memmy_Cli_RunExprToWriter(Arena *arena, Memmy_CliOptions *options, Memmy_CliOutputWriter writer,
                                        Memmy_Error *error);
 Memmy_Status Memmy_Cli_RunExprToWriterWithEnv(Arena *arena, Memmy_EvalEnv *env, Memmy_CliOptions *options,
