@@ -28,8 +28,21 @@ static Memmy_Status Memmy_Main_RunRepl(Arena *arena)
     char line[4096];
     Memmy_Status result = Memmy_Status_Ok;
     Memmy_CliReplSession session = Memmy_CliReplSession_Begin(arena);
-    while (fgets(line, sizeof(line), stdin) != 0)
+    B32 separate_next_prompt = 0;
+    for (;;)
     {
+        if (separate_next_prompt)
+        {
+            Os_WriteStdout(String8_Lit("\n"));
+            separate_next_prompt = 0;
+        }
+        Os_WriteStdout(String8_Lit("> "));
+        fflush(stdout);
+        if (fgets(line, sizeof(line), stdin) == 0)
+        {
+            break;
+        }
+
         Memmy_Error error = {0};
         String8 output = {0};
         B32 should_exit = 0;
@@ -38,10 +51,12 @@ static Memmy_Status Memmy_Main_RunRepl(Arena *arena)
         if (output.len > 0)
         {
             Os_WriteStdout(output);
+            separate_next_prompt = 1;
         }
         if (status != Memmy_Status_Ok)
         {
             Memmy_Main_WriteError(arena, status, &error);
+            separate_next_prompt = 1;
         }
         if (result == Memmy_Status_Ok && status != Memmy_Status_Ok)
         {
