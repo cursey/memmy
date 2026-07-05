@@ -66,6 +66,26 @@ struct Memmy_EvalByteReader
     Memmy_Status terminal_status;
 };
 
+typedef struct Memmy_EvalProcessEmitter Memmy_EvalProcessEmitter;
+struct Memmy_EvalProcessEmitter
+{
+    Memmy_EvalResultSink *sink;
+    String8 filter;
+};
+
+typedef struct Memmy_EvalModuleEmitter Memmy_EvalModuleEmitter;
+struct Memmy_EvalModuleEmitter
+{
+    Memmy_EvalResultSink *sink;
+    String8 filter;
+};
+
+typedef struct Memmy_EvalRegionEmitter Memmy_EvalRegionEmitter;
+struct Memmy_EvalRegionEmitter
+{
+    Memmy_EvalResultSink *sink;
+};
+
 static void Memmy_EvalError(Memmy_Error *error, Memmy_Status status, String8 context, String8 message)
 {
     Memmy_Error_Set(error, status, context, message);
@@ -99,6 +119,14 @@ static Memmy_EvalValue Memmy_EvalValue_Copy(Arena *arena, Memmy_EvalValue value)
         value.addresses = addresses;
     }
     return value;
+}
+
+static void Memmy_EvalResult_Push(Memmy_EvalResultSink *sink, Memmy_EvalResult result)
+{
+    if (sink != 0 && sink->push != 0)
+    {
+        sink->push(sink, result);
+    }
 }
 
 static B32 Memmy_EvalValue_IsIntegerTyped(Memmy_EvalValue *value)
@@ -395,8 +423,7 @@ static Memmy_Status Memmy_Eval_ReadWStr(Arena *arena, Memmy_Process *process, Me
         }
         if (status != Memmy_Status_Ok || bytes_read != size)
         {
-            Memmy_EvalError(error, Memmy_Status_PartialRead, String8_Lit("read"),
-                            String8_Lit("partial string read"));
+            Memmy_EvalError(error, Memmy_Status_PartialRead, String8_Lit("read"), String8_Lit("partial string read"));
             if (error != 0)
             {
                 error->byte_count = bytes_read;
@@ -479,8 +506,8 @@ static Memmy_Status Memmy_Eval_ParseValue(Memmy_EvalEnv *env, Memmy_Type type, S
     String8 parse_text = value_text;
     Scratch scratch = {0};
     B32 using_scratch = 0;
-    if (Memmy_EvalValue_IsIntegerTyped(&(Memmy_EvalValue){.kind = Memmy_EvalValueKind_TypedValue,
-                                                          .typed_value = {.type = type}}) &&
+    if (Memmy_EvalValue_IsIntegerTyped(
+            &(Memmy_EvalValue){.kind = Memmy_EvalValueKind_TypedValue, .typed_value = {.type = type}}) &&
         String8_FindChar(value_text, '$', 0) != STRING8_NPOS)
     {
         scratch = Scratch_Begin(&env->arena, 1);
@@ -946,6 +973,184 @@ static Memmy_Status Memmy_Eval_Target(Memmy_EvalEnv *env, Memmy_AstNode *target,
     return Memmy_Status_Ok;
 }
 
+static Memmy_Status Memmy_EvalProcessEmitter_Push(void *user_data, Memmy_ProcessInfo *info)
+{
+    Memmy_EvalProcessEmitter *emitter = (Memmy_EvalProcessEmitter *)user_data;
+    if (emitter->filter.len != 0 && !String8_FuzzyMatchNoCase(info->name, emitter->filter))
+    {
+        return Memmy_Status_Ok;
+    }
+
+    Memmy_EvalResult_Push(emitter->sink, (Memmy_EvalResult){
+                                             .kind = Memmy_EvalResultKind_Process,
+                                             .process = *info,
+                                         });
+    return Memmy_Status_Ok;
+}
+
+static Memmy_Status Memmy_EvalModuleEmitter_Push(void *user_data, Memmy_Module *module)
+{
+    Memmy_EvalModuleEmitter *emitter = (Memmy_EvalModuleEmitter *)user_data;
+    if (emitter->filter.len != 0 && !String8_FuzzyMatchNoCase(module->name, emitter->filter))
+    {
+        return Memmy_Status_Ok;
+    }
+
+    Memmy_EvalResult_Push(emitter->sink, (Memmy_EvalResult){
+                                             .kind = Memmy_EvalResultKind_Module,
+                                             .module = *module,
+                                         });
+    return Memmy_Status_Ok;
+}
+
+static Memmy_Status Memmy_EvalRegionEmitter_Push(void *user_data, Memmy_Region *region)
+{
+    Memmy_EvalRegionEmitter *emitter = (Memmy_EvalRegionEmitter *)user_data;
+    Memmy_EvalResult_Push(emitter->sink, (Memmy_EvalResult){
+                                             .kind = Memmy_EvalResultKind_Region,
+                                             .region = *region,
+                                         });
+    return Memmy_Status_Ok;
+}
+
+static Memmy_EvalResultKind Memmy_EvalResultKind_ForValue(Memmy_EvalValue value)
+{
+    if (value.kind == Memmy_EvalValueKind_TypedValue && value.old_typed_value.bytes.data != 0)
+    {
+        return Memmy_EvalResultKind_Write;
+    }
+    if (value.kind == Memmy_EvalValueKind_TypedValue)
+    {
+        return Memmy_EvalResultKind_Read;
+    }
+    if (value.kind == Memmy_EvalValueKind_AddressList)
+    {
+        return Memmy_EvalResultKind_AddressList;
+    }
+    return Memmy_EvalResultKind_Value;
+}
+
+static void Memmy_Eval_EmitValueResult(Memmy_EvalResultSink *sink, Memmy_EvalValue value)
+{
+    Memmy_EvalResult result = {
+        .kind = Memmy_EvalResultKind_ForValue(value),
+        .value = value,
+    };
+    if (result.kind == Memmy_EvalResultKind_Write)
+    {
+        result.address = value.address;
+        result.old_value = value.old_typed_value;
+        result.new_value = value.typed_value;
+    }
+    else if (result.kind == Memmy_EvalResultKind_Read)
+    {
+        result.address = value.address;
+        result.new_value = value.typed_value;
+    }
+    Memmy_EvalResult_Push(sink, result);
+}
+
+static Memmy_Status Memmy_Eval_Command(Memmy_EvalEnv *env, Memmy_AstStatement *statement, Memmy_EvalResultSink *sink,
+                                       Memmy_Error *error)
+{
+    if (statement->command_kind == Memmy_AstCommandKind_Procs)
+    {
+        Memmy_EvalProcessEmitter emitter = {
+            .sink = sink,
+            .filter = statement->command_arg,
+        };
+        Memmy_ProcessInfoSink process_sink = {
+            .callback = Memmy_EvalProcessEmitter_Push,
+            .user_data = &emitter,
+        };
+        return Memmy_EnumerateProcesses(env->arena, process_sink, error);
+    }
+    if (statement->command_kind == Memmy_AstCommandKind_Mods)
+    {
+        Memmy_Status status = Memmy_Eval_RequireProcess(env, String8_Lit("mods"), error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+
+        Memmy_EvalModuleEmitter emitter = {
+            .sink = sink,
+            .filter = statement->command_arg,
+        };
+        Memmy_ModuleSink module_sink = {
+            .callback = Memmy_EvalModuleEmitter_Push,
+            .user_data = &emitter,
+        };
+        return Memmy_Process_EnumerateModules(env->arena, env->process, module_sink, error);
+    }
+    if (statement->command_kind == Memmy_AstCommandKind_Regions)
+    {
+        Memmy_Status status = Memmy_Eval_RequireProcess(env, String8_Lit("regions"), error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+
+        Memmy_EvalRegionEmitter emitter = {.sink = sink};
+        Memmy_RegionSink region_sink = {
+            .callback = Memmy_EvalRegionEmitter_Push,
+            .user_data = &emitter,
+        };
+        return Memmy_Process_EnumerateRegions(env->arena, env->process, region_sink, error);
+    }
+    if (statement->command_kind == Memmy_AstCommandKind_Vars)
+    {
+        HashMap_ForEach(Memmy_EvalBinding, binding, &env->bindings, hash)
+        {
+            Memmy_EvalResult_Push(sink, (Memmy_EvalResult){
+                                            .kind = Memmy_EvalResultKind_Variable,
+                                            .variable =
+                                                {
+                                                    .name = binding->name,
+                                                    .value = binding->value,
+                                                },
+                                        });
+        }
+        return Memmy_Status_Ok;
+    }
+    if (statement->command_kind == Memmy_AstCommandKind_Unset)
+    {
+        Memmy_Status status = Memmy_EvalEnv_Unset(env, statement->command_arg);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        Memmy_EvalResult_Push(sink, (Memmy_EvalResult){
+                                        .kind = Memmy_EvalResultKind_Unset,
+                                        .name = statement->command_arg,
+                                    });
+        return Memmy_Status_Ok;
+    }
+    if (statement->command_kind == Memmy_AstCommandKind_Clear)
+    {
+        Memmy_EvalEnv_Clear(env);
+        Memmy_EvalResult_Push(sink, (Memmy_EvalResult){.kind = Memmy_EvalResultKind_Clear});
+        return Memmy_Status_Ok;
+    }
+    if (statement->command_kind == Memmy_AstCommandKind_Help)
+    {
+        Memmy_EvalResult_Push(sink, (Memmy_EvalResult){
+                                        .kind = Memmy_EvalResultKind_Help,
+                                        .text = String8_Lit("/procs [filter]\n/mods [filter]\n/regions\n/vars\n/"
+                                                            "unset $var\n/clear\n/help\n/exit\n/quit\n"),
+                                    });
+        return Memmy_Status_Ok;
+    }
+    if (statement->command_kind == Memmy_AstCommandKind_Exit || statement->command_kind == Memmy_AstCommandKind_Quit)
+    {
+        Memmy_EvalResult_Push(sink, (Memmy_EvalResult){.kind = Memmy_EvalResultKind_Exit});
+        return Memmy_Status_Ok;
+    }
+
+    Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("command"), String8_Lit("unknown command"));
+    return Memmy_Status_InvalidArgument;
+}
+
 static Memmy_Status Memmy_Eval_ReadPointer(Memmy_EvalEnv *env, Memmy_Addr address, Memmy_Addr *out, Memmy_Error *error)
 {
     if (env->process == 0 || !Memmy_Process_IsOpen(env->process))
@@ -1030,9 +1235,7 @@ Memmy_Status Memmy_EvalStatement(Memmy_EvalEnv *env, Memmy_AstStatement *stateme
     }
     else if (statement->kind == Memmy_AstNodeKind_Command)
     {
-        Memmy_EvalError(error, Memmy_Status_Unsupported, String8_Lit("statement"),
-                        String8_Lit("commands are not implemented yet"));
-        return Memmy_Status_Unsupported;
+        return Memmy_Eval_Command(env, statement, sink, error);
     }
     else if (statement->expr != 0)
     {
@@ -1045,22 +1248,9 @@ Memmy_Status Memmy_EvalStatement(Memmy_EvalEnv *env, Memmy_AstStatement *stateme
         return Memmy_Status_InvalidArgument;
     }
 
-    if (status == Memmy_Status_Ok && sink != 0 && sink->push != 0)
+    if (status == Memmy_Status_Ok)
     {
-        if (value.kind == Memmy_EvalValueKind_TypedValue && value.old_typed_value.bytes.data != 0)
-        {
-            sink->push(sink, (Memmy_EvalResult){
-                                 .kind = Memmy_EvalResultKind_Write,
-                                 .value = value,
-                                 .address = value.address,
-                                 .old_value = value.old_typed_value,
-                                 .new_value = value.typed_value,
-                             });
-        }
-        else
-        {
-            sink->push(sink, (Memmy_EvalResult){.kind = Memmy_EvalResultKind_Value, .value = value});
-        }
+        Memmy_Eval_EmitValueResult(sink, value);
     }
     return status;
 }

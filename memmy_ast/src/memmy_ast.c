@@ -1193,6 +1193,99 @@ static Memmy_AstStatus Memmy_Parser_ParseExprOnly(Memmy_Parser *parser, Memmy_As
     return Memmy_AstStatus_Ok;
 }
 
+static Memmy_AstCommandKind Memmy_Parser_CommandKind(String8 text)
+{
+    String8 name = String8_Substr(text, 1, text.len - 1);
+    if (String8_Eq(name, String8_Lit("procs")))
+    {
+        return Memmy_AstCommandKind_Procs;
+    }
+    if (String8_Eq(name, String8_Lit("mods")))
+    {
+        return Memmy_AstCommandKind_Mods;
+    }
+    if (String8_Eq(name, String8_Lit("regions")))
+    {
+        return Memmy_AstCommandKind_Regions;
+    }
+    if (String8_Eq(name, String8_Lit("vars")))
+    {
+        return Memmy_AstCommandKind_Vars;
+    }
+    if (String8_Eq(name, String8_Lit("unset")))
+    {
+        return Memmy_AstCommandKind_Unset;
+    }
+    if (String8_Eq(name, String8_Lit("clear")))
+    {
+        return Memmy_AstCommandKind_Clear;
+    }
+    if (String8_Eq(name, String8_Lit("help")))
+    {
+        return Memmy_AstCommandKind_Help;
+    }
+    if (String8_Eq(name, String8_Lit("exit")))
+    {
+        return Memmy_AstCommandKind_Exit;
+    }
+    if (String8_Eq(name, String8_Lit("quit")))
+    {
+        return Memmy_AstCommandKind_Quit;
+    }
+    return Memmy_AstCommandKind_None;
+}
+
+static Memmy_AstStatus Memmy_Parser_ParseCommandStatement(Memmy_Parser *parser, Memmy_AstStatement *out)
+{
+    Memmy_Token command = parser->token;
+    Memmy_AstCommandKind kind = Memmy_Parser_CommandKind(command.text);
+    if (kind == Memmy_AstCommandKind_None)
+    {
+        Memmy_Parser_SetError(parser, String8_Lit("unknown command"), command.byte_offset, command.byte_count);
+        return Memmy_AstStatus_ParseError;
+    }
+
+    Memmy_AstStatus status = Memmy_Parser_Next(parser);
+    if (status != Memmy_AstStatus_Ok)
+    {
+        return status;
+    }
+
+    out->kind = Memmy_AstNodeKind_Command;
+    out->command_kind = kind;
+    if (kind == Memmy_AstCommandKind_Procs || kind == Memmy_AstCommandKind_Mods)
+    {
+        U64 start = command.byte_offset + command.byte_count;
+        out->command_arg = String8_TrimWhitespace(String8_Substr(parser->input, start, parser->input.len - start));
+        parser->pos = parser->input.len;
+        return Memmy_Parser_Next(parser);
+    }
+
+    if (kind == Memmy_AstCommandKind_Unset)
+    {
+        if (parser->token.kind != Memmy_TokenKind_Variable)
+        {
+            Memmy_Parser_SetError(parser, String8_Lit("expected variable"), parser->token.byte_offset,
+                                  parser->token.byte_count);
+            return Memmy_AstStatus_ParseError;
+        }
+        out->command_arg = String8_Substr(parser->token.text, 1, parser->token.text.len - 1);
+        status = Memmy_Parser_Next(parser);
+        if (status != Memmy_AstStatus_Ok)
+        {
+            return status;
+        }
+    }
+
+    if (parser->token.kind != Memmy_TokenKind_Eof)
+    {
+        Memmy_Parser_SetError(parser, String8_Lit("unexpected trailing input"), parser->token.byte_offset,
+                              parser->token.byte_count);
+        return Memmy_AstStatus_ParseError;
+    }
+    return Memmy_AstStatus_Ok;
+}
+
 Memmy_AstStatus Memmy_Ast_ParseExpr(Arena *arena, String8 text, Memmy_AstNode **out, Memmy_AstDiagnostic *diagnostic)
 {
     if (out != 0)
@@ -1259,6 +1352,16 @@ Memmy_AstStatus Memmy_Ast_ParseStatement(Arena *arena, String8 text, Memmy_AstSt
     }
 
     out->text = text;
+    if (parser.token.kind == Memmy_TokenKind_Command)
+    {
+        status = Memmy_Parser_ParseCommandStatement(&parser, out);
+        if (status != Memmy_AstStatus_Ok)
+        {
+            *out = (Memmy_AstStatement){0};
+        }
+        return status;
+    }
+
     if (parser.token.kind == Memmy_TokenKind_Variable)
     {
         Memmy_Token variable = parser.token;

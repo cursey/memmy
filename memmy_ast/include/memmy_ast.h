@@ -103,6 +103,7 @@ struct Memmy_AstStatement
     Memmy_AstNode *expr;
     Memmy_AstNode *assignment_value;
     String8 assignment_name;
+    String8 command_arg;
     String8 text;
 };
 

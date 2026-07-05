@@ -480,20 +480,47 @@ Test(Test_MemmyAstRejectsOldAddressSpellings)
     Test_RejectAstExpr("<1234!>0x1234");
 }
 
-Test(Test_MemmyAstKeepsCommandSyntaxOutOfScope)
+Test(Test_MemmyAstParsesPocketReferenceCommands)
 {
-    String8 rejected[] = {
-        String8_Lit("/procs"),
-    };
+    Arena *arena = Arena_CreateDefault();
 
-    for (U64 i = 0; i < ArrayCount(rejected); i++)
-    {
-        Arena *arena = Arena_CreateDefault();
-        Memmy_AstNode *expr = 0;
-        Memmy_AstDiagnostic diagnostic = {0};
-        AssertEq(Memmy_Ast_ParseExpr(arena, rejected[i], &expr, &diagnostic), Memmy_AstStatus_ParseError);
-        Arena_Destroy(arena);
-    }
+    Memmy_AstStatement statement = {0};
+    Test_ParseAstStatement(arena, "/procs game", &statement);
+    AssertEq(statement.kind, Memmy_AstNodeKind_Command);
+    AssertEq(statement.command_kind, Memmy_AstCommandKind_Procs);
+    AssertStrEq(statement.command_arg, String8_Lit("game"));
+
+    Test_ParseAstStatement(arena, "/mods client", &statement);
+    AssertEq(statement.command_kind, Memmy_AstCommandKind_Mods);
+    AssertStrEq(statement.command_arg, String8_Lit("client"));
+
+    Test_ParseAstStatement(arena, "/regions", &statement);
+    AssertEq(statement.command_kind, Memmy_AstCommandKind_Regions);
+
+    Test_ParseAstStatement(arena, "/vars", &statement);
+    AssertEq(statement.command_kind, Memmy_AstCommandKind_Vars);
+
+    Test_ParseAstStatement(arena, "/unset $target_1", &statement);
+    AssertEq(statement.command_kind, Memmy_AstCommandKind_Unset);
+    AssertStrEq(statement.command_arg, String8_Lit("target_1"));
+
+    Test_ParseAstStatement(arena, "/clear", &statement);
+    AssertEq(statement.command_kind, Memmy_AstCommandKind_Clear);
+
+    Test_ParseAstStatement(arena, "/help", &statement);
+    AssertEq(statement.command_kind, Memmy_AstCommandKind_Help);
+
+    Test_ParseAstStatement(arena, "/exit", &statement);
+    AssertEq(statement.command_kind, Memmy_AstCommandKind_Exit);
+
+    Test_ParseAstStatement(arena, "/quit", &statement);
+    AssertEq(statement.command_kind, Memmy_AstCommandKind_Quit);
+
+    Memmy_AstNode *expr = 0;
+    Memmy_AstDiagnostic diagnostic = {0};
+    AssertEq(Memmy_Ast_ParseExpr(arena, String8_Lit("/procs"), &expr, &diagnostic), Memmy_AstStatus_ParseError);
+
+    Arena_Destroy(arena);
 }
 
 TestSuite suite_memmy_ast = TestSuite_Make(
@@ -508,4 +535,4 @@ TestSuite suite_memmy_ast = TestSuite_Make(
     TestCase_Make(Test_MemmyAstParsesPocketReferenceAddressLists),
     TestCase_Make(Test_MemmyAstParsesPocketReferenceIndexingAddressLists),
     TestCase_Make(Test_MemmyAstParsesPocketReferencePhase4Assignments),
-    TestCase_Make(Test_MemmyAstKeepsCommandSyntaxOutOfScope), );
+    TestCase_Make(Test_MemmyAstParsesPocketReferenceCommands), );

@@ -43,7 +43,24 @@ typedef U32 Memmy_EvalResultKind;
 enum
 {
     Memmy_EvalResultKind_Value,
+    Memmy_EvalResultKind_Read,
     Memmy_EvalResultKind_Write,
+    Memmy_EvalResultKind_AddressList,
+    Memmy_EvalResultKind_Process,
+    Memmy_EvalResultKind_Module,
+    Memmy_EvalResultKind_Region,
+    Memmy_EvalResultKind_Variable,
+    Memmy_EvalResultKind_Unset,
+    Memmy_EvalResultKind_Clear,
+    Memmy_EvalResultKind_Help,
+    Memmy_EvalResultKind_Exit,
+};
+
+typedef struct Memmy_EvalVariableResult Memmy_EvalVariableResult;
+struct Memmy_EvalVariableResult
+{
+    String8 name;
+    Memmy_EvalValue value;
 };
 
 typedef struct Memmy_EvalResult Memmy_EvalResult;
@@ -54,6 +71,12 @@ struct Memmy_EvalResult
     Memmy_Addr address;
     Memmy_Value old_value;
     Memmy_Value new_value;
+    Memmy_ProcessInfo process;
+    Memmy_Module module;
+    Memmy_Region region;
+    Memmy_EvalVariableResult variable;
+    String8 name;
+    String8 text;
 };
 
 typedef struct Memmy_EvalResultSink Memmy_EvalResultSink;
