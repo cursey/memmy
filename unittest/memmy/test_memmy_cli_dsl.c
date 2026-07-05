@@ -567,8 +567,8 @@ Test(Test_MemmyCliExprScansWholeProcessValueWithRegions)
     Arena_Destroy(arena);
 }
 
-TestSuite suite_memmy_cli_expr = TestSuite_Make(
-    "Memmy CLI Expr", TestCase_Make(Test_MemmyCliExprResolvesModuleAddressByPid),
+TestSuite suite_memmy_cli_dsl = TestSuite_Make(
+    "Memmy CLI DSL", TestCase_Make(Test_MemmyCliExprResolvesModuleAddressByPid),
     TestCase_Make(Test_MemmyCliExprResolvesPointerChainByPid),
     TestCase_Make(Test_MemmyCliExprResolvesQualifiedProcessName),
     TestCase_Make(Test_MemmyCliExprRejectsExternalPidConflict),

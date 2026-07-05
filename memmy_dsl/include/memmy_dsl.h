@@ -1,5 +1,5 @@
-#ifndef MEMMY_EXPR_H
-#define MEMMY_EXPR_H
+#ifndef MEMMY_DSL_H
+#define MEMMY_DSL_H
 
 #include "base_string.h"
 #include "memmy.h"
@@ -122,4 +122,4 @@ Memmy_Status Memmy_AddressExpr_Parse(Arena *arena, String8 text, Memmy_AddressEx
 Memmy_Status Memmy_RangeExpr_Parse(Arena *arena, String8 text, Memmy_RangeExpr *out, Memmy_Error *error);
 Memmy_Status Memmy_MemoryExpr_Parse(Arena *arena, String8 text, Memmy_MemoryExpr *out, Memmy_Error *error);
 
-#endif // MEMMY_EXPR_H
+#endif // MEMMY_DSL_H

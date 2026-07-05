@@ -1,4 +1,4 @@
-#include "memmy_expr.h"
+#include "memmy_dsl.h"
 #include "test_framework.h"
 
 static void Test_ParseTarget(char *text, Memmy_TargetExpr *out)
@@ -118,8 +118,8 @@ Test(Test_MemmyExprTargetPreservesNumericModuleName)
     AssertStrEq(target.module_name, String8_Lit("123"));
 }
 
-TestSuite suite_memmy_expr_target =
-    TestSuite_Make("Memmy Expr Target", TestCase_Make(Test_MemmyExprTargetParsesUnqualifiedModuleTarget),
+TestSuite suite_memmy_dsl_target =
+    TestSuite_Make("Memmy DSL Target", TestCase_Make(Test_MemmyExprTargetParsesUnqualifiedModuleTarget),
                    TestCase_Make(Test_MemmyExprTargetParsesProcessNameQualifiedModuleTarget),
                    TestCase_Make(Test_MemmyExprTargetParsesPidQualifiedModuleTarget),
                    TestCase_Make(Test_MemmyExprTargetParsesWholeProcessTargets),

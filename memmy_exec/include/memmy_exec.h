@@ -2,7 +2,7 @@
 #define MEMMY_EXEC_H
 
 #include "memmy.h"
-#include "memmy_expr.h"
+#include "memmy_dsl.h"
 
 typedef struct Memmy_ExecPeekResult Memmy_ExecPeekResult;
 struct Memmy_ExecPeekResult

@@ -1,4 +1,4 @@
-#include "memmy_expr.h"
+#include "memmy_dsl.h"
 #include "test_framework.h"
 
 static void Test_ParseMemoryExpr(Arena *arena, char *text, Memmy_MemoryExpr *out)
@@ -219,8 +219,8 @@ Test(Test_MemmyExprMemoryReportsByteOffsets)
     Arena_Destroy(arena);
 }
 
-TestSuite suite_memmy_expr_memory =
-    TestSuite_Make("Memmy Expr Memory", TestCase_Make(Test_MemmyExprMemoryDispatchesRequiredExamples),
+TestSuite suite_memmy_dsl_memory =
+    TestSuite_Make("Memmy DSL Memory", TestCase_Make(Test_MemmyExprMemoryDispatchesRequiredExamples),
                    TestCase_Make(Test_MemmyExprMemoryDispatchesEachTopLevelKind),
                    TestCase_Make(Test_MemmyExprMemoryParsesPatternScansWithWildcards),
                    TestCase_Make(Test_MemmyExprMemoryParsesPatternScanWithModuleConstSize),

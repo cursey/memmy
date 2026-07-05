@@ -1,4 +1,4 @@
-#include "memmy_expr.h"
+#include "memmy_dsl.h"
 #include "test_framework.h"
 
 static void Test_ParseAddressExpr(Arena *arena, char *text, Memmy_AddressExpr *out)
@@ -207,8 +207,8 @@ Test(Test_MemmyExprAddressRejectsWholeProcessTargets)
     }
 }
 
-TestSuite suite_memmy_expr_address =
-    TestSuite_Make("Memmy Expr Address", TestCase_Make(Test_MemmyExprAddressParsesAbsoluteAddressBases),
+TestSuite suite_memmy_dsl_address =
+    TestSuite_Make("Memmy DSL Address", TestCase_Make(Test_MemmyExprAddressParsesAbsoluteAddressBases),
                    TestCase_Make(Test_MemmyExprAddressParsesModuleTargetBases),
                    TestCase_Make(Test_MemmyExprAddressParsesAddAndSubOperations),
                    TestCase_Make(Test_MemmyExprAddressParsesDerefAndDerefOffsetOperations),

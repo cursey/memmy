@@ -1,4 +1,4 @@
-#include "memmy_expr.h"
+#include "memmy_dsl.h"
 #include "test_framework.h"
 
 static void Test_AssertConstExpr(char *text, I64 expected)
@@ -71,7 +71,7 @@ Test(Test_MemmyExprConstRejectsOverflow)
     }
 }
 
-TestSuite suite_memmy_expr_const = TestSuite_Make(
-    "Memmy Expr Const", TestCase_Make(Test_MemmyExprConstEvaluatesPrecedenceAndParentheses),
+TestSuite suite_memmy_dsl_const = TestSuite_Make(
+    "Memmy DSL Const", TestCase_Make(Test_MemmyExprConstEvaluatesPrecedenceAndParentheses),
     TestCase_Make(Test_MemmyExprConstRejectsDivisionAndModuloByZero),
     TestCase_Make(Test_MemmyExprConstRejectsInvalidSyntax), TestCase_Make(Test_MemmyExprConstRejectsOverflow), );

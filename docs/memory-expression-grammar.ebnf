@@ -1,7 +1,6 @@
-(* Memmy v1 memory expression grammar.
+(* Memmy DSL memory expression grammar.
 
-   This grammar is based on spec-v1.md section 12 and the current memmy_expr
-   parser implementation. It describes the syntax parsed by memmy_expr, plus
+   This grammar documents the syntax parsed by memmy_dsl into ASTs, plus
    semantic constraints that are enforced during parsing but are awkward to
    express as context-free productions.
 
@@ -190,6 +189,6 @@ ws_char            = " " | "\t" | "\n" | "\r" ;
 
   11. value_text is the trimmed non-empty remainder after "=" or "==". Its
       concrete syntax is type-dependent and is validated later by
-      Memmy_Value_Parse. For poke_expr, memmy_expr rejects value_text that
+      Memmy_Value_Parse. For poke_expr, memmy_dsl rejects value_text that
       parses as an address expression with a target base or address operations.
 *)

@@ -1,4 +1,4 @@
-#include "memmy_expr.h"
+#include "memmy_dsl.h"
 #include "test_framework.h"
 
 static void Test_ParseRangeExpr(Arena *arena, char *text, Memmy_RangeExpr *out)
@@ -150,8 +150,8 @@ Test(Test_MemmyExprRangeReportsByteOffsets)
     Arena_Destroy(arena);
 }
 
-TestSuite suite_memmy_expr_range = TestSuite_Make(
-    "Memmy Expr Range", TestCase_Make(Test_MemmyExprRangeParsesTargetRefs),
+TestSuite suite_memmy_dsl_range = TestSuite_Make(
+    "Memmy DSL Range", TestCase_Make(Test_MemmyExprRangeParsesTargetRefs),
     TestCase_Make(Test_MemmyExprRangeParsesModuleBracketRange),
     TestCase_Make(Test_MemmyExprRangeParsesModuleSizedRange), TestCase_Make(Test_MemmyExprRangeParsesAddressSizedRange),
     TestCase_Make(Test_MemmyExprRangeParsesModuleSizedRangeConstSize),
