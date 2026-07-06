@@ -113,7 +113,7 @@ Test(Test_MemmyCliFileInputEvaluatesReplString)
     Memmy_Context_Set(&ctx);
 
     String8 path = Fs_TempFile(arena, String8_Lit("memmy-test.memmy"));
-    AssertTrue(Fs_WriteFile(path, String8_Lit("<game.exe!client.dll>\n/exit\n@0x1000\n")));
+    AssertTrue(Fs_WriteFile(path, String8_Lit("/attach game.exe\n<client.dll>\n/exit\n@0x1000\n")));
 
     Scratch scratch = Scratch_Begin(&arena, 1);
     char *path_text = String8_ToCStr(scratch.arena, path);

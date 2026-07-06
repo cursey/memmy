@@ -89,15 +89,13 @@ static String8 Memmy_Cli_DslHelp(Arena *arena)
                                            "  @x                   absolute address\n"
                                            "  [@a..@b]             explicit address range [a, b)\n"
                                            "  [@a..+n]             sized address range [a, a+n)\n"
-                                           "  <target>             process/module range\n"
+                                           "  <module>             module range in selected process\n"
+                                           "  [0..]                selected process readable regions\n"
                                            "  $name                variable\n"
                                            "\n"
                                            "Targets:\n"
-                                           "  <game.exe!>           process by name\n"
-                                           "  <1234!>               process by PID\n"
-                                           "  <client.dll>          module in current process\n"
-                                           "  <game.exe!client.dll> process module by process name\n"
-                                           "  <1234!client.dll>     process module by PID\n"
+                                           "  <client.dll>          module in selected process\n"
+                                           "  Use /attach or --pid/--name to select a process\n"
                                            "\n"
                                            "Memory:\n"
                                            "  address as T         typed read\n"
@@ -109,6 +107,8 @@ static String8 Memmy_Cli_DslHelp(Arena *arena)
                                            "\n"
                                            "Commands:\n"
                                            "  /procs [filter]\n"
+                                           "  /attach <pid|name>\n"
+                                           "  /detach\n"
                                            "  /mods [filter]\n"
                                            "  /regions\n"
                                            "  /vars\n"
@@ -132,6 +132,10 @@ static String8 Memmy_Cli_EvalValueKindString(Memmy_EvalValue value)
     if (value.kind == Memmy_EvalValueKind_Range)
     {
         return String8_Lit("range");
+    }
+    if (value.kind == Memmy_EvalValueKind_ProcessRange)
+    {
+        return String8_Lit("process_range");
     }
     if (value.kind == Memmy_EvalValueKind_AddressList)
     {
@@ -210,8 +214,7 @@ Memmy_Status Memmy_Cli_ResolveProcessInfo(Arena *arena, B32 has_pid, U32 pid, B3
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Cli_ResolvePidOrOpenTransient(Arena *arena, U32 pid, Memmy_ProcessInfo *out,
-                                                        Memmy_Error *error)
+Memmy_Status Memmy_Cli_ResolvePidOrOpenTransient(Arena *arena, U32 pid, Memmy_ProcessInfo *out, Memmy_Error *error)
 {
     Memmy_Status status = Memmy_Cli_ResolveProcessInfo(arena, 1, pid, 0, (String8){0}, out, error);
     if (status != Memmy_Status_Unsupported)
@@ -266,88 +269,6 @@ static Memmy_Status Memmy_Cli_SetOptionsProcess(Arena *arena, Memmy_CliOptions *
         *out_info = info;
     }
     Memmy_EvalEnv_SetDefaultProcess(env, pid, info.pointer_width);
-    return Memmy_Status_Ok;
-}
-
-static void Memmy_Cli_FindTargetProcess(Memmy_AstNode *node, Memmy_CliTargetProcess *out)
-{
-    if (node == 0 || out == 0 || out->found)
-    {
-        return;
-    }
-    if (node->kind == Memmy_AstNodeKind_Target && node->target_has_process)
-    {
-        out->found = 1;
-        out->is_pid = node->target_process_is_pid;
-        out->name = node->target_process;
-        if (out->is_pid)
-        {
-            Memmy_Size pid64 = 0;
-            if (Memmy_ParseSize(node->target_process, &pid64, 0) == Memmy_Status_Ok && pid64 <= U32_MAX)
-            {
-                out->pid = (U32)pid64;
-            }
-        }
-        return;
-    }
-    Memmy_Cli_FindTargetProcess(node->lhs, out);
-    Memmy_Cli_FindTargetProcess(node->rhs, out);
-    Memmy_Cli_FindTargetProcess(node->value_expr, out);
-}
-
-Memmy_CliTargetProcess Memmy_Cli_StatementTargetProcess(Memmy_AstStatement *statement)
-{
-    Memmy_CliTargetProcess result = {0};
-    if (statement != 0)
-    {
-        Memmy_Cli_FindTargetProcess(statement->expr, &result);
-        Memmy_Cli_FindTargetProcess(statement->assignment_value, &result);
-    }
-    return result;
-}
-
-static Memmy_Status Memmy_Cli_CheckSelectedProcessConflict(Arena *arena, Memmy_CliOptions *options,
-                                                           Memmy_CliTargetProcess target, Memmy_Error *error)
-{
-    if (options == 0 || !target.found || (!options->has_pid && !options->has_name))
-    {
-        return Memmy_Status_Ok;
-    }
-
-    B32 conflict = 0;
-    if (options->has_pid && target.is_pid)
-    {
-        conflict = options->pid != target.pid;
-    }
-    else if (options->has_name && !target.is_pid)
-    {
-        conflict = !String8_EqNoCase(options->name, target.name);
-    }
-    else
-    {
-        Memmy_ProcessInfo selected = {0};
-        Memmy_ProcessInfo target_info = {0};
-        Memmy_Status status = Memmy_Cli_ResolveProcessInfo(arena, options->has_pid, options->pid, options->has_name,
-                                                           options->name, &selected, error);
-        if (status != Memmy_Status_Ok)
-        {
-            return status;
-        }
-        status = Memmy_Cli_ResolveProcessInfo(arena, target.is_pid, target.pid, !target.is_pid, target.name,
-                                              &target_info, error);
-        if (status != Memmy_Status_Ok)
-        {
-            return status;
-        }
-        conflict = selected.pid != target_info.pid;
-    }
-
-    if (conflict)
-    {
-        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("cli"),
-                        String8_Lit("statement target conflicts with selected process"));
-        return Memmy_Status_InvalidArgument;
-    }
     return Memmy_Status_Ok;
 }
 
@@ -539,6 +460,13 @@ static Memmy_Status Memmy_CliEvalResultWriter_WriteValue(Memmy_CliEvalResultWrit
                                            (int)start.len, (char *)start.data, (int)end.len, (char *)end.data)
                            : String8_PushF(arena, "[%.*s..%.*s)\n", (int)start.len, (char *)start.data, (int)end.len,
                                            (char *)end.data);
+        return Memmy_CliEvalResultWriter_Write(result_writer, line);
+    }
+    if (value.kind == Memmy_EvalValueKind_ProcessRange)
+    {
+        String8 line = result_writer->jsonl
+                           ? String8_Lit("{\"type\":\"process_range\",\"range\":\"readable_regions\"}\n")
+                           : String8_Lit("[0..]\n");
         return Memmy_CliEvalResultWriter_Write(result_writer, line);
     }
     return Memmy_Status_Ok;
@@ -770,19 +698,19 @@ Memmy_Status Memmy_Cli_RunStatementToWriterWithEnv(Arena *arena, Memmy_EvalEnv *
         Memmy_Cli_SetAstError(error, status, &diagnostic);
         return status;
     }
-
-    Memmy_CliTargetProcess target = Memmy_Cli_StatementTargetProcess(&statement);
-    Memmy_Status status = Memmy_Cli_CheckSelectedProcessConflict(arena, options, target, error);
-    if (status != Memmy_Status_Ok)
+    if (statement.kind == Memmy_AstNodeKind_Command && (statement.command_kind == Memmy_AstCommandKind_Attach ||
+                                                        statement.command_kind == Memmy_AstCommandKind_Detach))
     {
-        return status;
+        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("cli"),
+                        String8_Lit("command is only available in a REPL session"));
+        return Memmy_Status_InvalidArgument;
     }
 
     B32 previous_has_default_process = env->has_default_process;
     U32 previous_default_pid = env->default_pid;
     Memmy_PointerWidth previous_default_pointer_width = env->default_pointer_width;
 
-    status = Memmy_Cli_SetOptionsProcess(arena, options, env, 0, error);
+    Memmy_Status status = Memmy_Cli_SetOptionsProcess(arena, options, env, 0, error);
     if (status != Memmy_Status_Ok)
     {
         return status;

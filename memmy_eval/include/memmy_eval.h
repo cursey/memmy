@@ -14,6 +14,7 @@ enum
     Memmy_EvalValueKind_Const,
     Memmy_EvalValueKind_Address,
     Memmy_EvalValueKind_Range,
+    Memmy_EvalValueKind_ProcessRange,
     Memmy_EvalValueKind_AddressList,
     Memmy_EvalValueKind_TypedValue,
 };

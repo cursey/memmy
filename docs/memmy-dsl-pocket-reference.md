@@ -7,19 +7,19 @@ x                    constant integer/math expression
 @x                   absolute address
 [@a..@b]             explicit address range [a, b)
 [@a..+n]             sized address range [a, a+n)
-<target>             process/module range
+<module>             module range in attached/selected process
+[0..]                readable regions of attached/selected process
 $name                variable
 ```
 
 ## Targets
 
 ```txt
-<game.exe!>           process by name
-<1234!>               process by PID
-<client.dll>          module in current process
-<game.exe!client.dll> process module by process name
-<1234!client.dll>     process module by PID
+<client.dll>          module in attached/selected process
 ```
+
+`<client.dll>` requires a REPL attachment via `/attach`, or one-shot selection via
+`--pid` / `--name`.
 
 ## Constants
 
@@ -35,8 +35,8 @@ $name                variable
 [@0x1234..@0x5678]   explicit address range: [0x1234, 0x5678)
 [@0x1234..+0x5678]  sized address range:    [0x1234, 0x68ac)
 
-<game.exe!>          whole process range
-<client.dll>         module range
+[0..]                attached process readable regions
+<client.dll>         attached process module range
 ```
 
 ## Addresses
@@ -76,11 +76,11 @@ Pattern scans and value scans evaluate to address lists.
 
 ```txt
 <client.dll>{AB CD ?? ?? 12 34}
-<game.exe!>{48 8B ? ? ? ? ? E8 ? ? ? ?}
+[0..]{48 8B ? ? ? ? ? E8 ? ? ? ?}
 [@0x1234..@0x5678]{ab cd ? ? 12 34}
 
 <client.dll> as f32 == 42.777
-<game.exe!> as str == "hello"
+[0..] as str == "hello"
 [@0x1234..@0x5678] as u32 == 123
 ```
 
@@ -123,9 +123,12 @@ $foo[0]              index address list variable
 ```txt
 /procs               list processes
 /procs game          fuzzy-filter processes
-/mods                list modules
-/mods client         fuzzy-filter modules
-/regions             list memory regions
+/attach game.exe     attach by process name
+/attach 1234         attach by PID
+/detach              clear attached process
+/mods                list attached process modules
+/mods client         fuzzy-filter attached process modules
+/regions             list attached process memory regions
 /vars                list variables
 /unset $var          remove variable
 /clear               clear variables
@@ -137,8 +140,10 @@ $foo[0]              index address list variable
 ## Example Flow
 
 ```txt
+/attach game.exe
 $anchor = <client.dll>{48 8B ?? ?? ?? ?? ?? E8 ?? ?? ?? ??}[0]
 $target = $anchor+7+($anchor+3 as i32)
+[0..] as str == "hello"
 ```
 
 ## Mental Model
@@ -148,7 +153,8 @@ x                    constant
 @x                   address
 [@a..@b]             explicit address range
 [@a..+n]             sized address range
-<target>             named process/module range
+<module>             attached/selected process module range
+[0..]                attached/selected process readable regions
 range{pattern}       pattern scan -> address list
 range as T == value  value scan -> address list
 address as T         typed read

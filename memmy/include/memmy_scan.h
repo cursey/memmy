@@ -22,6 +22,7 @@ struct Memmy_ScanOptions
     Memmy_Range range;
     U64 limit;
     U64 chunk_size;
+    B32 scan_readable_regions;
 };
 
 Memmy_Status Memmy_Process_ScanValue(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options,

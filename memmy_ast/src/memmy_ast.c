@@ -427,40 +427,19 @@ static Memmy_AstStatus Memmy_Parser_ParseTargetNode(Memmy_Parser *parser, Memmy_
         }
         if (c == '!')
         {
-            if (bang != STRING8_NPOS)
-            {
-                Memmy_Parser_SetError(parser, String8_Lit("invalid target"), token.byte_offset + 1 + i, 1);
-                return Memmy_AstStatus_ParseError;
-            }
             bang = i;
         }
     }
 
-    if (bang == STRING8_NPOS)
+    if (bang != STRING8_NPOS)
     {
-        node->target_module = body;
-    }
-    else
-    {
-        if (bang == 0)
-        {
-            Memmy_Parser_SetError(parser, String8_Lit("missing target process"), token.byte_offset + 1, 1);
-            return Memmy_AstStatus_ParseError;
-        }
-        node->target_has_process = 1;
-        node->target_process = String8_Substr(body, 0, bang);
-        node->target_module = String8_Substr(body, bang + 1, body.len - bang - 1);
-        node->target_process_is_pid = 1;
-        for (U64 i = 0; i < node->target_process.len; i++)
-        {
-            if (!Char8_IsDigit(node->target_process.data[i]))
-            {
-                node->target_process_is_pid = 0;
-                break;
-            }
-        }
+        Memmy_Parser_SetError(parser,
+                              String8_Lit("process-qualified targets are not supported; use /attach or --pid/--name"),
+                              token.byte_offset + 1 + bang, 1);
+        return Memmy_AstStatus_ParseError;
     }
 
+    node->target_module = body;
     *out = node;
     return Memmy_Parser_Next(parser);
 }
@@ -779,6 +758,36 @@ static Memmy_AstStatus Memmy_Parser_ParseRange(Memmy_Parser *parser, Memmy_AstNo
     if (status != Memmy_AstStatus_Ok)
     {
         return status;
+    }
+
+    if (parser->token.kind == Memmy_TokenKind_Integer && parser->token.text.len == 1 &&
+        parser->token.text.data[0] == '0')
+    {
+        status = Memmy_Parser_Next(parser);
+        if (status != Memmy_AstStatus_Ok)
+        {
+            return status;
+        }
+        if (parser->token.kind == Memmy_TokenKind_DotDot)
+        {
+            status = Memmy_Parser_Next(parser);
+            if (status != Memmy_AstStatus_Ok)
+            {
+                return status;
+            }
+            if (parser->token.kind == Memmy_TokenKind_RBracket)
+            {
+                Memmy_Token close = parser->token;
+                Memmy_AstNode *node = Memmy_Parser_PushNode(parser, Memmy_AstNodeKind_ProcessRange, open);
+                node->byte_count = close.byte_offset + close.byte_count - open.byte_offset;
+                node->text = String8_Substr(parser->input, node->byte_offset, node->byte_count);
+                *out = node;
+                return Memmy_Parser_Next(parser);
+            }
+        }
+        Memmy_Parser_SetError(parser, String8_Lit("expected [0..] or address range"), parser->token.byte_offset,
+                              parser->token.byte_count);
+        return Memmy_AstStatus_ParseError;
     }
 
     if (parser->token.kind != Memmy_TokenKind_At && parser->token.kind != Memmy_TokenKind_Target)
@@ -1238,6 +1247,14 @@ static Memmy_AstCommandKind Memmy_Parser_CommandKind(String8 text)
     {
         return Memmy_AstCommandKind_Procs;
     }
+    if (String8_Eq(name, String8_Lit("attach")))
+    {
+        return Memmy_AstCommandKind_Attach;
+    }
+    if (String8_Eq(name, String8_Lit("detach")))
+    {
+        return Memmy_AstCommandKind_Detach;
+    }
     if (String8_Eq(name, String8_Lit("mods")))
     {
         return Memmy_AstCommandKind_Mods;
@@ -1291,12 +1308,29 @@ static Memmy_AstStatus Memmy_Parser_ParseCommandStatement(Memmy_Parser *parser, 
 
     out->kind = Memmy_AstNodeKind_Command;
     out->command_kind = kind;
-    if (kind == Memmy_AstCommandKind_Procs || kind == Memmy_AstCommandKind_Mods)
+    if (kind == Memmy_AstCommandKind_Procs || kind == Memmy_AstCommandKind_Mods || kind == Memmy_AstCommandKind_Attach)
     {
         U64 start = command.byte_offset + command.byte_count;
         out->command_arg = String8_TrimWhitespace(String8_Substr(parser->input, start, parser->input.len - start));
+        if (kind == Memmy_AstCommandKind_Attach && out->command_arg.len == 0)
+        {
+            Memmy_Parser_SetError(parser, String8_Lit("expected process id or name"), parser->token.byte_offset,
+                                  parser->token.byte_count);
+            return Memmy_AstStatus_ParseError;
+        }
         parser->pos = parser->input.len;
         return Memmy_Parser_Next(parser);
+    }
+
+    if (kind == Memmy_AstCommandKind_Detach)
+    {
+        if (parser->token.kind != Memmy_TokenKind_Eof)
+        {
+            Memmy_Parser_SetError(parser, String8_Lit("unexpected trailing input"), parser->token.byte_offset,
+                                  parser->token.byte_count);
+            return Memmy_AstStatus_ParseError;
+        }
+        return Memmy_AstStatus_Ok;
     }
 
     if (kind == Memmy_AstCommandKind_Unset)

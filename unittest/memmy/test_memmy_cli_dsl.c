@@ -106,7 +106,7 @@ Test(Test_MemmyCliExprResolvesQualifiedProcessName)
 
     String8 out = {0};
     Memmy_Error error = {0};
-    char *argv[] = {"memmy", "--expr", "<game.exe!client.dll>+0x123"};
+    char *argv[] = {"memmy", "--name", "game.exe", "--expr", "<client.dll>+0x123"};
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("0x0000000000001123\n"));
@@ -130,8 +130,9 @@ Test(Test_MemmyCliExprRejectsExternalPidConflict)
     Memmy_Error error = {0};
     char *argv[] = {"memmy", "--pid", "1234", "--expr", "<other!client.dll>+0x123"};
 
-    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_InvalidArgument);
-    AssertStrEq(error.context, String8_Lit("cli"));
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_ParseError);
+    AssertStrEq(error.context, String8_Lit("expr"));
+    AssertStrEq(error.message, String8_Lit("process-qualified targets are not supported; use /attach or --pid/--name"));
     AssertEq(test_backend.open_call_count, 0);
 
     Memmy_Context_Set(0);
@@ -151,8 +152,9 @@ Test(Test_MemmyCliExprRejectsExternalNameConflict)
     Memmy_Error error = {0};
     char *argv[] = {"memmy", "--name", "game.exe", "--expr", "<other.exe!module>+0x123"};
 
-    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_InvalidArgument);
-    AssertStrEq(error.context, String8_Lit("cli"));
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_ParseError);
+    AssertStrEq(error.context, String8_Lit("expr"));
+    AssertStrEq(error.message, String8_Lit("process-qualified targets are not supported; use /attach or --pid/--name"));
     AssertEq(test_backend.open_call_count, 0);
 
     Memmy_Context_Set(0);
@@ -335,7 +337,8 @@ Test(Test_MemmyCliScriptMixesStatementsAssignmentsExpressionsAndExit)
 
     AssertEq(Memmy_Cli_RunInputString(arena, (I32)ArrayCount(argv), argv,
                                       String8_Lit("/procs\n"
-                                                  "$addr = <game.exe!client.dll>+0x20\n"
+                                                  "/attach 1234\n"
+                                                  "$addr = <client.dll>+0x20\n"
                                                   "$addr as u8\n"
                                                   "/exit\n"
                                                   "@0x1000\n"),
@@ -352,7 +355,7 @@ Test(Test_MemmyCliScriptMixesStatementsAssignmentsExpressionsAndExit)
     Arena_Destroy(arena);
 }
 
-Test(Test_MemmyCliScriptAllowsDifferentExplicitProcessTargets)
+Test(Test_MemmyCliScriptCanSwitchAttachedProcesses)
 {
     Arena *arena = Arena_CreateDefault();
     Test_MemmyBackend test_backend = {0};
@@ -365,8 +368,10 @@ Test(Test_MemmyCliScriptAllowsDifferentExplicitProcessTargets)
     char *argv[] = {"memmy"};
 
     AssertEq(Memmy_Cli_RunInputString(arena, (I32)ArrayCount(argv), argv,
-                                      String8_Lit("<1234!client.dll>+0x20\n"
-                                                  "<5678!client.dll>+0x20\n"),
+                                      String8_Lit("/attach 1234\n"
+                                                  "<client.dll>+0x20\n"
+                                                  "/attach 5678\n"
+                                                  "<client.dll>+0x20\n"),
                                       &out, &error),
              Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("0x0000000000001020\n"
@@ -378,7 +383,59 @@ Test(Test_MemmyCliScriptAllowsDifferentExplicitProcessTargets)
     Arena_Destroy(arena);
 }
 
-Test(Test_MemmyCliScriptPidSelectorRejectsDifferentExplicitTarget)
+Test(Test_MemmyCliScriptAttachOverridesInitialPidSelector)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy", "--pid", "1234"};
+
+    AssertEq(Memmy_Cli_RunInputString(arena, (I32)ArrayCount(argv), argv,
+                                      String8_Lit("<client.dll>+0x20\n"
+                                                  "/attach 5678\n"
+                                                  "<client.dll>+0x20\n"),
+                                      &out, &error),
+             Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("0x0000000000001020\n"
+                                 "0x0000000000003020\n"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliScriptDetachDoesNotFallBackToInitialPidSelector)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy", "--pid", "1234"};
+
+    AssertEq(Memmy_Cli_RunInputString(arena, (I32)ArrayCount(argv), argv,
+                                      String8_Lit("<client.dll>+0x20\n"
+                                                  "/detach\n"
+                                                  "<client.dll>+0x20\n"),
+                                      &out, &error),
+             Memmy_Status_InvalidArgument);
+    AssertStrEq(out, String8_Lit("0x0000000000001020\n"
+                                 "memmy: invalid_argument: missing selected process for target\n"));
+    AssertStrEq(error.context, String8_Lit("target"));
+    AssertStrEq(error.message, String8_Lit("missing selected process for target"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliScriptPidSelectorRejectsProcessQualifiedTarget)
 {
     Arena *arena = Arena_CreateDefault();
     Test_MemmyBackend test_backend = {0};
@@ -393,9 +450,9 @@ Test(Test_MemmyCliScriptPidSelectorRejectsDifferentExplicitTarget)
 
     AssertEq(Memmy_Cli_RunInputString(arena, (I32)ArrayCount(argv), argv, String8_Lit("<5678!client.dll>+0\n"), &out,
                                       &error),
-             Memmy_Status_InvalidArgument);
-    AssertStrEq(error.context, String8_Lit("cli"));
-    AssertStrEq(error.message, String8_Lit("statement target conflicts with selected process"));
+             Memmy_Status_ParseError);
+    AssertStrEq(error.context, String8_Lit("expr"));
+    AssertStrEq(error.message, String8_Lit("process-qualified targets are not supported; use /attach or --pid/--name"));
     AssertEq(test_backend.open_call_count, 0);
 
     Memmy_Context_Set(0);
@@ -417,7 +474,8 @@ Test(Test_MemmyCliVarsFormatsTextAndJsonl)
     char *jsonl_argv[] = {"memmy", "--jsonl"};
 
     AssertEq(Memmy_Cli_RunInputString(arena, (I32)ArrayCount(text_argv), text_argv,
-                                      String8_Lit("$addr = <game.exe!client.dll>+0\n"
+                                      String8_Lit("/attach 1234\n"
+                                                  "$addr = <client.dll>+0\n"
                                                   "/vars\n"),
                                       &out, &error),
              Memmy_Status_Ok);
@@ -425,7 +483,8 @@ Test(Test_MemmyCliVarsFormatsTextAndJsonl)
 
     error = (Memmy_Error){0};
     AssertEq(Memmy_Cli_RunInputString(arena, (I32)ArrayCount(jsonl_argv), jsonl_argv,
-                                      String8_Lit("$addr = <game.exe!client.dll>+0\n"
+                                      String8_Lit("/attach 1234\n"
+                                                  "$addr = <client.dll>+0\n"
                                                   "/vars\n"),
                                       &out, &error),
              Memmy_Status_Ok);
@@ -453,7 +512,8 @@ Test(Test_MemmyCliJsonlScriptEmitsAssignmentsExpressionsAndExit)
     char *argv[] = {"memmy", "--jsonl"};
 
     AssertEq(Memmy_Cli_RunInputString(arena, (I32)ArrayCount(argv), argv,
-                                      String8_Lit("$addr = <game.exe!client.dll>+0x20\n"
+                                      String8_Lit("/attach 1234\n"
+                                                  "$addr = <client.dll>+0x20\n"
                                                   "$hp = $addr as u8\n"
                                                   "$matches = [@0x1020..+0x20] as u8 == 42\n"
                                                   "$addr\n"
@@ -566,7 +626,7 @@ Test(Test_MemmyCliExprRejectsOldSyntax)
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(process_absolute_argv), process_absolute_argv, &out, &error),
              Memmy_Status_ParseError);
     AssertStrEq(error.context, String8_Lit("expr"));
-    AssertStrEq(error.message, String8_Lit("unexpected trailing input"));
+    AssertStrEq(error.message, String8_Lit("process-qualified targets are not supported; use /attach or --pid/--name"));
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -585,7 +645,7 @@ Test(Test_MemmyCliExprFormatsPeekTextLikePeekCommand)
 
     String8 out = {0};
     Memmy_Error error = {0};
-    char *argv[] = {"memmy", "--expr", "<game.exe!client.dll>+0x123 as u32"};
+    char *argv[] = {"memmy", "--name", "game.exe", "--expr", "<client.dll>+0x123 as u32"};
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("0x0000000000001123: u32 1337  0x00000539\n"));
@@ -638,8 +698,8 @@ Test(Test_MemmyCliExprFormatsVariableWidthStringPeek)
 
     String8 out = {0};
     Memmy_Error error = {0};
-    char *str_argv[] = {"memmy", "--expr", "<game.exe!client.dll>+0x123 as str"};
-    char *wstr_argv[] = {"memmy", "--expr", "<game.exe!client.dll>+0x133 as wstr"};
+    char *str_argv[] = {"memmy", "--name", "game.exe", "--expr", "<client.dll>+0x123 as str"};
+    char *wstr_argv[] = {"memmy", "--name", "game.exe", "--expr", "<client.dll>+0x133 as wstr"};
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(str_argv), str_argv, &out, &error), Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("0x0000000000001123: str \"hello\"\n"));
@@ -693,7 +753,7 @@ Test(Test_MemmyCliExprFormatsPokeJsonlLikePokeCommand)
 
     String8 out = {0};
     Memmy_Error error = {0};
-    char *argv[] = {"memmy", "--jsonl", "--expr", "<game.exe!client.dll>+0x123 as i32 = 77"};
+    char *argv[] = {"memmy", "--jsonl", "--name", "game.exe", "--expr", "<client.dll>+0x123 as i32 = 77"};
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("{\"type\":\"poke\",\"process\":1234,\"address\":\"0x0000000000001123\","
@@ -859,7 +919,7 @@ Test(Test_MemmyCliExprScansWholeProcessValueWithRegions)
 
     String8 out = {0};
     Memmy_Error error = {0};
-    char *argv[] = {"memmy", "--expr", "<game.exe!> as u8 == 42"};
+    char *argv[] = {"memmy", "--name", "game.exe", "--expr", "[0..] as u8 == 42"};
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("ADDRESS\n"
@@ -883,8 +943,10 @@ TestSuite suite_memmy_cli_dsl = TestSuite_Make(
     TestCase_Make(Test_MemmyCliExprProcsFormatsJsonl), TestCase_Make(Test_MemmyCliExprProcsFiltersFuzzyNoCase),
     TestCase_Make(Test_MemmyCliExprRunsStatementSyntax),
     TestCase_Make(Test_MemmyCliScriptMixesStatementsAssignmentsExpressionsAndExit),
-    TestCase_Make(Test_MemmyCliScriptAllowsDifferentExplicitProcessTargets),
-    TestCase_Make(Test_MemmyCliScriptPidSelectorRejectsDifferentExplicitTarget),
+    TestCase_Make(Test_MemmyCliScriptCanSwitchAttachedProcesses),
+    TestCase_Make(Test_MemmyCliScriptAttachOverridesInitialPidSelector),
+    TestCase_Make(Test_MemmyCliScriptDetachDoesNotFallBackToInitialPidSelector),
+    TestCase_Make(Test_MemmyCliScriptPidSelectorRejectsProcessQualifiedTarget),
     TestCase_Make(Test_MemmyCliVarsFormatsTextAndJsonl),
     TestCase_Make(Test_MemmyCliJsonlScriptEmitsAssignmentsExpressionsAndExit),
     TestCase_Make(Test_MemmyCliHelpFormatsText), TestCase_Make(Test_MemmyCliExprRejectsScanTweakables),

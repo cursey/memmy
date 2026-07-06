@@ -12,7 +12,7 @@ Test(Test_MemmyCliReplLineEvaluatesExpression)
     String8 out = {0};
     Memmy_Error error = {0};
 
-    AssertEq(Memmy_Cli_RunReplLine(arena, String8_Lit("  <4242!test-module.exe>+0  \n"), &out, &error),
+    AssertEq(Memmy_Cli_RunReplString(arena, String8_Lit("/attach 4242\n<test-module.exe>+0\n"), &out, &error),
              Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("0x0000000010000000\n"));
 
@@ -35,10 +35,11 @@ Test(Test_MemmyCliReplStringEvaluatesLinesAsAscii)
     String8 out = {0};
     Memmy_Error error = {0};
     AssertEq(Memmy_Cli_RunReplString(arena,
-                                     String8_Lit("<4242!client.dll>+0\n"
-                                                 "<4242!client.dll>+0x20 as u8\n"
+                                     String8_Lit("/attach 4242\n"
+                                                 "<client.dll>+0\n"
+                                                 "<client.dll>+0x20 as u8\n"
                                                  "/exit\n"
-                                                 "<4242!client.dll>+0x1\n"),
+                                                 "<client.dll>+0x1\n"),
                                      &out, &error),
              Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("0x0000000000001000\n"
@@ -62,7 +63,7 @@ Test(Test_MemmyCliReplStringFormatsErrorsAndContinues)
     String8 out = {0};
     Memmy_Error error = {0};
 
-    AssertEq(Memmy_Cli_RunReplString(arena, String8_Lit("0x\n<4242!client.dll>+0\n"), &out, &error),
+    AssertEq(Memmy_Cli_RunReplString(arena, String8_Lit("0x\n/attach 4242\n<client.dll>+0\n"), &out, &error),
              Memmy_Status_ParseError);
     AssertStrEq(out, String8_Lit("memmy: parse_error: expected hexadecimal digit\n"
                                  "0x0000000000001000\n"));
@@ -89,7 +90,9 @@ Test(Test_MemmyCliReplSessionKeepsAssignmentsAcrossLines)
     Memmy_Error error = {0};
     B32 should_exit = 0;
 
-    AssertEq(Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("$addr = <4242!client.dll>+0x20\n"), &out,
+    AssertEq(Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("/attach 4242\n"), &out, &should_exit, &error),
+             Memmy_Status_Ok);
+    AssertEq(Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("$addr = <client.dll>+0x20\n"), &out,
                                           &should_exit, &error),
              Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit(""));
@@ -108,7 +111,7 @@ Test(Test_MemmyCliReplSessionKeepsAssignmentsAcrossLines)
     Arena_Destroy(arena);
 }
 
-Test(Test_MemmyCliReplSessionAttachesAfterQualifiedStatement)
+Test(Test_MemmyCliReplSessionUsesAttachedProcessForModuleTarget)
 {
     Arena *arena = Arena_CreateDefault();
     Test_MemmyBackend test_backend = {0};
@@ -126,9 +129,10 @@ Test(Test_MemmyCliReplSessionAttachesAfterQualifiedStatement)
     B32 should_exit = 0;
 
     AssertStrEq(Memmy_CliReplSession_Prompt(arena, &session), String8_Lit("> "));
-    AssertEq(
-        Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("<4242!client.dll>+0\n"), &out, &should_exit, &error),
-        Memmy_Status_Ok);
+    AssertEq(Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("/attach 4242\n"), &out, &should_exit, &error),
+             Memmy_Status_Ok);
+    AssertEq(Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("<client.dll>+0\n"), &out, &should_exit, &error),
+             Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("0x0000000000001000\n"));
     AssertStrEq(Memmy_CliReplSession_Prompt(arena, &session), String8_Lit("[test-process:4242]> "));
 
@@ -140,7 +144,7 @@ Test(Test_MemmyCliReplSessionAttachesAfterQualifiedStatement)
     Arena_Destroy(arena);
 }
 
-Test(Test_MemmyCliReplSessionAttachesAfterProcessTarget)
+Test(Test_MemmyCliReplSessionUsesAttachedProcessRange)
 {
     Arena *arena = Arena_CreateDefault();
     Test_MemmyBackend test_backend = {0};
@@ -156,9 +160,11 @@ Test(Test_MemmyCliReplSessionAttachesAfterProcessTarget)
     B32 should_exit = 0;
 
     AssertStrEq(Memmy_CliReplSession_Prompt(arena, &session), String8_Lit("> "));
-    AssertEq(Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("<4242!>\n"), &out, &should_exit, &error),
+    AssertEq(Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("/attach 4242\n"), &out, &should_exit, &error),
              Memmy_Status_Ok);
-    AssertStrEq(out, String8_Lit("[0x0000000000001000..0x0000000000001100)\n"));
+    AssertEq(Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("[0..]\n"), &out, &should_exit, &error),
+             Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("[0..]\n"));
     AssertStrEq(Memmy_CliReplSession_Prompt(arena, &session), String8_Lit("[test-process:4242]> "));
 
     AssertEq(Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("@0x1020 as u8\n"), &out, &should_exit, &error),
@@ -169,11 +175,12 @@ Test(Test_MemmyCliReplSessionAttachesAfterProcessTarget)
     Arena_Destroy(arena);
 }
 
-Test(Test_MemmyCliReplSessionAllowsQualifiedTargetAfterAttach)
+Test(Test_MemmyCliReplSessionCanSwitchAttachedProcess)
 {
     Arena *arena = Arena_CreateDefault();
     Test_MemmyBackend test_backend = {0};
     Test_MemmyBackend_Init(&test_backend);
+    test_backend.process_info_strings_use_enum_arena = 1;
     Test_MemmyBackend_AddProcess(&test_backend, 5678, String8_Lit("other.exe"), String8_Lit("C:\\other\\other.exe"),
                                  Memmy_PointerWidth_64);
     Test_MemmyBackend_AddModule(&test_backend, 4242, String8_Lit("client.dll"), String8_Lit("C:\\test\\client.dll"),
@@ -190,16 +197,19 @@ Test(Test_MemmyCliReplSessionAllowsQualifiedTargetAfterAttach)
     Memmy_Error error = {0};
     B32 should_exit = 0;
 
-    AssertEq(
-        Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("<4242!client.dll>+0\n"), &out, &should_exit, &error),
-        Memmy_Status_Ok);
+    AssertEq(Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("/attach 4242\n"), &out, &should_exit, &error),
+             Memmy_Status_Ok);
+    AssertEq(Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("<client.dll>+0\n"), &out, &should_exit, &error),
+             Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("0x0000000000001000\n"));
     AssertStrEq(Memmy_CliReplSession_Prompt(arena, &session), String8_Lit("[test-process:4242]> "));
 
     error = (Memmy_Error){0};
     test_backend.read_call_count = 0;
-    AssertEq(Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("<5678!client.dll>+0x20 as u8\n"), &out,
-                                          &should_exit, &error),
+    AssertEq(Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("/attach 5678\n"), &out, &should_exit, &error),
+             Memmy_Status_Ok);
+    AssertEq(Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("<client.dll>+0x20 as u8\n"), &out, &should_exit,
+                                          &error),
              Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("0x0000000000001020: u8 42  0x2a\n"));
     AssertEq(should_exit, 0);
@@ -207,8 +217,10 @@ Test(Test_MemmyCliReplSessionAllowsQualifiedTargetAfterAttach)
     AssertStrEq(Memmy_CliReplSession_Prompt(arena, &session), String8_Lit("[other.exe:5678]> "));
 
     error = (Memmy_Error){0};
-    AssertEq(Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("<4242!client.dll>+0x20 as u8\n"), &out,
-                                          &should_exit, &error),
+    AssertEq(Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("/attach 4242\n"), &out, &should_exit, &error),
+             Memmy_Status_Ok);
+    AssertEq(Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("<client.dll>+0x20 as u8\n"), &out, &should_exit,
+                                          &error),
              Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("0x0000000000001020: u8 42  0x2a\n"));
     AssertStrEq(Memmy_CliReplSession_Prompt(arena, &session), String8_Lit("[test-process:4242]> "));
@@ -235,9 +247,10 @@ Test(Test_MemmyCliReplSessionPidAttachDoesNotRequireProcessEnumeration)
     Memmy_Error error = {0};
     B32 should_exit = 0;
 
-    AssertEq(
-        Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("<4242!client.dll>+0\n"), &out, &should_exit, &error),
-        Memmy_Status_Ok);
+    AssertEq(Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("/attach 4242\n"), &out, &should_exit, &error),
+             Memmy_Status_Ok);
+    AssertEq(Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("<client.dll>+0\n"), &out, &should_exit, &error),
+             Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("0x0000000000001000\n"));
     AssertStrEq(Memmy_CliReplSession_Prompt(arena, &session), String8_Lit("[4242]> "));
 
@@ -267,8 +280,10 @@ Test(Test_MemmyCliReplSessionClosesProcessAfterEachStatement)
     Memmy_Error error = {0};
     B32 should_exit = 0;
 
-    AssertEq(Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("<4242!client.dll>+0x20 as u8\n"), &out,
-                                          &should_exit, &error),
+    AssertEq(Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("/attach 4242\n"), &out, &should_exit, &error),
+             Memmy_Status_Ok);
+    AssertEq(Memmy_Cli_RunReplSessionLine(arena, &session, String8_Lit("<client.dll>+0x20 as u8\n"), &out, &should_exit,
+                                          &error),
              Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("0x0000000000001020: u8 42  0x2a\n"));
     AssertEq(test_backend.open_call_count, 1);
@@ -294,8 +309,8 @@ TestSuite suite_memmy_cli_repl =
                    TestCase_Make(Test_MemmyCliReplStringEvaluatesLinesAsAscii),
                    TestCase_Make(Test_MemmyCliReplStringFormatsErrorsAndContinues),
                    TestCase_Make(Test_MemmyCliReplSessionKeepsAssignmentsAcrossLines),
-                   TestCase_Make(Test_MemmyCliReplSessionAttachesAfterQualifiedStatement),
-                   TestCase_Make(Test_MemmyCliReplSessionAttachesAfterProcessTarget),
-                   TestCase_Make(Test_MemmyCliReplSessionAllowsQualifiedTargetAfterAttach),
+                   TestCase_Make(Test_MemmyCliReplSessionUsesAttachedProcessForModuleTarget),
+                   TestCase_Make(Test_MemmyCliReplSessionUsesAttachedProcessRange),
+                   TestCase_Make(Test_MemmyCliReplSessionCanSwitchAttachedProcess),
                    TestCase_Make(Test_MemmyCliReplSessionPidAttachDoesNotRequireProcessEnumeration),
                    TestCase_Make(Test_MemmyCliReplSessionClosesProcessAfterEachStatement), );

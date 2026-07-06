@@ -9,7 +9,6 @@ enum
 
 static Memmy_Status Test_MemmyBackend_EnumerateProcesses(Arena *arena, Memmy_ProcessInfoSink sink, Memmy_Error *error)
 {
-    Unused(arena);
     Unused(error);
 
     Test_MemmyBackend *backend = ContainerOf(Memmy_Context_Get()->backend, Test_MemmyBackend, backend);
@@ -22,6 +21,11 @@ static Memmy_Status Test_MemmyBackend_EnumerateProcesses(Arena *arena, Memmy_Pro
             .path = src->path,
             .pointer_width = src->pointer_width,
         };
+        if (backend->process_info_strings_use_enum_arena)
+        {
+            info.name = String8_Copy(arena, info.name);
+            info.path = String8_Copy(arena, info.path);
+        }
         Memmy_Status status = sink.callback(sink.user_data, &info);
         if (status != Memmy_Status_Ok)
         {

@@ -23,6 +23,7 @@ enum
     Memmy_AstNodeKind_Target,
     Memmy_AstNodeKind_Address,
     Memmy_AstNodeKind_Range,
+    Memmy_AstNodeKind_ProcessRange,
     Memmy_AstNodeKind_Deref,
     Memmy_AstNodeKind_TypedRead,
     Memmy_AstNodeKind_TypedWrite,
@@ -51,6 +52,8 @@ enum
 {
     Memmy_AstCommandKind_None,
     Memmy_AstCommandKind_Procs,
+    Memmy_AstCommandKind_Attach,
+    Memmy_AstCommandKind_Detach,
     Memmy_AstCommandKind_Mods,
     Memmy_AstCommandKind_Regions,
     Memmy_AstCommandKind_Vars,
@@ -89,10 +92,7 @@ struct Memmy_AstNode
     String8 type_name;
     String8 pattern;
     String8 value_text;
-    String8 target_process;
     String8 target_module;
-    B32 target_has_process;
-    B32 target_process_is_pid;
 };
 
 typedef struct Memmy_AstStatement Memmy_AstStatement;

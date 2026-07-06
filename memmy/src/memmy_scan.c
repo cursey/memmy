@@ -102,9 +102,14 @@ static Memmy_Status Memmy_ScanRegionCollector_Push(void *user_data, Memmy_Region
     }
 
     Memmy_Range scan_range = {
-        .start = Max(collector->options->range.start, region->base),
-        .end = Min(collector->options->range.end, region_end),
+        .start = region->base,
+        .end = region_end,
     };
+    if (!collector->options->scan_readable_regions)
+    {
+        scan_range.start = Max(collector->options->range.start, region->base);
+        scan_range.end = Min(collector->options->range.end, region_end);
+    }
     if (scan_range.end <= scan_range.start)
     {
         return Memmy_Status_Ok;
@@ -236,14 +241,14 @@ static Memmy_Status Memmy_Process_ScanNeedle(Arena *arena, Memmy_Process *proces
         Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("scan"), String8_Lit("missing scan argument"));
         return Memmy_Status_InvalidArgument;
     }
-    if (options->range.end < options->range.start)
+    if (!options->scan_readable_regions && options->range.end < options->range.start)
     {
         Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("scan"),
                         String8_Lit("scan range end is before start"));
         return Memmy_Status_InvalidArgument;
     }
 
-    if (options->range.end == options->range.start)
+    if (!options->scan_readable_regions && options->range.end == options->range.start)
     {
         return Memmy_Status_Ok;
     }
@@ -318,6 +323,13 @@ static Memmy_Status Memmy_Process_ScanNeedle(Arena *arena, Memmy_Process *proces
             }
             return Memmy_Status_Ok;
         }
+    }
+
+    if (options->scan_readable_regions)
+    {
+        Memmy_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("scan"),
+                        String8_Lit("backend cannot list regions"));
+        return Memmy_Status_Unsupported;
     }
 
     Memmy_Status status = Memmy_Process_ScanRange(arena, process, options->range, options, needle, sink, &match_count,

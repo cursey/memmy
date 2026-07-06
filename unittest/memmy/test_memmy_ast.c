@@ -99,37 +99,19 @@ Test(Test_MemmyAstParsesPocketReferenceTargets)
 {
     Arena *arena = Arena_CreateDefault();
 
-    Memmy_AstNode *process_name = 0;
-    Test_ParseAstExpr(arena, "<game.exe!>", &process_name);
-    AssertEq(process_name->kind, Memmy_AstNodeKind_Target);
-    AssertTrue(process_name->target_has_process);
-    AssertTrue(!process_name->target_process_is_pid);
-    AssertStrEq(process_name->target_process, String8_Lit("game.exe"));
-    AssertStrEq(process_name->target_module, String8_Lit(""));
-
-    Memmy_AstNode *process_pid = 0;
-    Test_ParseAstExpr(arena, "<1234!>", &process_pid);
-    AssertTrue(process_pid->target_has_process);
-    AssertTrue(process_pid->target_process_is_pid);
-    AssertStrEq(process_pid->target_process, String8_Lit("1234"));
-
     Memmy_AstNode *module = 0;
     Test_ParseAstExpr(arena, "<client.dll>", &module);
-    AssertTrue(!module->target_has_process);
+    AssertEq(module->kind, Memmy_AstNodeKind_Target);
     AssertStrEq(module->target_module, String8_Lit("client.dll"));
 
-    Memmy_AstNode *process_module_name = 0;
-    Test_ParseAstExpr(arena, "<game.exe!client.dll>", &process_module_name);
-    AssertTrue(process_module_name->target_has_process);
-    AssertStrEq(process_module_name->target_process, String8_Lit("game.exe"));
-    AssertStrEq(process_module_name->target_module, String8_Lit("client.dll"));
+    Memmy_AstNode *process_range = 0;
+    Test_ParseAstExpr(arena, "[0..]", &process_range);
+    AssertEq(process_range->kind, Memmy_AstNodeKind_ProcessRange);
 
-    Memmy_AstNode *process_module_pid = 0;
-    Test_ParseAstExpr(arena, "<1234!client.dll>", &process_module_pid);
-    AssertTrue(process_module_pid->target_has_process);
-    AssertTrue(process_module_pid->target_process_is_pid);
-    AssertStrEq(process_module_pid->target_process, String8_Lit("1234"));
-    AssertStrEq(process_module_pid->target_module, String8_Lit("client.dll"));
+    Test_RejectAstExpr("<game.exe!>");
+    Test_RejectAstExpr("<1234!>");
+    Test_RejectAstExpr("<game.exe!client.dll>");
+    Test_RejectAstExpr("<1234!client.dll>");
 
     Arena_Destroy(arena);
 }
@@ -195,17 +177,15 @@ Test(Test_MemmyAstParsesPocketReferenceRanges)
     AssertEq(sized_range->rhs->value, 0x5678);
 
     Memmy_AstNode *target_endpoint_range = 0;
-    Test_ParseAstExpr(arena, "[<1234!a.dll>..<1234!b.dll>]", &target_endpoint_range);
+    Test_ParseAstExpr(arena, "[<a.dll>..<b.dll>]", &target_endpoint_range);
     AssertEq(target_endpoint_range->kind, Memmy_AstNodeKind_Range);
     AssertTrue(!target_endpoint_range->range_is_sized);
     AssertEq(target_endpoint_range->lhs->kind, Memmy_AstNodeKind_Target);
     AssertEq(target_endpoint_range->rhs->kind, Memmy_AstNodeKind_Target);
 
     Memmy_AstNode *process_range = 0;
-    Test_ParseAstExpr(arena, "<game.exe!>", &process_range);
-    AssertEq(process_range->kind, Memmy_AstNodeKind_Target);
-    AssertTrue(process_range->target_has_process);
-    AssertStrEq(process_range->target_process, String8_Lit("game.exe"));
+    Test_ParseAstExpr(arena, "[0..]", &process_range);
+    AssertEq(process_range->kind, Memmy_AstNodeKind_ProcessRange);
 
     Memmy_AstNode *module_range = 0;
     Test_ParseAstExpr(arena, "<client.dll>", &module_range);
@@ -382,9 +362,9 @@ Test(Test_MemmyAstParsesPocketReferenceAddressLists)
     AssertStrEq(module_pattern->pattern, String8_Lit("AB CD ?? ?? 12 34"));
 
     Memmy_AstNode *process_pattern = 0;
-    Test_ParseAstExpr(arena, "<game.exe!>{48 8B ? ? ? ? ? E8 ? ? ? ?}", &process_pattern);
+    Test_ParseAstExpr(arena, "[0..]{48 8B ? ? ? ? ? E8 ? ? ? ?}", &process_pattern);
     AssertEq(process_pattern->kind, Memmy_AstNodeKind_PatternScan);
-    AssertEq(process_pattern->lhs->kind, Memmy_AstNodeKind_Target);
+    AssertEq(process_pattern->lhs->kind, Memmy_AstNodeKind_ProcessRange);
     AssertStrEq(process_pattern->pattern, String8_Lit("48 8B ? ? ? ? ? E8 ? ? ? ?"));
 
     Memmy_AstNode *range_pattern = 0;
@@ -401,9 +381,9 @@ Test(Test_MemmyAstParsesPocketReferenceAddressLists)
     AssertStrEq(float_scan->value_text, String8_Lit("42.777"));
 
     Memmy_AstNode *string_scan = 0;
-    Test_ParseAstExpr(arena, "<game.exe!> as str == \"hello\"", &string_scan);
+    Test_ParseAstExpr(arena, "[0..] as str == \"hello\"", &string_scan);
     AssertEq(string_scan->kind, Memmy_AstNodeKind_ValueScan);
-    AssertEq(string_scan->lhs->kind, Memmy_AstNodeKind_Target);
+    AssertEq(string_scan->lhs->kind, Memmy_AstNodeKind_ProcessRange);
     AssertStrEq(string_scan->type_name, String8_Lit("str"));
     AssertStrEq(string_scan->value_text, String8_Lit("\"hello\""));
 
@@ -501,6 +481,8 @@ Test(Test_MemmyAstRejectsOldAddressSpellings)
     Test_RejectAstExpr("0x1234->");
     Test_RejectAstExpr("address:+size");
     Test_RejectAstExpr("<1234!>0x1234");
+    Test_RejectAstExpr("[<1234!a.dll>..<b.dll>]");
+    Test_RejectAstExpr("[<a.dll>..<1234!b.dll>]");
 }
 
 Test(Test_MemmyAstParsesPocketReferenceCommands)
@@ -512,6 +494,17 @@ Test(Test_MemmyAstParsesPocketReferenceCommands)
     AssertEq(statement.kind, Memmy_AstNodeKind_Command);
     AssertEq(statement.command_kind, Memmy_AstCommandKind_Procs);
     AssertStrEq(statement.command_arg, String8_Lit("game"));
+
+    Test_ParseAstStatement(arena, "/attach game.exe", &statement);
+    AssertEq(statement.command_kind, Memmy_AstCommandKind_Attach);
+    AssertStrEq(statement.command_arg, String8_Lit("game.exe"));
+
+    Test_ParseAstStatement(arena, "/attach 1234", &statement);
+    AssertEq(statement.command_kind, Memmy_AstCommandKind_Attach);
+    AssertStrEq(statement.command_arg, String8_Lit("1234"));
+
+    Test_ParseAstStatement(arena, "/detach", &statement);
+    AssertEq(statement.command_kind, Memmy_AstCommandKind_Detach);
 
     Test_ParseAstStatement(arena, "/mods client", &statement);
     AssertEq(statement.command_kind, Memmy_AstCommandKind_Mods);
@@ -542,6 +535,10 @@ Test(Test_MemmyAstParsesPocketReferenceCommands)
     Memmy_AstNode *expr = 0;
     Memmy_AstDiagnostic diagnostic = {0};
     AssertEq(Memmy_Ast_ParseExpr(arena, String8_Lit("/procs"), &expr, &diagnostic), Memmy_AstStatus_ParseError);
+    AssertEq(Memmy_Ast_ParseStatement(arena, String8_Lit("/attach"), &statement, &diagnostic),
+             Memmy_AstStatus_ParseError);
+    AssertEq(Memmy_Ast_ParseStatement(arena, String8_Lit("/detach now"), &statement, &diagnostic),
+             Memmy_AstStatus_ParseError);
 
     Arena_Destroy(arena);
 }

@@ -15,15 +15,6 @@ struct Memmy_EvalBinding
     Memmy_EvalValue value;
 };
 
-typedef struct Memmy_EvalProcessResolver Memmy_EvalProcessResolver;
-struct Memmy_EvalProcessResolver
-{
-    Memmy_AstNode *target;
-    Memmy_ProcessInfo match;
-    U64 match_count;
-    Memmy_Error *error;
-};
-
 typedef struct Memmy_EvalModuleResolver Memmy_EvalModuleResolver;
 struct Memmy_EvalModuleResolver
 {
@@ -31,13 +22,6 @@ struct Memmy_EvalModuleResolver
     Memmy_Module match;
     U64 match_count;
     Memmy_Error *error;
-};
-
-typedef struct Memmy_EvalRegionResolver Memmy_EvalRegionResolver;
-struct Memmy_EvalRegionResolver
-{
-    Memmy_Range range;
-    B32 any;
 };
 
 typedef struct Memmy_EvalScanResultNode Memmy_EvalScanResultNode;
@@ -865,106 +849,18 @@ static Memmy_Status Memmy_Eval_ApplyBinary(Memmy_AstConstOp op, Memmy_EvalValue 
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_EvalProcessResolver_Push(void *user_data, Memmy_ProcessInfo *info)
-{
-    Memmy_EvalProcessResolver *resolver = (Memmy_EvalProcessResolver *)user_data;
-    if (!String8_EqNoCase(info->name, resolver->target->target_process))
-    {
-        return Memmy_Status_Ok;
-    }
-
-    resolver->match_count++;
-    if (resolver->match_count > 1)
-    {
-        Memmy_EvalError(resolver->error, Memmy_Status_Ambiguous, String8_Lit("target"),
-                        String8_Lit("process target is ambiguous"));
-        return Memmy_Status_Ambiguous;
-    }
-    resolver->match = *info;
-    return Memmy_Status_Ok;
-}
-
-static Memmy_Status Memmy_Eval_ResolveProcessByName(Memmy_EvalExec *exec, Memmy_AstNode *target, Memmy_Process **out,
-                                                    Memmy_Error *error)
-{
-    Memmy_EvalEnv *env = exec->env;
-    Memmy_EvalProcessResolver resolver = {
-        .target = target,
-        .error = error,
-    };
-    Memmy_ProcessInfoSink sink = {
-        .callback = Memmy_EvalProcessResolver_Push,
-        .user_data = &resolver,
-    };
-    Memmy_Status status = Memmy_EnumerateProcesses(env->arena, sink, error);
-    if (status != Memmy_Status_Ok)
-    {
-        return status;
-    }
-    if (resolver.match_count == 0)
-    {
-        Memmy_EvalError(error, Memmy_Status_NotFound, String8_Lit("target"), String8_Lit("process target not found"));
-        return Memmy_Status_NotFound;
-    }
-
-    return Memmy_EvalExec_OpenProcess(exec, resolver.match.pid, out, error);
-}
-
 static Memmy_Status Memmy_Eval_ResolveTargetProcess(Memmy_EvalExec *exec, Memmy_AstNode *target, Memmy_Process **out,
                                                     Memmy_Error *error)
 {
     Memmy_EvalEnv *env = exec->env;
-    if (!target->target_has_process)
+    (void)target;
+    if (!env->has_default_process)
     {
-        if (!env->has_default_process)
-        {
-            Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("target"),
-                            String8_Lit("missing selected process for target"));
-            return Memmy_Status_InvalidArgument;
-        }
-        return Memmy_EvalExec_OpenProcess(exec, env->default_pid, out, error);
+        Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("target"),
+                        String8_Lit("missing selected process for target"));
+        return Memmy_Status_InvalidArgument;
     }
-
-    if (target->target_process_is_pid)
-    {
-        Memmy_Size pid64 = 0;
-        Memmy_Status status = Memmy_ParseSize(target->target_process, &pid64, error);
-        if (status != Memmy_Status_Ok)
-        {
-            return status;
-        }
-        if (pid64 > U32_MAX)
-        {
-            Memmy_EvalError(error, Memmy_Status_Overflow, String8_Lit("target"), String8_Lit("pid overflow"));
-            return Memmy_Status_Overflow;
-        }
-        return Memmy_EvalExec_OpenProcess(exec, (U32)pid64, out, error);
-    }
-
-    if (env->has_default_process)
-    {
-        Scratch scratch = Scratch_Begin(&env->arena, 1);
-        Memmy_EvalProcessResolver resolver = {
-            .target = target,
-            .error = error,
-        };
-        Memmy_ProcessInfoSink sink = {
-            .callback = Memmy_EvalProcessResolver_Push,
-            .user_data = &resolver,
-        };
-        Memmy_Status status = Memmy_EnumerateProcesses(scratch.arena, sink, error);
-        Scratch_End(scratch);
-        if (status != Memmy_Status_Ok)
-        {
-            return status;
-        }
-        if (resolver.match_count == 1 && resolver.match.pid == env->default_pid)
-        {
-            return Memmy_EvalExec_OpenProcess(exec, env->default_pid, out, error);
-        }
-    }
-
-    return Memmy_Eval_ResolveProcessByName(exec, target, out, error);
+    return Memmy_EvalExec_OpenProcess(exec, env->default_pid, out, error);
 }
 
 static Memmy_Status Memmy_EvalModuleResolver_Push(void *user_data, Memmy_Module *module)
@@ -1026,37 +922,9 @@ static Memmy_Status Memmy_Eval_ResolveModule(Memmy_EvalExec *exec, Memmy_AstNode
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_EvalRegionResolver_Push(void *user_data, Memmy_Region *region)
-{
-    Memmy_EvalRegionResolver *resolver = (Memmy_EvalRegionResolver *)user_data;
-    if (region->state != Memmy_RegionState_Committed)
-    {
-        return Memmy_Status_Ok;
-    }
-
-    Memmy_Addr end = 0;
-    if (!AddU64Checked(region->base, region->size, &end))
-    {
-        return Memmy_Status_Overflow;
-    }
-
-    if (!resolver->any)
-    {
-        resolver->range = (Memmy_Range){.start = region->base, .end = end};
-        resolver->any = 1;
-    }
-    else
-    {
-        resolver->range.start = Min(resolver->range.start, region->base);
-        resolver->range.end = Max(resolver->range.end, end);
-    }
-    return Memmy_Status_Ok;
-}
-
 static Memmy_Status Memmy_Eval_Target(Memmy_EvalExec *exec, Memmy_AstNode *target, Memmy_EvalValue *out,
                                       Memmy_Error *error)
 {
-    Memmy_EvalEnv *env = exec->env;
     if (target->target_module.len != 0)
     {
         Memmy_Module module = {0};
@@ -1078,39 +946,8 @@ static Memmy_Status Memmy_Eval_Target(Memmy_EvalExec *exec, Memmy_AstNode *targe
         return Memmy_Status_Ok;
     }
 
-    Memmy_Process *process = 0;
-    Memmy_Status status = Memmy_Eval_ResolveTargetProcess(exec, target, &process, error);
-    if (status != Memmy_Status_Ok)
-    {
-        return status;
-    }
-
-    Scratch scratch = Scratch_Begin(&env->arena, 1);
-    Memmy_EvalRegionResolver resolver = {0};
-    Memmy_RegionSink sink = {
-        .callback = Memmy_EvalRegionResolver_Push,
-        .user_data = &resolver,
-    };
-    status = Memmy_Process_EnumerateRegions(scratch.arena, process, sink, error);
-    Scratch_End(scratch);
-    if (status != Memmy_Status_Ok)
-    {
-        if (status == Memmy_Status_Overflow)
-        {
-            Memmy_EvalError(error, status, String8_Lit("target"), String8_Lit("process range overflow"));
-        }
-        return status;
-    }
-    if (!resolver.any)
-    {
-        Memmy_EvalError(error, Memmy_Status_NotFound, String8_Lit("target"),
-                        String8_Lit("process target has no regions"));
-        return Memmy_Status_NotFound;
-    }
-
-    *out = Memmy_EvalValue_WithProcess((Memmy_EvalValue){.kind = Memmy_EvalValueKind_Range, .range = resolver.range},
-                                       process);
-    return Memmy_Status_Ok;
+    Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("target"), String8_Lit("empty target"));
+    return Memmy_Status_InvalidArgument;
 }
 
 static Memmy_Status Memmy_EvalProcessEmitter_Push(void *user_data, Memmy_ProcessInfo *info)
@@ -1284,11 +1121,14 @@ static Memmy_Status Memmy_Eval_Command(Memmy_EvalExec *exec, Memmy_AstStatement 
                                                             "  @x                   absolute address\n"
                                                             "  [@a..@b]             explicit address range [a, b)\n"
                                                             "  [@a..+n]             sized address range [a, a+n)\n"
-                                                            "  <target>             process/module range\n"
+                                                            "  <module>             module range in selected process\n"
+                                                            "  [0..]                selected process readable regions\n"
                                                             "  $name                variable\n"
                                                             "\n"
                                                             "Commands:\n"
                                                             "  /procs [filter]\n"
+                                                            "  /attach <pid|name>\n"
+                                                            "  /detach\n"
                                                             "  /mods [filter]\n"
                                                             "  /regions\n"
                                                             "  /vars\n"
@@ -1525,6 +1365,17 @@ static Memmy_Status Memmy_EvalExprWithContext(Memmy_EvalExec *exec, Memmy_AstNod
     if (expr->kind == Memmy_AstNodeKind_Target)
     {
         return Memmy_Eval_Target(exec, expr, out, error);
+    }
+    if (expr->kind == Memmy_AstNodeKind_ProcessRange)
+    {
+        Memmy_Process *process = 0;
+        Memmy_Status status = Memmy_Eval_RequireProcess(exec, 0, String8_Lit("range"), &process, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        *out = Memmy_EvalValue_WithProcess((Memmy_EvalValue){.kind = Memmy_EvalValueKind_ProcessRange}, process);
+        return Memmy_Status_Ok;
     }
     if (expr->kind == Memmy_AstNodeKind_Address)
     {
@@ -1843,7 +1694,7 @@ static Memmy_Status Memmy_EvalExprWithContext(Memmy_EvalExec *exec, Memmy_AstNod
         {
             return status;
         }
-        if (range_value.kind != Memmy_EvalValueKind_Range)
+        if (range_value.kind != Memmy_EvalValueKind_Range && range_value.kind != Memmy_EvalValueKind_ProcessRange)
         {
             Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("scan"),
                             String8_Lit("expected scan range"));
@@ -1866,6 +1717,7 @@ static Memmy_Status Memmy_EvalExprWithContext(Memmy_EvalExec *exec, Memmy_AstNod
             .range = range_value.range,
             .limit = 0,
             .chunk_size = 0,
+            .scan_readable_regions = range_value.kind == Memmy_EvalValueKind_ProcessRange,
         };
         status = Memmy_Process_ScanPattern(env->arena, process, &options, pattern, sink, error);
         if (status != Memmy_Status_Ok)
@@ -1890,7 +1742,7 @@ static Memmy_Status Memmy_EvalExprWithContext(Memmy_EvalExec *exec, Memmy_AstNod
         {
             return status;
         }
-        if (range_value.kind != Memmy_EvalValueKind_Range)
+        if (range_value.kind != Memmy_EvalValueKind_Range && range_value.kind != Memmy_EvalValueKind_ProcessRange)
         {
             Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("scan"),
                             String8_Lit("expected scan range"));
@@ -1920,6 +1772,7 @@ static Memmy_Status Memmy_EvalExprWithContext(Memmy_EvalExec *exec, Memmy_AstNod
             .range = range_value.range,
             .limit = 0,
             .chunk_size = 0,
+            .scan_readable_regions = range_value.kind == Memmy_EvalValueKind_ProcessRange,
         };
         status = Memmy_Process_ScanValue(env->arena, process, &options, value, sink, error);
         if (status != Memmy_Status_Ok)

@@ -62,6 +62,7 @@ struct Test_MemmyBackend
     Memmy_Addr max_read_end;
     Memmy_Status write_status;
     U64 write_limit;
+    B32 process_info_strings_use_enum_arena;
     Test_MemmyBackendProcess processes[TEST_MEMMY_BACKEND_MAX_PROCESSES];
     U64 process_count;
     Test_MemmyBackendModule modules[TEST_MEMMY_BACKEND_MAX_MODULES];
