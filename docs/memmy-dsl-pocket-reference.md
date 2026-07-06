@@ -49,6 +49,8 @@ function @0x1234     function range containing address
 ```txt
 @0x1234                         absolute address
 <client.dll>+0x1234             module base + offset
+0x1234 + <client.dll>           module base + offset
+$rva = $hit - <client.dll>      RVA as a plain constant
 @0x1234->                       dereference address
 @0x1234->->                     chained dereference
 @0x1234->0x42                   dereference, then add offset
@@ -59,6 +61,9 @@ function @0x1234     function range containing address
 $player->$hp_offset             dereference variable address, then add variable offset
 function $xref                  containing function range for address
 ```
+
+Module-relative offsets are ordinary constants. A module target by itself is a
+range; in address arithmetic, its start address is used as the module base.
 
 ## Reads
 

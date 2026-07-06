@@ -102,6 +102,7 @@ static String8 Memmy_Cli_DslHelp(Arena *arena)
                                            "  [0..]                selected process readable regions\n"
                                            "  function address     function range containing address\n"
                                            "  $name                variable\n"
+                                           "  $rva = $hit - <module>  module-relative offset const\n"
                                            "\n"
                                            "Targets:\n"
                                            "  <client.dll>          module in selected process\n"
@@ -458,7 +459,9 @@ static Memmy_Status Memmy_CliEvalResultWriter_WriteValue(Memmy_CliEvalResultWrit
     if (value.kind == Memmy_EvalValueKind_Const)
     {
         String8 line = result_writer->jsonl
-                           ? String8_PushF(arena, "{\"type\":\"value\",\"kind\":\"const\",\"value\":%lld}\n",
+                           ? String8_PushF(arena,
+                                           "{\"type\":\"value\",\"kind\":\"const\",\"value_kind\":\"const\","
+                                           "\"value\":%lld}\n",
                                            (long long)value.constant)
                            : String8_PushF(arena, "%lld\n", (long long)value.constant);
         return Memmy_CliEvalResultWriter_Write(result_writer, line);

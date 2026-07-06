@@ -111,6 +111,31 @@ Test(Test_MemmyCliReplSessionKeepsAssignmentsAcrossLines)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyCliReplCalculatesModuleRelativeOffsets)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    Test_MemmyBackend_AddModule(&test_backend, 4242, String8_Lit("client.dll"), String8_Lit("C:\\test\\client.dll"),
+                                0x1000, 0x1000);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    AssertEq(Memmy_Cli_RunReplString(arena,
+                                     String8_Lit("/attach 4242\n"
+                                                 "$hit = <client.dll>+0x123\n"
+                                                 "$hit - <client.dll>\n"),
+                                     &out, &error),
+             Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("291\n"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyCliReplSessionUsesAttachedProcessForModuleTarget)
 {
     Arena *arena = Arena_CreateDefault();
@@ -311,6 +336,7 @@ TestSuite suite_memmy_cli_repl =
                    TestCase_Make(Test_MemmyCliReplStringEvaluatesLinesAsAscii),
                    TestCase_Make(Test_MemmyCliReplStringFormatsErrorsAndContinues),
                    TestCase_Make(Test_MemmyCliReplSessionKeepsAssignmentsAcrossLines),
+                   TestCase_Make(Test_MemmyCliReplCalculatesModuleRelativeOffsets),
                    TestCase_Make(Test_MemmyCliReplSessionUsesAttachedProcessForModuleTarget),
                    TestCase_Make(Test_MemmyCliReplSessionUsesAttachedProcessRange),
                    TestCase_Make(Test_MemmyCliReplSessionCanSwitchAttachedProcess),

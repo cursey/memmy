@@ -74,6 +74,48 @@ Test(Test_MemmyAstParsesParenthesizedTypedReadsInArithmetic)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyAstParsesGeneralAddressArithmetic)
+{
+    Arena *arena = Arena_CreateDefault();
+
+    Memmy_AstNode *absolute_minus_module = 0;
+    Test_ParseAstExpr(arena, "@0x10000123 - <client.dll>", &absolute_minus_module);
+    AssertEq(absolute_minus_module->kind, Memmy_AstNodeKind_ConstArithmetic);
+    AssertEq(absolute_minus_module->op, Memmy_AstConstOp_Sub);
+    AssertEq(absolute_minus_module->lhs->kind, Memmy_AstNodeKind_Address);
+    AssertEq(absolute_minus_module->rhs->kind, Memmy_AstNodeKind_Target);
+
+    Memmy_AstNode *variable_minus_module = 0;
+    Test_ParseAstExpr(arena, "$hit - <client.dll>", &variable_minus_module);
+    AssertEq(variable_minus_module->kind, Memmy_AstNodeKind_ConstArithmetic);
+    AssertEq(variable_minus_module->op, Memmy_AstConstOp_Sub);
+    AssertEq(variable_minus_module->lhs->kind, Memmy_AstNodeKind_Variable);
+    AssertEq(variable_minus_module->rhs->kind, Memmy_AstNodeKind_Target);
+
+    Memmy_AstNode *module_plus_const = 0;
+    Test_ParseAstExpr(arena, "<client.dll> + 0x123", &module_plus_const);
+    AssertEq(module_plus_const->kind, Memmy_AstNodeKind_ConstArithmetic);
+    AssertEq(module_plus_const->op, Memmy_AstConstOp_Add);
+    AssertEq(module_plus_const->lhs->kind, Memmy_AstNodeKind_Target);
+    AssertEq(module_plus_const->rhs->kind, Memmy_AstNodeKind_ConstArithmetic);
+
+    Memmy_AstNode *const_plus_module = 0;
+    Test_ParseAstExpr(arena, "0x123 + <client.dll>", &const_plus_module);
+    AssertEq(const_plus_module->kind, Memmy_AstNodeKind_ConstArithmetic);
+    AssertEq(const_plus_module->op, Memmy_AstConstOp_Add);
+    AssertEq(const_plus_module->lhs->kind, Memmy_AstNodeKind_ConstArithmetic);
+    AssertEq(const_plus_module->rhs->kind, Memmy_AstNodeKind_Target);
+
+    Memmy_AstNode *parenthesized_deref = 0;
+    Test_ParseAstExpr(arena, "($rva + <client.dll>)->($off + 0x42)->", &parenthesized_deref);
+    AssertEq(parenthesized_deref->kind, Memmy_AstNodeKind_Deref);
+    AssertEq(parenthesized_deref->lhs->kind, Memmy_AstNodeKind_Deref);
+    AssertEq(parenthesized_deref->lhs->lhs->kind, Memmy_AstNodeKind_ConstArithmetic);
+    AssertEq(parenthesized_deref->lhs->rhs->kind, Memmy_AstNodeKind_ConstArithmetic);
+
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyAstRejectsInvalidIdentifiers)
 {
     String8 rejected[] = {
@@ -183,6 +225,22 @@ Test(Test_MemmyAstParsesPocketReferenceRanges)
     AssertEq(target_endpoint_range->lhs->kind, Memmy_AstNodeKind_Target);
     AssertEq(target_endpoint_range->rhs->kind, Memmy_AstNodeKind_Target);
 
+    Memmy_AstNode *target_offset_sized_range = 0;
+    Test_ParseAstExpr(arena, "[<a.dll>+0x10..+0x20]", &target_offset_sized_range);
+    AssertEq(target_offset_sized_range->kind, Memmy_AstNodeKind_Range);
+    AssertTrue(target_offset_sized_range->range_is_sized);
+    AssertEq(target_offset_sized_range->lhs->kind, Memmy_AstNodeKind_ConstArithmetic);
+    AssertEq(target_offset_sized_range->lhs->op, Memmy_AstConstOp_Add);
+    AssertEq(target_offset_sized_range->rhs->kind, Memmy_AstNodeKind_ConstArithmetic);
+    AssertEq(target_offset_sized_range->rhs->value, 0x20);
+
+    Memmy_AstNode *address_offset_sized_range = 0;
+    Test_ParseAstExpr(arena, "[@0x1000 + 0x10..+0x20]", &address_offset_sized_range);
+    AssertEq(address_offset_sized_range->kind, Memmy_AstNodeKind_Range);
+    AssertTrue(address_offset_sized_range->range_is_sized);
+    AssertEq(address_offset_sized_range->lhs->kind, Memmy_AstNodeKind_ConstArithmetic);
+    AssertEq(address_offset_sized_range->lhs->op, Memmy_AstConstOp_Add);
+
     Memmy_AstNode *process_range = 0;
     Test_ParseAstExpr(arena, "[0..]", &process_range);
     AssertEq(process_range->kind, Memmy_AstNodeKind_ProcessRange);
@@ -206,7 +264,8 @@ Test(Test_MemmyAstParsesPocketReferenceAddresses)
 
     Memmy_AstNode *target_offset = 0;
     Test_ParseAstExpr(arena, "<client.dll>+0x1234", &target_offset);
-    AssertEq(target_offset->kind, Memmy_AstNodeKind_Address);
+    AssertEq(target_offset->kind, Memmy_AstNodeKind_ConstArithmetic);
+    AssertEq(target_offset->op, Memmy_AstConstOp_Add);
     AssertEq(target_offset->lhs->kind, Memmy_AstNodeKind_Target);
     AssertEq(target_offset->rhs->value, 0x1234);
 
@@ -412,7 +471,7 @@ Test(Test_MemmyAstParsesPocketReferenceAddressLists)
     Test_ParseAstExpr(arena, "[@0x1234..@0x5678] refs any <client.dll>+0x20", &range_ref);
     AssertEq(range_ref->kind, Memmy_AstNodeKind_ReferenceScan);
     AssertEq(range_ref->lhs->kind, Memmy_AstNodeKind_Range);
-    AssertEq(range_ref->rhs->kind, Memmy_AstNodeKind_Address);
+    AssertEq(range_ref->rhs->kind, Memmy_AstNodeKind_ConstArithmetic);
     AssertEq(range_ref->reference_mode, Memmy_AstReferenceMode_Any);
 
     Arena_Destroy(arena);
@@ -693,7 +752,8 @@ TestSuite suite_memmy_ast = TestSuite_Make(
     "Memmy AST", TestCase_Make(Test_MemmyAstParsesConstantsWithPrecedence),
     TestCase_Make(Test_MemmyAstParsesVariablesInConstExpressions),
     TestCase_Make(Test_MemmyAstParsesParenthesizedTypedReadsInArithmetic),
-    TestCase_Make(Test_MemmyAstRejectsInvalidIdentifiers), TestCase_Make(Test_MemmyAstParsesPocketReferenceTargets),
+    TestCase_Make(Test_MemmyAstParsesGeneralAddressArithmetic), TestCase_Make(Test_MemmyAstRejectsInvalidIdentifiers),
+    TestCase_Make(Test_MemmyAstParsesPocketReferenceTargets),
     TestCase_Make(Test_MemmyAstParsesPocketReferenceCoreValues),
     TestCase_Make(Test_MemmyAstParsesPocketReferenceRanges), TestCase_Make(Test_MemmyAstParsesPocketReferenceAddresses),
     TestCase_Make(Test_MemmyAstParsesAssignmentBasics), TestCase_Make(Test_MemmyAstReportsPreciseDiagnosticOffsets),

@@ -270,6 +270,50 @@ Test(Test_MemmyEvalOverflowFails)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyEvalAddressDifferenceBoundaries)
+{
+    Arena *arena = Arena_CreateDefault();
+    Memmy_EvalEnv *env = Memmy_EvalEnv_Create(arena);
+    AssertEq(Memmy_EvalEnv_Set(env, String8_Lit("zero"), (Memmy_EvalValue){.kind = Memmy_EvalValueKind_Address}),
+             Memmy_Status_Ok);
+    AssertEq(Memmy_EvalEnv_Set(env, String8_Lit("max_i64"),
+                               (Memmy_EvalValue){.kind = Memmy_EvalValueKind_Address, .address = (U64)I64_MAX}),
+             Memmy_Status_Ok);
+    AssertEq(Memmy_EvalEnv_Set(env, String8_Lit("min_i64_magnitude"),
+                               (Memmy_EvalValue){.kind = Memmy_EvalValueKind_Address, .address = (U64)I64_MAX + 1ull}),
+             Memmy_Status_Ok);
+    AssertEq(Memmy_EvalEnv_Set(env, String8_Lit("too_large_magnitude"),
+                               (Memmy_EvalValue){.kind = Memmy_EvalValueKind_Address, .address = (U64)I64_MAX + 2ull}),
+             Memmy_Status_Ok);
+
+    Memmy_AstNode *expr = 0;
+    Memmy_EvalValue value = {0};
+    Memmy_Error error = {0};
+
+    Test_EvalParseExpr(arena, "$max_i64 - $zero", &expr);
+    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_Ok);
+    AssertEq(value.kind, Memmy_EvalValueKind_Const);
+    AssertEq(value.constant, I64_MAX);
+
+    error = (Memmy_Error){0};
+    Test_EvalParseExpr(arena, "$min_i64_magnitude - $zero", &expr);
+    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_Overflow);
+    AssertStrEq(error.context, String8_Lit("address"));
+
+    error = (Memmy_Error){0};
+    Test_EvalParseExpr(arena, "$zero - $min_i64_magnitude", &expr);
+    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_Ok);
+    AssertEq(value.kind, Memmy_EvalValueKind_Const);
+    AssertEq(value.constant, I64_MIN);
+
+    error = (Memmy_Error){0};
+    Test_EvalParseExpr(arena, "$zero - $too_large_magnitude", &expr);
+    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_Overflow);
+    AssertStrEq(error.context, String8_Lit("address"));
+
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyEvalTypedIntegerVariablesWorkAsConstants)
 {
     Arena *arena = Arena_CreateDefault();
@@ -353,6 +397,67 @@ Test(Test_MemmyEvalModuleTargetVariableStoresPlainAddress)
     AssertEq(backend.open_call_count, 2);
     AssertEq(backend.close_call_count, 2);
     AssertTrue(env->has_default_process);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalModuleAddressArithmetic)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    Test_MemmyBackend_AddProcess(&backend, 1234, String8_Lit("game.exe"), String8_Lit("C:\\test\\game.exe"),
+                                 Memmy_PointerWidth_64);
+    Test_MemmyBackend_AddModule(&backend, 1234, String8_Lit("a.dll"), String8_Lit("C:\\test\\a.dll"), 0x1000, 0x100);
+    Test_MemmyBackend_AddModule(&backend, 1234, String8_Lit("client.dll"), String8_Lit("C:\\test\\client.dll"), 0x2000,
+                                0x100);
+    Test_MemmyBackend_AddModule(&backend, 1234, String8_Lit("b.dll"), String8_Lit("C:\\test\\b.dll"), 0x2800, 0x100);
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&backend)};
+    Memmy_Context_Set(&ctx);
+
+    Memmy_EvalEnv *env = Memmy_EvalEnv_Create(arena);
+    Memmy_EvalEnv_SetDefaultProcess(env, 1234, Memmy_PointerWidth_64);
+
+    Memmy_EvalValue value = {0};
+    Test_EvalExprText(env, arena, "<client.dll> + 0x123", &value);
+    AssertEq(value.kind, Memmy_EvalValueKind_Address);
+    AssertEq(value.address, 0x2123);
+
+    Test_EvalExprText(env, arena, "0x123 + <client.dll>", &value);
+    AssertEq(value.kind, Memmy_EvalValueKind_Address);
+    AssertEq(value.address, 0x2123);
+
+    Test_EvalExprText(env, arena, "<client.dll> - 0x10", &value);
+    AssertEq(value.kind, Memmy_EvalValueKind_Address);
+    AssertEq(value.address, 0x1ff0);
+
+    Test_EvalExprText(env, arena, "(<client.dll> + 0x123) - <client.dll>", &value);
+    AssertEq(value.kind, Memmy_EvalValueKind_Const);
+    AssertEq(value.constant, 0x123);
+
+    Test_EvalExprText(env, arena, "<b.dll> - <a.dll>", &value);
+    AssertEq(value.kind, Memmy_EvalValueKind_Const);
+    AssertEq(value.constant, 0x1800);
+
+    Test_EvalExprText(env, arena, "[<client.dll>+0x10..+0x20]", &value);
+    AssertEq(value.kind, Memmy_EvalValueKind_Range);
+    AssertEq(value.range.start, 0x2010);
+    AssertEq(value.range.end, 0x2030);
+
+    Test_EvalExprText(env, arena, "[@0x2000 + 0x10..+0x20]", &value);
+    AssertEq(value.kind, Memmy_EvalValueKind_Range);
+    AssertEq(value.range.start, 0x2010);
+    AssertEq(value.range.end, 0x2030);
+
+    Memmy_AstNode *expr = 0;
+    Memmy_Error error = {0};
+    Test_EvalParseExpr(arena, "0x123 - <client.dll>", &expr);
+    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_InvalidArgument);
+
+    error = (Memmy_Error){0};
+    Test_EvalParseExpr(arena, "<client.dll> + <b.dll>", &expr);
+    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_InvalidArgument);
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -1238,9 +1343,11 @@ TestSuite suite_memmy_eval = TestSuite_Make(
     TestCase_Make(Test_MemmyEvalAddressVariablesAndArithmetic), TestCase_Make(Test_MemmyEvalRangeVariables),
     TestCase_Make(Test_MemmyEvalWrongKindVariableInConstExpressionFails),
     TestCase_Make(Test_MemmyEvalImmediateBindingAvoidsVariableCycles), TestCase_Make(Test_MemmyEvalOverflowFails),
+    TestCase_Make(Test_MemmyEvalAddressDifferenceBoundaries),
     TestCase_Make(Test_MemmyEvalTypedIntegerVariablesWorkAsConstants),
     TestCase_Make(Test_MemmyEvalModuleTargetAndProcessRangeResolve),
     TestCase_Make(Test_MemmyEvalModuleTargetVariableStoresPlainAddress),
+    TestCase_Make(Test_MemmyEvalModuleAddressArithmetic),
     TestCase_Make(Test_MemmyEvalStoredAddressReadUsesCurrentSelectedProcess),
     TestCase_Make(Test_MemmyEvalAddressFromTypedValueUsesAmbientProcess),
     TestCase_Make(Test_MemmyEvalRangeEndpointsDoNotCarryProcessProvenance),

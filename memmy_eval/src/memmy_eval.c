@@ -795,36 +795,138 @@ static Memmy_Status Memmy_Eval_AddressSubConst(Memmy_Addr address, I64 constant,
     return Memmy_Status_Ok;
 }
 
+static B32 Memmy_EvalValue_IsAddressLike(Memmy_EvalValue value)
+{
+    return value.kind == Memmy_EvalValueKind_Address || value.kind == Memmy_EvalValueKind_Range;
+}
+
+static Memmy_Status Memmy_Eval_AddressDiff(Memmy_Addr lhs, Memmy_Addr rhs, I64 *out, Memmy_Error *error)
+{
+    if (lhs >= rhs)
+    {
+        U64 magnitude = lhs - rhs;
+        if (magnitude > (U64)I64_MAX)
+        {
+            Memmy_EvalError(error, Memmy_Status_Overflow, String8_Lit("address"),
+                            String8_Lit("address difference overflow"));
+            return Memmy_Status_Overflow;
+        }
+        *out = (I64)magnitude;
+        return Memmy_Status_Ok;
+    }
+
+    U64 magnitude = rhs - lhs;
+    U64 limit = (U64)I64_MAX + 1ull;
+    if (magnitude > limit)
+    {
+        Memmy_EvalError(error, Memmy_Status_Overflow, String8_Lit("address"),
+                        String8_Lit("address difference overflow"));
+        return Memmy_Status_Overflow;
+    }
+    *out = magnitude == limit ? I64_MIN : -(I64)magnitude;
+    return Memmy_Status_Ok;
+}
+
 static Memmy_Status Memmy_Eval_ApplyBinary(Memmy_AstConstOp op, Memmy_EvalValue lhs, Memmy_EvalValue rhs,
                                            Memmy_EvalValue *out, Memmy_Error *error)
 {
-    if ((op == Memmy_AstConstOp_Add || op == Memmy_AstConstOp_Sub) &&
-        (lhs.kind == Memmy_EvalValueKind_Address || lhs.kind == Memmy_EvalValueKind_Range))
+    if (op == Memmy_AstConstOp_Add || op == Memmy_AstConstOp_Sub)
     {
-        I64 constant = 0;
-        Memmy_Status status = Memmy_EvalValue_AsConst(&rhs, &constant, error);
-        if (status != Memmy_Status_Ok)
+        B32 lhs_address = Memmy_EvalValue_IsAddressLike(lhs);
+        B32 rhs_address = Memmy_EvalValue_IsAddressLike(rhs);
+        if (lhs_address && rhs_address)
         {
-            return status;
+            if (op == Memmy_AstConstOp_Add)
+            {
+                Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("expr"),
+                                String8_Lit("cannot add two addresses"));
+                return Memmy_Status_InvalidArgument;
+            }
+
+            Memmy_Addr lhs_addr = 0;
+            Memmy_Addr rhs_addr = 0;
+            Memmy_Status status = Memmy_EvalValue_AsAddress(&lhs, &lhs_addr, error);
+            if (status != Memmy_Status_Ok)
+            {
+                return status;
+            }
+            status = Memmy_EvalValue_AsAddress(&rhs, &rhs_addr, error);
+            if (status != Memmy_Status_Ok)
+            {
+                return status;
+            }
+
+            I64 diff = 0;
+            status = Memmy_Eval_AddressDiff(lhs_addr, rhs_addr, &diff, error);
+            if (status != Memmy_Status_Ok)
+            {
+                return status;
+            }
+            *out = (Memmy_EvalValue){.kind = Memmy_EvalValueKind_Const, .constant = diff};
+            return Memmy_Status_Ok;
         }
 
-        Memmy_Addr address = 0;
-        status = Memmy_EvalValue_AsAddress(&lhs, &address, error);
-        if (status != Memmy_Status_Ok)
+        if (lhs_address)
         {
-            return status;
+            I64 constant = 0;
+            Memmy_Status status = Memmy_EvalValue_AsConst(&rhs, &constant, error);
+            if (status != Memmy_Status_Ok)
+            {
+                return status;
+            }
+
+            Memmy_Addr address = 0;
+            status = Memmy_EvalValue_AsAddress(&lhs, &address, error);
+            if (status != Memmy_Status_Ok)
+            {
+                return status;
+            }
+            status = op == Memmy_AstConstOp_Add ? Memmy_Eval_AddressAddConst(address, constant, &address, error)
+                                                : Memmy_Eval_AddressSubConst(address, constant, &address, error);
+            if (status != Memmy_Status_Ok)
+            {
+                return status;
+            }
+            *out = (Memmy_EvalValue){
+                .kind = Memmy_EvalValueKind_Address,
+                .address = address,
+            };
+            return Memmy_Status_Ok;
         }
-        status = op == Memmy_AstConstOp_Add ? Memmy_Eval_AddressAddConst(address, constant, &address, error)
-                                            : Memmy_Eval_AddressSubConst(address, constant, &address, error);
-        if (status != Memmy_Status_Ok)
+
+        if (rhs_address)
         {
-            return status;
+            if (op == Memmy_AstConstOp_Sub)
+            {
+                Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("expr"),
+                                String8_Lit("cannot subtract an address from a constant"));
+                return Memmy_Status_InvalidArgument;
+            }
+
+            I64 constant = 0;
+            Memmy_Status status = Memmy_EvalValue_AsConst(&lhs, &constant, error);
+            if (status != Memmy_Status_Ok)
+            {
+                return status;
+            }
+
+            Memmy_Addr address = 0;
+            status = Memmy_EvalValue_AsAddress(&rhs, &address, error);
+            if (status != Memmy_Status_Ok)
+            {
+                return status;
+            }
+            status = Memmy_Eval_AddressAddConst(address, constant, &address, error);
+            if (status != Memmy_Status_Ok)
+            {
+                return status;
+            }
+            *out = (Memmy_EvalValue){
+                .kind = Memmy_EvalValueKind_Address,
+                .address = address,
+            };
+            return Memmy_Status_Ok;
         }
-        *out = (Memmy_EvalValue){
-            .kind = Memmy_EvalValueKind_Address,
-            .address = address,
-        };
-        return Memmy_Status_Ok;
     }
 
     I64 a = 0;
@@ -1173,6 +1275,7 @@ static Memmy_Status Memmy_Eval_Command(Memmy_EvalExec *exec, Memmy_AstStatement 
                                                       "  [0..]                selected process readable regions\n"
                                                       "  function address     function range containing address\n"
                                                       "  $name                variable\n"
+                                                      "  $rva = $hit - <module>  module-relative offset const\n"
                                                       "\n"
                                                       "Memory:\n"
                                                       "  range refs <ptr|rel32|any> address\n"

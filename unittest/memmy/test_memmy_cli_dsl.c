@@ -577,7 +577,9 @@ Test(Test_MemmyCliJsonlScriptEmitsAssignmentsExpressionsAndExit)
                                                   "$addr = <client.dll>+0x20\n"
                                                   "$hp = $addr as u8\n"
                                                   "$matches = [@0x1020..+0x20] as u8 == 42\n"
+                                                  "$rva = $addr - <client.dll>\n"
                                                   "$addr\n"
+                                                  "$rva\n"
                                                   "/exit\n"
                                                   "@0x1000\n"),
                                       &out, &error),
@@ -585,7 +587,9 @@ Test(Test_MemmyCliJsonlScriptEmitsAssignmentsExpressionsAndExit)
     AssertStrEq(out, String8_Lit("{\"type\":\"assignment\",\"name\":\"addr\",\"kind\":\"address\"}\n"
                                  "{\"type\":\"assignment\",\"name\":\"hp\",\"kind\":\"typed_value\"}\n"
                                  "{\"type\":\"assignment\",\"name\":\"matches\",\"kind\":\"address_list\"}\n"
-                                 "{\"type\":\"address\",\"address\":\"0x0000000000001020\"}\n"));
+                                 "{\"type\":\"assignment\",\"name\":\"rva\",\"kind\":\"const\"}\n"
+                                 "{\"type\":\"address\",\"address\":\"0x0000000000001020\"}\n"
+                                 "{\"type\":\"value\",\"kind\":\"const\",\"value_kind\":\"const\",\"value\":32}\n"));
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
