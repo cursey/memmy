@@ -31,6 +31,20 @@ struct Memmy_EvalScanResultNode
     Memmy_Addr address;
 };
 
+typedef struct Memmy_EvalAddressNode Memmy_EvalAddressNode;
+struct Memmy_EvalAddressNode
+{
+    ListLink link;
+    Memmy_Addr address;
+};
+
+typedef struct Memmy_EvalRangeNode Memmy_EvalRangeNode;
+struct Memmy_EvalRangeNode
+{
+    ListLink link;
+    Memmy_Range range;
+};
+
 typedef struct Memmy_EvalScanCollector Memmy_EvalScanCollector;
 struct Memmy_EvalScanCollector
 {
@@ -83,6 +97,8 @@ struct Memmy_EvalExec
     Memmy_EvalEnv *env;
     Arena *transient_arena;
     List open_processes; // Memmy_EvalOpenProcess
+    B32 has_current_item;
+    Memmy_EvalValue current_item;
 };
 
 static Memmy_Status Memmy_EvalExprWithContext(Memmy_EvalExec *exec, Memmy_AstNode *expr, Memmy_EvalValue *out,
@@ -123,6 +139,12 @@ static Memmy_EvalValue Memmy_EvalValue_Copy(Arena *arena, Memmy_EvalValue value)
         Memmy_Addr *addresses = Arena_PushArrayNoZero(arena, Memmy_Addr, value.address_count);
         Memory_Copy(addresses, value.addresses, sizeof(addresses[0]) * value.address_count);
         value.addresses = addresses;
+    }
+    if (value.kind == Memmy_EvalValueKind_RangeList && value.range_count != 0)
+    {
+        Memmy_Range *ranges = Arena_PushArrayNoZero(arena, Memmy_Range, value.range_count);
+        Memory_Copy(ranges, value.ranges, sizeof(ranges[0]) * value.range_count);
+        value.ranges = ranges;
     }
     return value;
 }
@@ -634,6 +656,93 @@ static Memmy_EvalValue Memmy_Eval_AddressListFromCollector(Arena *arena, Memmy_E
     };
 }
 
+static void Memmy_EvalAddressList_Push(Arena *arena, List *list, Memmy_Addr address)
+{
+    Memmy_EvalAddressNode *node = Arena_PushStruct(arena, Memmy_EvalAddressNode);
+    node->address = address;
+    List_PushBack(list, &node->link);
+}
+
+static void Memmy_EvalRangeList_Push(Arena *arena, List *list, Memmy_Range range)
+{
+    Memmy_EvalRangeNode *node = Arena_PushStruct(arena, Memmy_EvalRangeNode);
+    node->range = range;
+    List_PushBack(list, &node->link);
+}
+
+static Memmy_EvalValue Memmy_Eval_AddressListFromList(Arena *arena, List *list)
+{
+    Memmy_Addr *addresses = 0;
+    if (list->count != 0)
+    {
+        addresses = Arena_PushArrayNoZero(arena, Memmy_Addr, list->count);
+    }
+    U64 index = 0;
+    List_ForEach(Memmy_EvalAddressNode, node, list, link)
+    {
+        addresses[index++] = node->address;
+    }
+    return (Memmy_EvalValue){
+        .kind = Memmy_EvalValueKind_AddressList,
+        .addresses = addresses,
+        .address_count = list->count,
+    };
+}
+
+static Memmy_EvalValue Memmy_Eval_RangeListFromList(Arena *arena, List *list)
+{
+    Memmy_Range *ranges = 0;
+    if (list->count != 0)
+    {
+        ranges = Arena_PushArrayNoZero(arena, Memmy_Range, list->count);
+    }
+    U64 index = 0;
+    List_ForEach(Memmy_EvalRangeNode, node, list, link)
+    {
+        ranges[index++] = node->range;
+    }
+    return (Memmy_EvalValue){
+        .kind = Memmy_EvalValueKind_RangeList,
+        .ranges = ranges,
+        .range_count = list->count,
+    };
+}
+
+static B32 Memmy_AstNode_ContainsCurrentItem(Memmy_AstNode *node)
+{
+    if (node == 0)
+    {
+        return 0;
+    }
+    if (node->kind == Memmy_AstNodeKind_CurrentItem)
+    {
+        return 1;
+    }
+    return Memmy_AstNode_ContainsCurrentItem(node->lhs) || Memmy_AstNode_ContainsCurrentItem(node->rhs) ||
+           Memmy_AstNode_ContainsCurrentItem(node->value_expr);
+}
+
+static Memmy_EvalValueKind Memmy_EvalTransform_EmptyKind(Memmy_AstNode *rhs, Memmy_EvalValueKind input_kind)
+{
+    if (rhs == 0)
+    {
+        return Memmy_EvalValueKind_AddressList;
+    }
+    if (rhs->kind == Memmy_AstNodeKind_Range)
+    {
+        return Memmy_EvalValueKind_RangeList;
+    }
+    if (rhs->kind == Memmy_AstNodeKind_CurrentItem)
+    {
+        return input_kind;
+    }
+    if (rhs->kind == Memmy_AstNodeKind_ConstArithmetic && Memmy_AstNode_ContainsCurrentItem(rhs))
+    {
+        return Memmy_EvalValueKind_AddressList;
+    }
+    return Memmy_EvalValueKind_AddressList;
+}
+
 static Memmy_Status Memmy_Eval_AddConst(I64 a, I64 b, I64 *out, Memmy_Error *error)
 {
     if (!AddI64Checked(a, b, out))
@@ -690,7 +799,8 @@ static Memmy_Status Memmy_Eval_AddressSubConst(Memmy_Addr address, I64 constant,
 static Memmy_Status Memmy_Eval_ApplyBinary(Memmy_AstConstOp op, Memmy_EvalValue lhs, Memmy_EvalValue rhs,
                                            Memmy_EvalValue *out, Memmy_Error *error)
 {
-    if ((op == Memmy_AstConstOp_Add || op == Memmy_AstConstOp_Sub) && lhs.kind == Memmy_EvalValueKind_Address)
+    if ((op == Memmy_AstConstOp_Add || op == Memmy_AstConstOp_Sub) &&
+        (lhs.kind == Memmy_EvalValueKind_Address || lhs.kind == Memmy_EvalValueKind_Range))
     {
         I64 constant = 0;
         Memmy_Status status = Memmy_EvalValue_AsConst(&rhs, &constant, error);
@@ -700,8 +810,13 @@ static Memmy_Status Memmy_Eval_ApplyBinary(Memmy_AstConstOp op, Memmy_EvalValue 
         }
 
         Memmy_Addr address = 0;
-        status = op == Memmy_AstConstOp_Add ? Memmy_Eval_AddressAddConst(lhs.address, constant, &address, error)
-                                            : Memmy_Eval_AddressSubConst(lhs.address, constant, &address, error);
+        status = Memmy_EvalValue_AsAddress(&lhs, &address, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        status = op == Memmy_AstConstOp_Add ? Memmy_Eval_AddressAddConst(address, constant, &address, error)
+                                            : Memmy_Eval_AddressSubConst(address, constant, &address, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -1083,6 +1198,132 @@ static Memmy_Status Memmy_Eval_Command(Memmy_EvalExec *exec, Memmy_AstStatement 
     return Memmy_Status_InvalidArgument;
 }
 
+static Memmy_Status Memmy_EvalTransform_Append(Memmy_EvalExec *exec, Memmy_EvalValue value, List *addresses,
+                                               List *ranges, Memmy_EvalValueKind *out_kind, Memmy_Error *error)
+{
+    Memmy_EvalValueKind value_kind = Memmy_EvalValueKind_Null;
+    if (value.kind == Memmy_EvalValueKind_Address || value.kind == Memmy_EvalValueKind_AddressList)
+    {
+        value_kind = Memmy_EvalValueKind_AddressList;
+    }
+    else if (value.kind == Memmy_EvalValueKind_Range || value.kind == Memmy_EvalValueKind_RangeList)
+    {
+        value_kind = Memmy_EvalValueKind_RangeList;
+    }
+    else
+    {
+        Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("transform"),
+                        String8_Lit("transform expression must produce address or range values"));
+        return Memmy_Status_InvalidArgument;
+    }
+
+    if (*out_kind == Memmy_EvalValueKind_Null)
+    {
+        *out_kind = value_kind;
+    }
+    else if (*out_kind != value_kind)
+    {
+        Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("transform"),
+                        String8_Lit("transform expression produced mixed address and range values"));
+        return Memmy_Status_InvalidArgument;
+    }
+
+    Arena *arena = exec->env->arena;
+    if (value.kind == Memmy_EvalValueKind_Address)
+    {
+        Memmy_EvalAddressList_Push(arena, addresses, value.address);
+    }
+    else if (value.kind == Memmy_EvalValueKind_AddressList)
+    {
+        for (U64 i = 0; i < value.address_count; i++)
+        {
+            Memmy_EvalAddressList_Push(arena, addresses, value.addresses[i]);
+        }
+    }
+    else if (value.kind == Memmy_EvalValueKind_Range)
+    {
+        Memmy_EvalRangeList_Push(arena, ranges, value.range);
+    }
+    else if (value.kind == Memmy_EvalValueKind_RangeList)
+    {
+        for (U64 i = 0; i < value.range_count; i++)
+        {
+            Memmy_EvalRangeList_Push(arena, ranges, value.ranges[i]);
+        }
+    }
+
+    return Memmy_Status_Ok;
+}
+
+static Memmy_Status Memmy_Eval_ListTransform(Memmy_EvalExec *exec, Memmy_AstNode *expr, Memmy_EvalValue *out,
+                                             Memmy_Error *error)
+{
+    Memmy_EvalValue list = {0};
+    Memmy_Status status = Memmy_EvalExprWithContext(exec, expr->lhs, &list, error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+    if (list.kind != Memmy_EvalValueKind_AddressList && list.kind != Memmy_EvalValueKind_RangeList)
+    {
+        Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("transform"),
+                        String8_Lit("expected address list or range list"));
+        return Memmy_Status_InvalidArgument;
+    }
+
+    List addresses = {0}; // Memmy_EvalAddressNode
+    List ranges = {0};    // Memmy_EvalRangeNode
+    Memmy_EvalValueKind out_kind = Memmy_EvalValueKind_Null;
+    B32 old_has_current_item = exec->has_current_item;
+    Memmy_EvalValue old_current_item = exec->current_item;
+    U64 count = list.kind == Memmy_EvalValueKind_AddressList ? list.address_count : list.range_count;
+
+    for (U64 i = 0; i < count; i++)
+    {
+        exec->has_current_item = 1;
+        if (list.kind == Memmy_EvalValueKind_AddressList)
+        {
+            exec->current_item = (Memmy_EvalValue){.kind = Memmy_EvalValueKind_Address, .address = list.addresses[i]};
+        }
+        else
+        {
+            exec->current_item = (Memmy_EvalValue){.kind = Memmy_EvalValueKind_Range, .range = list.ranges[i]};
+        }
+
+        Memmy_EvalValue item_result = {0};
+        status = Memmy_EvalExprWithContext(exec, expr->rhs, &item_result, error);
+        if (status != Memmy_Status_Ok)
+        {
+            exec->has_current_item = old_has_current_item;
+            exec->current_item = old_current_item;
+            return status;
+        }
+        status = Memmy_EvalTransform_Append(exec, item_result, &addresses, &ranges, &out_kind, error);
+        if (status != Memmy_Status_Ok)
+        {
+            exec->has_current_item = old_has_current_item;
+            exec->current_item = old_current_item;
+            return status;
+        }
+    }
+
+    exec->has_current_item = old_has_current_item;
+    exec->current_item = old_current_item;
+    if (out_kind == Memmy_EvalValueKind_Null)
+    {
+        out_kind = Memmy_EvalTransform_EmptyKind(expr->rhs, list.kind);
+    }
+    if (out_kind == Memmy_EvalValueKind_RangeList)
+    {
+        *out = Memmy_Eval_RangeListFromList(exec->env->arena, &ranges);
+    }
+    else
+    {
+        *out = Memmy_Eval_AddressListFromList(exec->env->arena, &addresses);
+    }
+    return Memmy_Status_Ok;
+}
+
 static Memmy_Status Memmy_Eval_ReadPointer(Memmy_Process *process, Memmy_Addr address, Memmy_Addr *out,
                                            Memmy_Error *error)
 {
@@ -1294,6 +1535,21 @@ static Memmy_Status Memmy_EvalExprWithContext(Memmy_EvalExec *exec, Memmy_AstNod
     if (expr->kind == Memmy_AstNodeKind_Variable)
     {
         return Memmy_EvalEnv_Find(env, expr->name, out);
+    }
+    if (expr->kind == Memmy_AstNodeKind_CurrentItem)
+    {
+        if (!exec->has_current_item)
+        {
+            Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("transform"),
+                            String8_Lit("current item is only available inside transforms"));
+            return Memmy_Status_InvalidArgument;
+        }
+        *out = exec->current_item;
+        return Memmy_Status_Ok;
+    }
+    if (expr->kind == Memmy_AstNodeKind_ListTransform)
+    {
+        return Memmy_Eval_ListTransform(exec, expr, out, error);
     }
     if (expr->kind == Memmy_AstNodeKind_Target)
     {
@@ -1706,10 +1962,10 @@ static Memmy_Status Memmy_EvalExprWithContext(Memmy_EvalExec *exec, Memmy_AstNod
         {
             return status;
         }
-        if (list.kind != Memmy_EvalValueKind_AddressList)
+        if (list.kind != Memmy_EvalValueKind_AddressList && list.kind != Memmy_EvalValueKind_RangeList)
         {
             Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("index"),
-                            String8_Lit("expected address list"));
+                            String8_Lit("expected address list or range list"));
             return Memmy_Status_InvalidArgument;
         }
 
@@ -1725,17 +1981,28 @@ static Memmy_Status Memmy_EvalExprWithContext(Memmy_EvalExec *exec, Memmy_AstNod
         {
             return status;
         }
-        if (index < 0 || (U64)index >= list.address_count)
+        U64 count = list.kind == Memmy_EvalValueKind_AddressList ? list.address_count : list.range_count;
+        if (index < 0 || (U64)index >= count)
         {
             Memmy_EvalError(error, Memmy_Status_NotFound, String8_Lit("index"),
-                            String8_Lit("address list index out of range"));
+                            String8_Lit("list index out of range"));
             return Memmy_Status_NotFound;
         }
 
-        *out = (Memmy_EvalValue){
-            .kind = Memmy_EvalValueKind_Address,
-            .address = list.addresses[index],
-        };
+        if (list.kind == Memmy_EvalValueKind_AddressList)
+        {
+            *out = (Memmy_EvalValue){
+                .kind = Memmy_EvalValueKind_Address,
+                .address = list.addresses[index],
+            };
+        }
+        else
+        {
+            *out = (Memmy_EvalValue){
+                .kind = Memmy_EvalValueKind_Range,
+                .range = list.ranges[index],
+            };
+        }
         return Memmy_Status_Ok;
     }
 

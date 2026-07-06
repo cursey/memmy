@@ -210,7 +210,7 @@ Test(Test_MemmyEvalWrongKindVariableInConstExpressionFails)
 
     Test_EvalStatementText(env, arena, "$range = [@0x1000..+0x40]");
     Memmy_AstNode *expr = 0;
-    Test_EvalParseExpr(arena, "$range + 1", &expr);
+    Test_EvalParseExpr(arena, "$range * 1", &expr);
     Memmy_EvalValue value = {0};
     Memmy_Error error = {0};
     AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_InvalidArgument);
@@ -690,6 +690,144 @@ Test(Test_MemmyEvalIndexesValueScanExpressions)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyEvalListTransformsAddressLists)
+{
+    Arena *arena = Arena_CreateDefault();
+    Memmy_EvalEnv *env = Memmy_EvalEnv_Create(arena);
+    Memmy_Addr refs[] = {0x1000, 0x2000};
+    AssertEq(Memmy_EvalEnv_Set(env, String8_Lit("refs"),
+                               (Memmy_EvalValue){.kind = Memmy_EvalValueKind_AddressList,
+                                                 .addresses = refs,
+                                                 .address_count = ArrayCount(refs)}),
+             Memmy_Status_Ok);
+
+    Memmy_EvalValue addresses = {0};
+    Test_EvalExprText(env, arena, "$refs => $ + 4", &addresses);
+    AssertEq(addresses.kind, Memmy_EvalValueKind_AddressList);
+    AssertEq(addresses.address_count, 2);
+    AssertEq(addresses.addresses[0], 0x1004);
+    AssertEq(addresses.addresses[1], 0x2004);
+
+    Memmy_EvalValue ranges = {0};
+    Test_EvalStatementResult(env, arena, "$ranges = $refs => [$..+0x20]", &ranges);
+    AssertEq(ranges.kind, Memmy_EvalValueKind_RangeList);
+    AssertEq(ranges.range_count, 2);
+    AssertEq(ranges.ranges[0].start, 0x1000);
+    AssertEq(ranges.ranges[0].end, 0x1020);
+    AssertEq(ranges.ranges[1].start, 0x2000);
+    AssertEq(ranges.ranges[1].end, 0x2020);
+
+    Memmy_EvalValue second = {0};
+    Test_EvalExprText(env, arena, "$ranges[1]", &second);
+    AssertEq(second.kind, Memmy_EvalValueKind_Range);
+    AssertEq(second.range.start, 0x2000);
+    AssertEq(second.range.end, 0x2020);
+
+    Memmy_EvalValue stored = {0};
+    AssertEq(Memmy_EvalEnv_Find(env, String8_Lit("ranges"), &stored), Memmy_Status_Ok);
+    AssertEq(stored.kind, Memmy_EvalValueKind_RangeList);
+    AssertEq(stored.range_count, 2);
+
+    Memmy_Addr *empty_refs = 0;
+    AssertEq(Memmy_EvalEnv_Set(env, String8_Lit("empty_refs"),
+                               (Memmy_EvalValue){.kind = Memmy_EvalValueKind_AddressList,
+                                                 .addresses = empty_refs,
+                                                 .address_count = 0}),
+             Memmy_Status_Ok);
+    Memmy_EvalValue empty_addresses = {0};
+    Test_EvalExprText(env, arena, "$empty_refs => $ + 4", &empty_addresses);
+    AssertEq(empty_addresses.kind, Memmy_EvalValueKind_AddressList);
+    AssertEq(empty_addresses.address_count, 0);
+
+    Memmy_EvalValue empty_ranges = {0};
+    Test_EvalExprText(env, arena, "$empty_refs => [$..+0x20]", &empty_ranges);
+    AssertEq(empty_ranges.kind, Memmy_EvalValueKind_RangeList);
+    AssertEq(empty_ranges.range_count, 0);
+
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalListTransformsRangeLists)
+{
+    Arena *arena = Arena_CreateDefault();
+    Memmy_EvalEnv *env = Memmy_EvalEnv_Create(arena);
+    Memmy_Range ranges[] = {
+        {.start = 0x1000, .end = 0x1010},
+        {.start = 0x2000, .end = 0x2010},
+    };
+    Memmy_Addr refs[] = {0x10, 0x20};
+    AssertEq(Memmy_EvalEnv_Set(env, String8_Lit("ranges"),
+                               (Memmy_EvalValue){.kind = Memmy_EvalValueKind_RangeList,
+                                                 .ranges = ranges,
+                                                 .range_count = ArrayCount(ranges)}),
+             Memmy_Status_Ok);
+    AssertEq(Memmy_EvalEnv_Set(env, String8_Lit("refs"),
+                               (Memmy_EvalValue){.kind = Memmy_EvalValueKind_AddressList,
+                                                 .addresses = refs,
+                                                 .address_count = ArrayCount(refs)}),
+             Memmy_Status_Ok);
+
+    Memmy_EvalValue addresses = {0};
+    Test_EvalExprText(env, arena, "$ranges => $ + 4", &addresses);
+    AssertEq(addresses.kind, Memmy_EvalValueKind_AddressList);
+    AssertEq(addresses.address_count, 2);
+    AssertEq(addresses.addresses[0], 0x1004);
+    AssertEq(addresses.addresses[1], 0x2004);
+
+    Memmy_EvalValue flattened = {0};
+    Test_EvalExprText(env, arena, "$ranges => $refs", &flattened);
+    AssertEq(flattened.kind, Memmy_EvalValueKind_AddressList);
+    AssertEq(flattened.address_count, 4);
+    AssertEq(flattened.addresses[0], 0x10);
+    AssertEq(flattened.addresses[1], 0x20);
+    AssertEq(flattened.addresses[2], 0x10);
+    AssertEq(flattened.addresses[3], 0x20);
+
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalListTransformErrors)
+{
+    Arena *arena = Arena_CreateDefault();
+    Memmy_EvalEnv *env = Memmy_EvalEnv_Create(arena);
+    Memmy_Addr refs[] = {U64_MAX};
+    AssertEq(Memmy_EvalEnv_Set(env, String8_Lit("refs"),
+                               (Memmy_EvalValue){.kind = Memmy_EvalValueKind_AddressList,
+                                                 .addresses = refs,
+                                                 .address_count = ArrayCount(refs)}),
+             Memmy_Status_Ok);
+
+    Memmy_AstNode *expr = 0;
+    Memmy_EvalValue value = {0};
+    Memmy_Error error = {0};
+    Test_EvalParseExpr(arena, "@0x1000 => $ + 4", &expr);
+    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_InvalidArgument);
+    AssertStrEq(error.context, String8_Lit("transform"));
+
+    Test_EvalParseExpr(arena, "$refs => 42", &expr);
+    error = (Memmy_Error){0};
+    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_InvalidArgument);
+    AssertStrEq(error.context, String8_Lit("transform"));
+
+    Test_EvalParseExpr(arena, "$refs => $ + 1", &expr);
+    error = (Memmy_Error){0};
+    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_Overflow);
+    AssertStrEq(error.context, String8_Lit("address"));
+
+    Memmy_Addr small_refs[] = {0x1000};
+    AssertEq(Memmy_EvalEnv_Set(env, String8_Lit("refs"),
+                               (Memmy_EvalValue){.kind = Memmy_EvalValueKind_AddressList,
+                                                 .addresses = small_refs,
+                                                 .address_count = ArrayCount(small_refs)}),
+             Memmy_Status_Ok);
+    Test_EvalParseExpr(arena, "($refs => [$..+0x10])[1]", &expr);
+    error = (Memmy_Error){0};
+    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_NotFound);
+    AssertStrEq(error.context, String8_Lit("index"));
+
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyEvalAnchorTargetExampleFlow)
 {
     Arena *arena = Arena_CreateDefault();
@@ -870,6 +1008,8 @@ TestSuite suite_memmy_eval = TestSuite_Make(
     TestCase_Make(Test_MemmyEvalPatternScanAssignmentMaterializesAddressList),
     TestCase_Make(Test_MemmyEvalValueScanAssignmentMaterializesAddressList),
     TestCase_Make(Test_MemmyEvalIndexesAssignedAddressLists), TestCase_Make(Test_MemmyEvalIndexesValueScanExpressions),
+    TestCase_Make(Test_MemmyEvalListTransformsAddressLists),
+    TestCase_Make(Test_MemmyEvalListTransformsRangeLists), TestCase_Make(Test_MemmyEvalListTransformErrors),
     TestCase_Make(Test_MemmyEvalAnchorTargetExampleFlow),
     TestCase_Make(Test_MemmyEvalParenthesizedTypedReadsInAddressArithmetic),
     TestCase_Make(Test_MemmyEvalCommandsListProcessesModulesAndRegionsWithFuzzyFilters),

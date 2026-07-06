@@ -16,6 +16,7 @@ enum
     Memmy_EvalValueKind_Range,
     Memmy_EvalValueKind_ProcessRange,
     Memmy_EvalValueKind_AddressList,
+    Memmy_EvalValueKind_RangeList,
     Memmy_EvalValueKind_TypedValue,
 };
 
@@ -38,6 +39,8 @@ struct Memmy_EvalValue
     Memmy_Range range;
     Memmy_Addr *addresses;
     U64 address_count;
+    Memmy_Range *ranges;
+    U64 range_count;
     Memmy_Value typed_value;
     Memmy_Value old_typed_value;
 };
