@@ -111,8 +111,12 @@ static String8 Memmy_Cli_DslHelp(Arena *arena)
                                            "  address as T = value typed write\n"
                                            "  range{pattern}       pattern scan -> address list\n"
                                            "  range as T == value  value scan -> address list\n"
+                                           "  list => expr         transform each address/range item\n"
+                                           "  $                    current item inside transform RHS\n"
+                                           "  $matches => [$..+0x20]\n"
+                                           "  $ranges => $ + 4\n"
                                            "  $name = expr         bind evaluated result\n"
-                                           "  $name[N]             index address list\n"
+                                           "  $name[N]             index address/range list\n"
                                            "\n"
                                            "Commands:\n"
                                            "  /procs [filter]\n"
@@ -149,6 +153,10 @@ static String8 Memmy_Cli_EvalValueKindString(Memmy_EvalValue value)
     if (value.kind == Memmy_EvalValueKind_AddressList)
     {
         return String8_Lit("address_list");
+    }
+    if (value.kind == Memmy_EvalValueKind_RangeList)
+    {
+        return String8_Lit("range_list");
     }
     if (value.kind == Memmy_EvalValueKind_TypedValue)
     {
@@ -475,6 +483,52 @@ static Memmy_Status Memmy_CliEvalResultWriter_WriteValue(Memmy_CliEvalResultWrit
                            ? String8_Lit("{\"type\":\"process_range\",\"range\":\"readable_regions\"}\n")
                            : String8_Lit("[0..]\n");
         return Memmy_CliEvalResultWriter_Write(result_writer, line);
+    }
+    if (value.kind == Memmy_EvalValueKind_RangeList)
+    {
+        if (result_writer->jsonl)
+        {
+            for (U64 i = 0; i < value.range_count; i++)
+            {
+                String8 start = Memmy_Cli_FormatAddress(arena, pointer_width, value.ranges[i].start);
+                String8 end = Memmy_Cli_FormatAddress(arena, pointer_width, value.ranges[i].end);
+                Memmy_Status status =
+                    Memmy_CliEvalResultWriter_Write(result_writer,
+                                                    String8_PushF(arena,
+                                                                  "{\"type\":\"range\",\"start\":\"%.*s\","
+                                                                  "\"end\":\"%.*s\"}\n",
+                                                                  (int)start.len, (char *)start.data, (int)end.len,
+                                                                  (char *)end.data));
+                if (status != Memmy_Status_Ok)
+                {
+                    return status;
+                }
+            }
+            return Memmy_CliEvalResultWriter_Write(
+                result_writer,
+                String8_PushF(arena, "{\"type\":\"summary\",\"ranges\":%llu}\n",
+                              (unsigned long long)value.range_count));
+        }
+
+        Memmy_Status status = Memmy_CliEvalResultWriter_Write(result_writer, String8_Lit("START              END\n"));
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        for (U64 i = 0; i < value.range_count; i++)
+        {
+            String8 start = Memmy_Cli_FormatAddress(arena, pointer_width, value.ranges[i].start);
+            String8 end = Memmy_Cli_FormatAddress(arena, pointer_width, value.ranges[i].end);
+            status = Memmy_CliEvalResultWriter_Write(
+                result_writer,
+                String8_PushF(arena, "%.*s %.*s\n", (int)start.len, (char *)start.data, (int)end.len,
+                              (char *)end.data));
+            if (status != Memmy_Status_Ok)
+            {
+                return status;
+            }
+        }
+        return Memmy_Status_Ok;
     }
     return Memmy_Status_Ok;
 }

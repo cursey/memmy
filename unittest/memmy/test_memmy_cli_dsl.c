@@ -919,6 +919,92 @@ Test(Test_MemmyCliExprFormatsValueScanJsonlLikeScan)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyCliExprFormatsRangeListText)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy", "--pid", "1234", "--expr", "[@0x1020..+0x20]{90} => [$..+0x20]"};
+
+    test_backend.memory[0x20] = 0x90;
+    test_backend.memory[0x30] = 0x90;
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("START              END\n"
+                                 "0x0000000000001020 0x0000000000001040\n"
+                                 "0x0000000000001030 0x0000000000001050\n"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliExprFormatsRangeListJsonl)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy", "--jsonl", "--pid", "1234", "--expr", "[@0x1020..+0x20]{90} => [$..+0x20]"};
+
+    test_backend.memory[0x20] = 0x90;
+    test_backend.memory[0x30] = 0x90;
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("{\"type\":\"range\",\"start\":\"0x0000000000001020\","
+                                 "\"end\":\"0x0000000000001040\"}\n"
+                                 "{\"type\":\"range\",\"start\":\"0x0000000000001030\","
+                                 "\"end\":\"0x0000000000001050\"}\n"
+                                 "{\"type\":\"summary\",\"ranges\":2}\n"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliRangeListAssignmentAndVars)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *jsonl_argv[] = {"memmy", "--jsonl"};
+    test_backend.memory[0x20] = 0x90;
+
+    AssertEq(Memmy_Cli_RunInputString(arena, (I32)ArrayCount(jsonl_argv), jsonl_argv,
+                                      String8_Lit("/attach 1234\n"
+                                                  "$ranges = [@0x1020..+0x10]{90} => [$..+0x20]\n"
+                                                  "/vars\n"),
+                                      &out, &error),
+             Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("{\"type\":\"assignment\",\"name\":\"ranges\",\"kind\":\"range_list\"}\n"
+                                 "{\"type\":\"variable\",\"name\":\"ranges\",\"kind\":\"range_list\"}\n"));
+
+    char *text_argv[] = {"memmy"};
+    AssertEq(Memmy_Cli_RunInputString(arena, (I32)ArrayCount(text_argv), text_argv,
+                                      String8_Lit("/attach 1234\n"
+                                                  "$ranges = [@0x1020..+0x10]{90} => [$..+0x20]\n"
+                                                  "/vars\n"),
+                                      &out, &error),
+             Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("ranges range_list\n"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyCliExprJsonlScanWriterFailureStopsBeforeSummary)
 {
     Arena *arena = Arena_CreateDefault();
@@ -1014,5 +1100,7 @@ TestSuite suite_memmy_cli_dsl = TestSuite_Make(
     TestCase_Make(Test_MemmyCliExprFormatsPatternScanJsonlLikePscan),
     TestCase_Make(Test_MemmyCliExprFormatsValueScanTextLikeScan),
     TestCase_Make(Test_MemmyCliExprFormatsValueScanJsonlLikeScan),
+    TestCase_Make(Test_MemmyCliExprFormatsRangeListText), TestCase_Make(Test_MemmyCliExprFormatsRangeListJsonl),
+    TestCase_Make(Test_MemmyCliRangeListAssignmentAndVars),
     TestCase_Make(Test_MemmyCliExprJsonlScanWriterFailureStopsBeforeSummary),
     TestCase_Make(Test_MemmyCliExprScansWholeProcessValueWithRegions), );
