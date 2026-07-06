@@ -1195,6 +1195,87 @@ static Memmy_AstStatus Memmy_Parser_ParseTypedMemory(Memmy_Parser *parser, Memmy
     return Memmy_AstStatus_Ok;
 }
 
+static B32 Memmy_Token_IsIdentifier(Memmy_Token token, String8 text)
+{
+    return token.kind == Memmy_TokenKind_Identifier && String8_Eq(token.text, text);
+}
+
+static Memmy_AstStatus Memmy_Parser_ParseReferenceScan(Memmy_Parser *parser, Memmy_AstNode **out)
+{
+    Memmy_AstNode *range = *out;
+    Memmy_Token refs = parser->token;
+    Memmy_AstStatus status = Memmy_Parser_Next(parser);
+    if (status != Memmy_AstStatus_Ok)
+    {
+        return status;
+    }
+
+    Memmy_AstReferenceMode mode = 0;
+    if (Memmy_Token_IsIdentifier(parser->token, String8_Lit("ptr")))
+    {
+        mode = Memmy_AstReferenceMode_Ptr;
+    }
+    else if (Memmy_Token_IsIdentifier(parser->token, String8_Lit("rel32")))
+    {
+        mode = Memmy_AstReferenceMode_Rel32;
+    }
+    else if (Memmy_Token_IsIdentifier(parser->token, String8_Lit("any")))
+    {
+        mode = Memmy_AstReferenceMode_Any;
+    }
+    else if (parser->token.kind == Memmy_TokenKind_Identifier)
+    {
+        Memmy_Parser_SetError(parser, String8_Lit("unknown reference scan mode"), parser->token.byte_offset,
+                              parser->token.byte_count);
+        return Memmy_AstStatus_ParseError;
+    }
+    else
+    {
+        Memmy_Parser_SetError(parser, String8_Lit("expected reference scan mode"), parser->token.byte_offset,
+                              parser->token.byte_count);
+        return Memmy_AstStatus_ParseError;
+    }
+
+    status = Memmy_Parser_Next(parser);
+    if (status != Memmy_AstStatus_Ok)
+    {
+        return status;
+    }
+
+    Memmy_AstNode *target = 0;
+    if (parser->token.kind == Memmy_TokenKind_At)
+    {
+        status = Memmy_Parser_ParseAbsoluteAddress(parser, &target);
+    }
+    else if (parser->token.kind == Memmy_TokenKind_Target)
+    {
+        status = Memmy_Parser_ParseTargetOrTargetAddress(parser, &target);
+    }
+    else if (parser->token.kind == Memmy_TokenKind_Variable || parser->token.kind == Memmy_TokenKind_CurrentItem)
+    {
+        status = Memmy_Parser_ParseConstSum(parser, &target);
+    }
+    else
+    {
+        Memmy_Parser_SetError(parser, String8_Lit("expected reference target address"), parser->token.byte_offset,
+                              parser->token.byte_count);
+        return Memmy_AstStatus_ParseError;
+    }
+    if (status != Memmy_AstStatus_Ok)
+    {
+        return status;
+    }
+
+    Memmy_AstNode *node = Memmy_Parser_PushNode(parser, Memmy_AstNodeKind_ReferenceScan, refs);
+    node->lhs = range;
+    node->rhs = target;
+    node->reference_mode = mode;
+    node->contains_variable = range->contains_variable || target->contains_variable;
+    Memmy_Parser_NodeCoverInput(parser, node, range->byte_offset, target->byte_offset + target->byte_count);
+    *out = node;
+    return Memmy_AstStatus_Ok;
+}
+
 static Memmy_AstStatus Memmy_Parser_ParseIndex(Memmy_Parser *parser, Memmy_AstNode **out)
 {
     Memmy_AstNode *base = *out;
@@ -1239,6 +1320,10 @@ static Memmy_AstStatus Memmy_Parser_ParsePostfix(Memmy_Parser *parser, Memmy_Ast
         else if (parser->token.kind == Memmy_TokenKind_As)
         {
             status = Memmy_Parser_ParseTypedMemory(parser, out);
+        }
+        else if (Memmy_Token_IsIdentifier(parser->token, String8_Lit("refs")))
+        {
+            status = Memmy_Parser_ParseReferenceScan(parser, out);
         }
         else if (parser->token.kind == Memmy_TokenKind_LBracket)
         {

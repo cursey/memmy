@@ -394,6 +394,27 @@ Test(Test_MemmyAstParsesPocketReferenceAddressLists)
     AssertStrEq(integer_scan->type_name, String8_Lit("u32"));
     AssertStrEq(integer_scan->value_text, String8_Lit("123"));
 
+    Memmy_AstNode *module_ref = 0;
+    Test_ParseAstExpr(arena, "<client.dll> refs ptr @0x1234", &module_ref);
+    AssertEq(module_ref->kind, Memmy_AstNodeKind_ReferenceScan);
+    AssertEq(module_ref->lhs->kind, Memmy_AstNodeKind_Target);
+    AssertEq(module_ref->rhs->kind, Memmy_AstNodeKind_Address);
+    AssertEq(module_ref->reference_mode, Memmy_AstReferenceMode_Ptr);
+
+    Memmy_AstNode *process_ref = 0;
+    Test_ParseAstExpr(arena, "[0..] refs rel32 $target", &process_ref);
+    AssertEq(process_ref->kind, Memmy_AstNodeKind_ReferenceScan);
+    AssertEq(process_ref->lhs->kind, Memmy_AstNodeKind_ProcessRange);
+    AssertEq(process_ref->rhs->kind, Memmy_AstNodeKind_Variable);
+    AssertEq(process_ref->reference_mode, Memmy_AstReferenceMode_Rel32);
+
+    Memmy_AstNode *range_ref = 0;
+    Test_ParseAstExpr(arena, "[@0x1234..@0x5678] refs any <client.dll>+0x20", &range_ref);
+    AssertEq(range_ref->kind, Memmy_AstNodeKind_ReferenceScan);
+    AssertEq(range_ref->lhs->kind, Memmy_AstNodeKind_Range);
+    AssertEq(range_ref->rhs->kind, Memmy_AstNodeKind_Address);
+    AssertEq(range_ref->reference_mode, Memmy_AstReferenceMode_Any);
+
     Arena_Destroy(arena);
 }
 
@@ -452,7 +473,31 @@ Test(Test_MemmyAstParsesPocketReferencePhase4Assignments)
     AssertEq(pattern_assignment.assignment_value->kind, Memmy_AstNodeKind_PatternScan);
     AssertStrEq(pattern_assignment.assignment_value->pattern, String8_Lit("aa bb ?? ?? 11 22"));
 
+    Memmy_AstStatement ref_assignment = {0};
+    Test_ParseAstStatement(arena, "$foo = [0..] refs ptr $target", &ref_assignment);
+    AssertEq(ref_assignment.kind, Memmy_AstNodeKind_Assignment);
+    AssertEq(ref_assignment.assignment_value->kind, Memmy_AstNodeKind_ReferenceScan);
+    AssertEq(ref_assignment.assignment_value->reference_mode, Memmy_AstReferenceMode_Ptr);
+
+    Memmy_AstNode *ref_index = 0;
+    Test_ParseAstExpr(arena, "([0..] refs any @0x1234)[0]", &ref_index);
+    AssertEq(ref_index->kind, Memmy_AstNodeKind_Index);
+    AssertEq(ref_index->lhs->kind, Memmy_AstNodeKind_ReferenceScan);
+
+    Memmy_AstNode *ref_transform = 0;
+    Test_ParseAstExpr(arena, "[0..] refs rel32 @0x1234 => $ + 4", &ref_transform);
+    AssertEq(ref_transform->kind, Memmy_AstNodeKind_ListTransform);
+    AssertEq(ref_transform->lhs->kind, Memmy_AstNodeKind_ReferenceScan);
+
     Arena_Destroy(arena);
+}
+
+Test(Test_MemmyAstRejectsInvalidReferenceScans)
+{
+    Test_RejectAstExpr("[0..] refs");
+    Test_RejectAstExpr("[0..] refs wat @0x1000");
+    Test_RejectAstExpr("[0..] refs ptr");
+    Test_RejectAstExpr("[0..] refs ptr 1234");
 }
 
 Test(Test_MemmyAstParsesListTransforms)
@@ -614,5 +659,6 @@ TestSuite suite_memmy_ast = TestSuite_Make(
     TestCase_Make(Test_MemmyAstParsesPocketReferenceAddressLists),
     TestCase_Make(Test_MemmyAstParsesPocketReferenceIndexingAddressLists),
     TestCase_Make(Test_MemmyAstParsesPocketReferencePhase4Assignments),
+    TestCase_Make(Test_MemmyAstRejectsInvalidReferenceScans),
     TestCase_Make(Test_MemmyAstParsesListTransforms), TestCase_Make(Test_MemmyAstRejectsInvalidListTransforms),
     TestCase_Make(Test_MemmyAstParsesPocketReferenceCommands), );

@@ -1,5 +1,21 @@
 #include "test_memmy_common.h"
 
+static void Test_WriteU32LE(U8 *dst, U32 value)
+{
+    for (U64 i = 0; i < 4; i++)
+    {
+        dst[i] = (U8)(value >> (i * 8));
+    }
+}
+
+static void Test_WriteU64LE(U8 *dst, U64 value)
+{
+    for (U64 i = 0; i < 8; i++)
+    {
+        dst[i] = (U8)(value >> (i * 8));
+    }
+}
+
 Test(Test_MemmyScanFindsBeginningMiddleAndEnd)
 {
     Arena *arena = Arena_CreateDefault();
@@ -24,6 +40,138 @@ Test(Test_MemmyScanFindsBeginningMiddleAndEnd)
              Memmy_Status_Ok);
     Memmy_Addr expected[] = {0x1000, 0x1040, 0x10fd};
     Test_AssertScanAddresses(&results, expected, ArrayCount(expected));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyReferenceScanFindsPtr32AndPtr64)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+    Memmy_Process *process = 0;
+    Memmy_ScanOptions options = {.range = {.start = 0x1020, .end = 0x1040}, .chunk_size = 5};
+    Test_ScanResultList results = {0};
+    Memmy_Error error = {0};
+
+    test_backend.processes[0].pointer_width = Memmy_PointerWidth_32;
+    Test_WriteU32LE(test_backend.memory + 0x20, 0x11223344);
+    Test_OpenProcess(arena, &process);
+    AssertEq(Memmy_Process_ScanReferences(arena, process, &options, Memmy_ReferenceScanMode_Ptr, 0x11223344,
+                                          Test_ScanSink(&results, arena), &error),
+             Memmy_Status_Ok);
+    Memmy_Addr expected32[] = {0x1020};
+    Test_AssertScanAddresses(&results, expected32, ArrayCount(expected32));
+
+    test_backend.processes[0].pointer_width = Memmy_PointerWidth_64;
+    Test_WriteU64LE(test_backend.memory + 0x30, 0x1122334455667788);
+    Test_OpenProcess(arena, &process);
+    options.range.start = 0x1030;
+    options.range.end = 0x1040;
+    AssertEq(Memmy_Process_ScanReferences(arena, process, &options, Memmy_ReferenceScanMode_Ptr,
+                                          0x1122334455667788, Test_ScanSink(&results, arena), &error),
+             Memmy_Status_Ok);
+    Memmy_Addr expected64[] = {0x1030};
+    Test_AssertScanAddresses(&results, expected64, ArrayCount(expected64));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyReferenceScanFindsRel32PositiveNegativeAndAnyDeduped)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    Test_WriteU32LE(test_backend.memory + 0x10, 0x20 - 0x10 - 4);
+    Test_WriteU32LE(test_backend.memory + 0x30, (U32)(I32)(0x20 - 0x30 - 4));
+    Test_WriteU64LE(test_backend.memory + 0x40, 0x1020);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+    Memmy_Process *process = 0;
+    Test_OpenProcess(arena, &process);
+    Memmy_ScanOptions options = {.range = {.start = 0x1010, .end = 0x1050}, .chunk_size = 7};
+    Test_ScanResultList results = {0};
+    Memmy_Error error = {0};
+
+    AssertEq(Memmy_Process_ScanReferences(arena, process, &options, Memmy_ReferenceScanMode_Rel32, 0x1020,
+                                          Test_ScanSink(&results, arena), &error),
+             Memmy_Status_Ok);
+    Memmy_Addr rel32_expected[] = {0x1010, 0x1030};
+    Test_AssertScanAddresses(&results, rel32_expected, ArrayCount(rel32_expected));
+
+    AssertEq(Memmy_Process_ScanReferences(arena, process, &options, Memmy_ReferenceScanMode_Any, 0x1020,
+                                          Test_ScanSink(&results, arena), &error),
+             Memmy_Status_Ok);
+    Memmy_Addr any_expected[] = {0x1010, 0x1030, 0x1040};
+    Test_AssertScanAddresses(&results, any_expected, ArrayCount(any_expected));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyReferenceScanChunkLimitRegionsUnreadableAndInvalidArguments)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    Test_WriteU64LE(test_backend.memory + 3, 0x1122334455667788);
+    Test_WriteU64LE(test_backend.memory + 0x20, 0x1122334455667788);
+    Test_WriteU64LE(test_backend.memory + 0x30, 0x1122334455667788);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+    Memmy_Process *process = 0;
+    Test_OpenProcess(arena, &process);
+    Memmy_ScanOptions options = {.range = {.start = 0x1000, .end = 0x1010}, .chunk_size = 9};
+    Test_ScanResultList results = {0};
+    Memmy_Error error = {0};
+
+    AssertEq(Memmy_Process_ScanReferences(arena, process, &options, Memmy_ReferenceScanMode_Ptr,
+                                          0x1122334455667788, Test_ScanSink(&results, arena), &error),
+             Memmy_Status_Ok);
+    Memmy_Addr boundary_expected[] = {0x1003};
+    Test_AssertScanAddresses(&results, boundary_expected, ArrayCount(boundary_expected));
+
+    options = (Memmy_ScanOptions){.range = {.start = 0x1020, .end = 0x1040}, .limit = 1, .chunk_size = 9};
+    AssertEq(Memmy_Process_ScanReferences(arena, process, &options, Memmy_ReferenceScanMode_Ptr,
+                                          0x1122334455667788, Test_ScanSink(&results, arena), &error),
+             Memmy_Status_Ok);
+    Memmy_Addr limit_expected[] = {0x1020};
+    Test_AssertScanAddresses(&results, limit_expected, ArrayCount(limit_expected));
+
+    test_backend.region_count = 0;
+    Test_MemmyBackend_AddRegion(&test_backend, 4242, 0x1030, 0x10, Memmy_RegionAccess_Read,
+                                Memmy_RegionState_Committed);
+    options = (Memmy_ScanOptions){.range = {.start = 0x1020, .end = 0x1040}, .chunk_size = 9};
+    AssertEq(Memmy_Process_ScanReferences(arena, process, &options, Memmy_ReferenceScanMode_Ptr,
+                                          0x1122334455667788, Test_ScanSink(&results, arena), &error),
+             Memmy_Status_Ok);
+    Memmy_Addr region_expected[] = {0x1030};
+    Test_AssertScanAddresses(&results, region_expected, ArrayCount(region_expected));
+
+    Test_DisableEnumerateRegions(&test_backend);
+    test_backend.unreadable_range_count = 0;
+    Test_MemmyBackend_AddUnreadableRange(&test_backend, 0x1020, 0x1040);
+    AssertEq(Memmy_Process_ScanReferences(arena, process, &options, Memmy_ReferenceScanMode_Ptr,
+                                          0x1122334455667788, Test_ScanSink(&results, arena), &error),
+             Memmy_Status_Unreadable);
+
+    test_backend.processes[0].pointer_width = Memmy_PointerWidth_Unknown;
+    Test_OpenProcess(arena, &process);
+    AssertEq(Memmy_Process_ScanReferences(arena, process, &options, Memmy_ReferenceScanMode_Ptr, 0x1000,
+                                          Test_ScanSink(&results, arena), &error),
+             Memmy_Status_Unsupported);
+    AssertEq(Memmy_Process_ScanReferences(arena, process, &options, (Memmy_ReferenceScanMode)99, 0x1000,
+                                          Test_ScanSink(&results, arena), &error),
+             Memmy_Status_InvalidArgument);
+    AssertEq(Memmy_Process_ScanReferences(arena, 0, &options, Memmy_ReferenceScanMode_Ptr, 0x1000,
+                                          Test_ScanSink(&results, arena), &error),
+             Memmy_Status_InvalidArgument);
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -587,4 +735,7 @@ TestSuite suite_memmy_scan = TestSuite_Make(
     TestCase_Make(Test_MemmyValueScanFindsScalarValuesAtMultipleAlignments),
     TestCase_Make(Test_MemmyValueScanPointerWidthAware), TestCase_Make(Test_MemmyValueScanBytesUtf8AndUtf16),
     TestCase_Make(Test_MemmyValueScanRangeChunkLimitRegionAndReadErrors),
-    TestCase_Make(Test_MemmyValueScanFindsValueAcrossAdjacentReadableRegions), );
+    TestCase_Make(Test_MemmyValueScanFindsValueAcrossAdjacentReadableRegions),
+    TestCase_Make(Test_MemmyReferenceScanFindsPtr32AndPtr64),
+    TestCase_Make(Test_MemmyReferenceScanFindsRel32PositiveNegativeAndAnyDeduped),
+    TestCase_Make(Test_MemmyReferenceScanChunkLimitRegionsUnreadableAndInvalidArguments), );

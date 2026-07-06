@@ -75,7 +75,7 @@ $player->$hp_offset as f32 = 100.0
 
 ## Address Lists
 
-Pattern scans and value scans evaluate to address lists.
+Pattern scans, value scans, and reference scans evaluate to address lists.
 
 ```txt
 <client.dll>{AB CD ?? ?? 12 34}
@@ -85,7 +85,15 @@ Pattern scans and value scans evaluate to address lists.
 <client.dll> as f32 == 42.777
 [0..] as str == "hello"
 [@0x1234..@0x5678] as u32 == 123
+
+<client.dll> refs ptr @0x1234
+[0..] refs rel32 $target
+[@0x1234..@0x5678] refs any <client.dll>+0x20
 ```
+
+`ptr` matches pointer-width little-endian absolute values. `rel32` matches a
+signed 32-bit displacement where the displacement field address plus 4 plus the
+displacement equals the target address. `any` returns the union of both modes.
 
 ## Indexing Address Lists
 
@@ -164,6 +172,9 @@ x                    constant
 [0..]                attached/selected process readable regions
 range{pattern}       pattern scan -> address list
 range as T == value  value scan -> address list
+range refs ptr addr  pointer reference scan -> address list
+range refs rel32 addr rel32 reference scan -> address list
+range refs any addr  ptr or rel32 reference scan -> address list
 address as T         typed read
 address as T = value typed write
 $name = expr         bind evaluated result

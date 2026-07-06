@@ -18,26 +18,111 @@ static B32 Memmy_Pattern_MatchesAt(Memmy_Pattern pattern, U8 *bytes)
     return 1;
 }
 
-typedef B32 Memmy_ScanMatchFn(void *user_data, U8 *bytes);
+typedef B32 Memmy_ScanMatchFn(void *user_data, Memmy_Addr address, U8 *bytes, U64 available);
 
 typedef struct Memmy_ScanNeedle Memmy_ScanNeedle;
 struct Memmy_ScanNeedle
 {
-    U64 size;
+    U64 min_size;
+    U64 max_size;
     Memmy_ScanMatchFn *match;
     void *user_data;
 };
 
-static B32 Memmy_Value_MatchesAt(void *user_data, U8 *bytes)
+static B32 Memmy_Value_MatchesAt(void *user_data, Memmy_Addr address, U8 *bytes, U64 available)
 {
+    Unused(address);
+
     Memmy_Value *value = (Memmy_Value *)user_data;
-    return Memory_Equals(value->bytes.data, bytes, value->bytes.len);
+    return available >= value->bytes.len && Memory_Equals(value->bytes.data, bytes, value->bytes.len);
 }
 
-static B32 Memmy_Pattern_MatchesAtUserData(void *user_data, U8 *bytes)
+static B32 Memmy_Pattern_MatchesAtUserData(void *user_data, Memmy_Addr address, U8 *bytes, U64 available)
 {
+    Unused(address);
+
     Memmy_Pattern *pattern = (Memmy_Pattern *)user_data;
-    return Memmy_Pattern_MatchesAt(*pattern, bytes);
+    return available >= pattern->count && Memmy_Pattern_MatchesAt(*pattern, bytes);
+}
+
+typedef struct Memmy_ReferenceScanNeedle Memmy_ReferenceScanNeedle;
+struct Memmy_ReferenceScanNeedle
+{
+    Memmy_ReferenceScanMode mode;
+    Memmy_Addr target;
+    U64 ptr_size;
+};
+
+static U64 Memmy_ReadLe(U8 *bytes, U64 size)
+{
+    U64 result = 0;
+    for (U64 i = 0; i < size; i++)
+    {
+        result |= ((U64)bytes[i]) << (i * 8);
+    }
+    return result;
+}
+
+static B32 Memmy_ReferenceScan_PtrMatches(Memmy_ReferenceScanNeedle *needle, U8 *bytes, U64 available)
+{
+    if (available < needle->ptr_size)
+    {
+        return 0;
+    }
+    return Memmy_ReadLe(bytes, needle->ptr_size) == needle->target;
+}
+
+static B32 Memmy_ReferenceScan_Rel32Matches(Memmy_ReferenceScanNeedle *needle, Memmy_Addr address, U8 *bytes,
+                                            U64 available)
+{
+    if (available < 4)
+    {
+        return 0;
+    }
+
+    U32 raw = (U32)Memmy_ReadLe(bytes, 4);
+    I64 disp = (I64)(I32)raw;
+    Memmy_Addr base = 0;
+    if (!AddU64Checked(address, 4, &base))
+    {
+        return 0;
+    }
+
+    Memmy_Addr ref_target = 0;
+    if (disp < 0)
+    {
+        U64 magnitude = (U64)(-(disp + 1)) + 1;
+        if (base < magnitude)
+        {
+            return 0;
+        }
+        ref_target = base - magnitude;
+    }
+    else if (!AddU64Checked(base, (U64)disp, &ref_target))
+    {
+        return 0;
+    }
+
+    return ref_target == needle->target;
+}
+
+static B32 Memmy_ReferenceScan_MatchesAt(void *user_data, Memmy_Addr address, U8 *bytes, U64 available)
+{
+    Memmy_ReferenceScanNeedle *needle = (Memmy_ReferenceScanNeedle *)user_data;
+    if (needle->mode == Memmy_ReferenceScanMode_Ptr)
+    {
+        return Memmy_ReferenceScan_PtrMatches(needle, bytes, available);
+    }
+    if (needle->mode == Memmy_ReferenceScanMode_Rel32)
+    {
+        return Memmy_ReferenceScan_Rel32Matches(needle, address, bytes, available);
+    }
+    if (needle->mode == Memmy_ReferenceScanMode_Any)
+    {
+        return Memmy_ReferenceScan_PtrMatches(needle, bytes, available) ||
+               Memmy_ReferenceScan_Rel32Matches(needle, address, bytes, available);
+    }
+    return 0;
 }
 
 static B32 Memmy_Scan_IsReadableRegion(Memmy_Region *region)
@@ -151,8 +236,8 @@ static Memmy_Status Memmy_Process_ScanRange(Arena *arena, Memmy_Process *process
                                             B32 *has_last_match, Memmy_Error *error)
 {
     U64 chunk_size = options->chunk_size != 0 ? options->chunk_size : MEMMY_DEFAULT_SCAN_CHUNK_SIZE;
-    chunk_size = Max(chunk_size, needle.size);
-    U64 overlap = needle.size - 1;
+    chunk_size = Max(chunk_size, needle.max_size);
+    U64 overlap = needle.max_size - 1;
     U64 step = chunk_size - overlap;
     if (step == 0)
     {
@@ -174,16 +259,17 @@ static Memmy_Status Memmy_Process_ScanRange(Arena *arena, Memmy_Process *process
             if (bytes_read > 0)
             {
                 *any_read = 1;
-                if (bytes_read >= needle.size)
+                if (bytes_read >= needle.min_size)
                 {
-                    for (U64 i = 0; i <= bytes_read - needle.size; i++)
+                    for (U64 i = 0; i <= bytes_read - needle.min_size; i++)
                     {
                         Memmy_Addr match_addr = pos + i;
-                        if (match_addr < range.start || match_addr + needle.size > range.end)
+                        if (match_addr < range.start || match_addr + needle.min_size > range.end)
                         {
                             continue;
                         }
-                        if (needle.match(needle.user_data, buffer + i))
+                        U64 available = Min(bytes_read - i, range.end - match_addr);
+                        if (needle.match(needle.user_data, match_addr, buffer + i, available))
                         {
                             if (*has_last_match && match_addr <= *last_match)
                             {
@@ -252,7 +338,7 @@ static Memmy_Status Memmy_Process_ScanNeedle(Arena *arena, Memmy_Process *proces
     {
         return Memmy_Status_Ok;
     }
-    if (needle.size == 0 || needle.match == 0)
+    if (needle.min_size == 0 || needle.max_size < needle.min_size || needle.match == 0)
     {
         Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("scan"), String8_Lit("scan needle is empty"));
         return Memmy_Status_InvalidArgument;
@@ -350,7 +436,8 @@ Memmy_Status Memmy_Process_ScanValue(Arena *arena, Memmy_Process *process, Memmy
                                      Memmy_Value value, Memmy_ScanSink sink, Memmy_Error *error)
 {
     Memmy_ScanNeedle needle = {
-        .size = value.bytes.len,
+        .min_size = value.bytes.len,
+        .max_size = value.bytes.len,
         .match = value.bytes.data != 0 ? Memmy_Value_MatchesAt : 0,
         .user_data = &value,
     };
@@ -361,9 +448,53 @@ Memmy_Status Memmy_Process_ScanPattern(Arena *arena, Memmy_Process *process, Mem
                                        Memmy_Pattern pattern, Memmy_ScanSink sink, Memmy_Error *error)
 {
     Memmy_ScanNeedle needle = {
-        .size = pattern.count,
+        .min_size = pattern.count,
+        .max_size = pattern.count,
         .match = pattern.bytes != 0 ? Memmy_Pattern_MatchesAtUserData : 0,
         .user_data = &pattern,
+    };
+    return Memmy_Process_ScanNeedle(arena, process, options, needle, sink, error);
+}
+
+Memmy_Status Memmy_Process_ScanReferences(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options,
+                                          Memmy_ReferenceScanMode mode, Memmy_Addr target, Memmy_ScanSink sink,
+                                          Memmy_Error *error)
+{
+    if (arena == 0 || process == 0 || options == 0 || sink.callback == 0)
+    {
+        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("scan"), String8_Lit("missing scan argument"));
+        return Memmy_Status_InvalidArgument;
+    }
+    if (mode != Memmy_ReferenceScanMode_Ptr && mode != Memmy_ReferenceScanMode_Rel32 &&
+        mode != Memmy_ReferenceScanMode_Any)
+    {
+        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("scan"),
+                        String8_Lit("invalid reference scan mode"));
+        return Memmy_Status_InvalidArgument;
+    }
+
+    U64 ptr_size = 0;
+    if (mode == Memmy_ReferenceScanMode_Ptr || mode == Memmy_ReferenceScanMode_Any)
+    {
+        if (process->pointer_width == Memmy_PointerWidth_Unknown)
+        {
+            Memmy_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("scan"),
+                            String8_Lit("target pointer width is unknown"));
+            return Memmy_Status_Unsupported;
+        }
+        ptr_size = process->pointer_width == Memmy_PointerWidth_32 ? 4 : 8;
+    }
+
+    Memmy_ReferenceScanNeedle reference = {
+        .mode = mode,
+        .target = target,
+        .ptr_size = ptr_size,
+    };
+    Memmy_ScanNeedle needle = {
+        .min_size = mode == Memmy_ReferenceScanMode_Ptr ? ptr_size : 4,
+        .max_size = mode == Memmy_ReferenceScanMode_Rel32 ? 4 : ptr_size,
+        .match = Memmy_ReferenceScan_MatchesAt,
+        .user_data = &reference,
     };
     return Memmy_Process_ScanNeedle(arena, process, options, needle, sink, error);
 }

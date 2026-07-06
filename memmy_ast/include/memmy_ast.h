@@ -34,6 +34,15 @@ enum
     Memmy_AstNodeKind_ListTransform,
     Memmy_AstNodeKind_Assignment,
     Memmy_AstNodeKind_Command,
+    Memmy_AstNodeKind_ReferenceScan,
+};
+
+typedef U32 Memmy_AstReferenceMode;
+enum
+{
+    Memmy_AstReferenceMode_Ptr,
+    Memmy_AstReferenceMode_Rel32,
+    Memmy_AstReferenceMode_Any,
 };
 
 typedef U32 Memmy_AstConstOp;
@@ -90,6 +99,7 @@ struct Memmy_AstNode
     Memmy_AstNode *rhs;
     Memmy_AstNode *value_expr;
     B32 range_is_sized;
+    Memmy_AstReferenceMode reference_mode;
     String8 name;
     String8 type_name;
     String8 pattern;

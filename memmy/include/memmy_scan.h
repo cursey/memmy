@@ -25,9 +25,20 @@ struct Memmy_ScanOptions
     B32 scan_readable_regions;
 };
 
+typedef U32 Memmy_ReferenceScanMode;
+enum
+{
+    Memmy_ReferenceScanMode_Ptr,
+    Memmy_ReferenceScanMode_Rel32,
+    Memmy_ReferenceScanMode_Any,
+};
+
 Memmy_Status Memmy_Process_ScanValue(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options,
                                      Memmy_Value value, Memmy_ScanSink sink, Memmy_Error *error);
 Memmy_Status Memmy_Process_ScanPattern(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options,
                                        Memmy_Pattern pattern, Memmy_ScanSink sink, Memmy_Error *error);
+Memmy_Status Memmy_Process_ScanReferences(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options,
+                                          Memmy_ReferenceScanMode mode, Memmy_Addr target, Memmy_ScanSink sink,
+                                          Memmy_Error *error);
 
 #endif // MEMMY_SCAN_H
