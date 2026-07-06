@@ -722,25 +722,188 @@ static B32 Memmy_AstNode_ContainsCurrentItem(Memmy_AstNode *node)
            Memmy_AstNode_ContainsCurrentItem(node->value_expr);
 }
 
-static Memmy_EvalValueKind Memmy_EvalTransform_EmptyKind(Memmy_AstNode *rhs, Memmy_EvalValueKind input_kind)
+static Memmy_Status Memmy_EvalTransform_ListKindForValue(Memmy_EvalValue value, Memmy_EvalValueKind *out_kind,
+                                                         Memmy_Error *error)
 {
-    if (rhs == 0)
+    if (value.kind == Memmy_EvalValueKind_Address || value.kind == Memmy_EvalValueKind_AddressList)
     {
-        return Memmy_EvalValueKind_AddressList;
+        *out_kind = Memmy_EvalValueKind_AddressList;
+        return Memmy_Status_Ok;
     }
-    if (rhs->kind == Memmy_AstNodeKind_Range)
+    if (value.kind == Memmy_EvalValueKind_Range || value.kind == Memmy_EvalValueKind_RangeList)
     {
-        return Memmy_EvalValueKind_RangeList;
+        *out_kind = Memmy_EvalValueKind_RangeList;
+        return Memmy_Status_Ok;
     }
-    if (rhs->kind == Memmy_AstNodeKind_CurrentItem)
+
+    Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("transform"),
+                    String8_Lit("transform expression must produce address or range values"));
+    return Memmy_Status_InvalidArgument;
+}
+
+static Memmy_Status Memmy_EvalTransform_InferValueKind(Memmy_EvalExec *exec, Memmy_AstNode *node,
+                                                       Memmy_EvalValueKind input_kind, Memmy_EvalValueKind *out_kind,
+                                                       Memmy_Error *error);
+static B32 Memmy_EvalTransform_InferConstCompatible(Memmy_EvalExec *exec, Memmy_AstNode *node);
+
+static Memmy_Status Memmy_EvalTransform_InferAstKind(Memmy_EvalExec *exec, Memmy_AstNode *node,
+                                                     Memmy_EvalValueKind input_kind, Memmy_EvalValueKind *out_kind,
+                                                     Memmy_Error *error)
+{
+    Memmy_EvalValueKind value_kind = Memmy_EvalValueKind_Null;
+    Memmy_Status status = Memmy_EvalTransform_InferValueKind(exec, node, input_kind, &value_kind, error);
+    if (status != Memmy_Status_Ok)
     {
-        return input_kind;
+        return status;
     }
-    if (rhs->kind == Memmy_AstNodeKind_ConstArithmetic && Memmy_AstNode_ContainsCurrentItem(rhs))
+    return Memmy_EvalTransform_ListKindForValue((Memmy_EvalValue){.kind = value_kind}, out_kind, error);
+}
+
+static Memmy_Status Memmy_EvalTransform_InferValueKind(Memmy_EvalExec *exec, Memmy_AstNode *node,
+                                                       Memmy_EvalValueKind input_kind, Memmy_EvalValueKind *out_kind,
+                                                       Memmy_Error *error)
+{
+    if (node == 0)
     {
-        return Memmy_EvalValueKind_AddressList;
+        *out_kind = Memmy_EvalValueKind_Null;
+        return Memmy_Status_Ok;
     }
-    return Memmy_EvalValueKind_AddressList;
+
+    if (node->kind == Memmy_AstNodeKind_Variable)
+    {
+        Memmy_EvalValue value = {0};
+        Memmy_Status status = Memmy_EvalEnv_Find(exec->env, node->name, &value);
+        if (status != Memmy_Status_Ok)
+        {
+            Memmy_EvalError(error, status, String8_Lit("transform"),
+                            String8_Lit("transform variable was not found"));
+            return status;
+        }
+        *out_kind = value.kind;
+        return Memmy_Status_Ok;
+    }
+    if (node->kind == Memmy_AstNodeKind_CurrentItem)
+    {
+        *out_kind =
+            input_kind == Memmy_EvalValueKind_RangeList ? Memmy_EvalValueKind_Range : Memmy_EvalValueKind_Address;
+        return Memmy_Status_Ok;
+    }
+    if (node->kind == Memmy_AstNodeKind_ConstArithmetic && node->op == Memmy_AstConstOp_None)
+    {
+        *out_kind = Memmy_EvalValueKind_Const;
+        return Memmy_Status_Ok;
+    }
+    if (node->kind == Memmy_AstNodeKind_Range || node->kind == Memmy_AstNodeKind_Target)
+    {
+        *out_kind = Memmy_EvalValueKind_Range;
+        return Memmy_Status_Ok;
+    }
+    if (node->kind == Memmy_AstNodeKind_Address || node->kind == Memmy_AstNodeKind_Deref)
+    {
+        *out_kind = Memmy_EvalValueKind_Address;
+        return Memmy_Status_Ok;
+    }
+    if (node->kind == Memmy_AstNodeKind_PatternScan || node->kind == Memmy_AstNodeKind_ValueScan)
+    {
+        *out_kind = Memmy_EvalValueKind_AddressList;
+        return Memmy_Status_Ok;
+    }
+    if (node->kind == Memmy_AstNodeKind_ProcessRange)
+    {
+        *out_kind = Memmy_EvalValueKind_ProcessRange;
+        return Memmy_Status_Ok;
+    }
+    if (node->kind == Memmy_AstNodeKind_TypedRead || node->kind == Memmy_AstNodeKind_TypedWrite)
+    {
+        *out_kind = Memmy_EvalValueKind_TypedValue;
+        return Memmy_Status_Ok;
+    }
+    if (node->kind == Memmy_AstNodeKind_ListTransform)
+    {
+        Memmy_EvalValueKind lhs_kind = Memmy_EvalValueKind_Null;
+        Memmy_Status status = Memmy_EvalTransform_InferValueKind(exec, node->lhs, input_kind, &lhs_kind, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        if (lhs_kind != Memmy_EvalValueKind_AddressList && lhs_kind != Memmy_EvalValueKind_RangeList)
+        {
+            Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("transform"),
+                            String8_Lit("expected address list or range list"));
+            return Memmy_Status_InvalidArgument;
+        }
+        return Memmy_EvalTransform_InferAstKind(exec, node->rhs, lhs_kind, out_kind, error);
+    }
+    if (node->kind == Memmy_AstNodeKind_Index)
+    {
+        Memmy_EvalValueKind lhs_kind = Memmy_EvalValueKind_Null;
+        Memmy_Status status = Memmy_EvalTransform_InferValueKind(exec, node->lhs, input_kind, &lhs_kind, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        if (lhs_kind == Memmy_EvalValueKind_AddressList)
+        {
+            *out_kind = Memmy_EvalValueKind_Address;
+            return Memmy_Status_Ok;
+        }
+        if (lhs_kind == Memmy_EvalValueKind_RangeList)
+        {
+            *out_kind = Memmy_EvalValueKind_Range;
+            return Memmy_Status_Ok;
+        }
+    }
+    if (node->kind == Memmy_AstNodeKind_ConstArithmetic)
+    {
+        if (node->op == Memmy_AstConstOp_Add || node->op == Memmy_AstConstOp_Sub)
+        {
+            Memmy_EvalValueKind lhs_kind = Memmy_EvalValueKind_Null;
+            Memmy_Status status = Memmy_EvalTransform_InferValueKind(exec, node->lhs, input_kind, &lhs_kind, error);
+            if (status == Memmy_Status_Ok &&
+                (lhs_kind == Memmy_EvalValueKind_Address || lhs_kind == Memmy_EvalValueKind_Range) &&
+                Memmy_EvalTransform_InferConstCompatible(exec, node->rhs))
+            {
+                *out_kind = Memmy_EvalValueKind_Address;
+                return Memmy_Status_Ok;
+            }
+        }
+    }
+
+    Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("transform"),
+                    String8_Lit("transform expression must produce address or range values"));
+    return Memmy_Status_InvalidArgument;
+}
+
+static B32 Memmy_EvalTransform_InferConstCompatible(Memmy_EvalExec *exec, Memmy_AstNode *node)
+{
+    if (node == 0)
+    {
+        return 0;
+    }
+    if (node->kind == Memmy_AstNodeKind_Variable)
+    {
+        Memmy_EvalValue value = {0};
+        if (Memmy_EvalEnv_Find(exec->env, node->name, &value) != Memmy_Status_Ok)
+        {
+            return 0;
+        }
+        return value.kind == Memmy_EvalValueKind_Const ||
+               (value.kind == Memmy_EvalValueKind_TypedValue && Memmy_EvalValue_IsIntegerTyped(&value));
+    }
+    if (node->kind != Memmy_AstNodeKind_ConstArithmetic)
+    {
+        return 0;
+    }
+    if (node->op == Memmy_AstConstOp_None)
+    {
+        return 1;
+    }
+    if (node->op == Memmy_AstConstOp_Pos || node->op == Memmy_AstConstOp_Neg)
+    {
+        return Memmy_EvalTransform_InferConstCompatible(exec, node->lhs);
+    }
+    return Memmy_EvalTransform_InferConstCompatible(exec, node->lhs) &&
+           Memmy_EvalTransform_InferConstCompatible(exec, node->rhs);
 }
 
 static Memmy_Status Memmy_Eval_AddConst(I64 a, I64 b, I64 *out, Memmy_Error *error)
@@ -1209,19 +1372,10 @@ static Memmy_Status Memmy_EvalTransform_Append(Memmy_EvalExec *exec, Memmy_EvalV
                                                List *ranges, Memmy_EvalValueKind *out_kind, Memmy_Error *error)
 {
     Memmy_EvalValueKind value_kind = Memmy_EvalValueKind_Null;
-    if (value.kind == Memmy_EvalValueKind_Address || value.kind == Memmy_EvalValueKind_AddressList)
+    Memmy_Status status = Memmy_EvalTransform_ListKindForValue(value, &value_kind, error);
+    if (status != Memmy_Status_Ok)
     {
-        value_kind = Memmy_EvalValueKind_AddressList;
-    }
-    else if (value.kind == Memmy_EvalValueKind_Range || value.kind == Memmy_EvalValueKind_RangeList)
-    {
-        value_kind = Memmy_EvalValueKind_RangeList;
-    }
-    else
-    {
-        Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("transform"),
-                        String8_Lit("transform expression must produce address or range values"));
-        return Memmy_Status_InvalidArgument;
+        return status;
     }
 
     if (*out_kind == Memmy_EvalValueKind_Null)
@@ -1318,7 +1472,11 @@ static Memmy_Status Memmy_Eval_ListTransform(Memmy_EvalExec *exec, Memmy_AstNode
     exec->current_item = old_current_item;
     if (out_kind == Memmy_EvalValueKind_Null)
     {
-        out_kind = Memmy_EvalTransform_EmptyKind(expr->rhs, list.kind);
+        status = Memmy_EvalTransform_InferAstKind(exec, expr->rhs, list.kind, &out_kind, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
     }
     if (out_kind == Memmy_EvalValueKind_RangeList)
     {
