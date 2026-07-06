@@ -11,6 +11,7 @@ typedef struct Memmy_ModuleSink Memmy_ModuleSink;
 typedef struct Memmy_Process Memmy_Process;
 typedef struct Memmy_ProcessInfo Memmy_ProcessInfo;
 typedef struct Memmy_ProcessInfoSink Memmy_ProcessInfoSink;
+typedef struct Memmy_Range Memmy_Range;
 typedef struct Memmy_Region Memmy_Region;
 typedef struct Memmy_RegionSink Memmy_RegionSink;
 
@@ -49,6 +50,8 @@ struct Memmy_Backend
                           Memmy_Error *error);
     Memmy_Status (*enumerate_modules)(Arena *arena, Memmy_Process *process, Memmy_ModuleSink sink, Memmy_Error *error);
     Memmy_Status (*enumerate_regions)(Arena *arena, Memmy_Process *process, Memmy_RegionSink sink, Memmy_Error *error);
+    Memmy_Status (*find_function)(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Range *out,
+                                  Memmy_Error *error);
 };
 
 #endif // MEMMY_BACKEND_H

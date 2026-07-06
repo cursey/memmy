@@ -558,6 +558,49 @@ Test(Test_MemmyAstRejectsInvalidListTransforms)
     Test_RejectAstExpr("[$..+0x20]");
 }
 
+Test(Test_MemmyAstParsesFunctionLookup)
+{
+    Arena *arena = Arena_CreateDefault();
+
+    Memmy_AstNode *function = 0;
+    Test_ParseAstExpr(arena, "function $xref", &function);
+    AssertEq(function->kind, Memmy_AstNodeKind_Function);
+    AssertEq(function->lhs->kind, Memmy_AstNodeKind_Variable);
+    AssertStrEq(function->lhs->name, String8_Lit("xref"));
+    AssertTrue(function->contains_variable);
+
+    Memmy_AstNode *transform = 0;
+    Test_ParseAstExpr(arena, "$xrefs => function $", &transform);
+    AssertEq(transform->kind, Memmy_AstNodeKind_ListTransform);
+    AssertEq(transform->rhs->kind, Memmy_AstNodeKind_Function);
+    AssertEq(transform->rhs->lhs->kind, Memmy_AstNodeKind_CurrentItem);
+
+    Memmy_AstNode *typed_read = 0;
+    Test_ParseAstExpr(arena, "function @0x1234 as u8", &typed_read);
+    AssertEq(typed_read->kind, Memmy_AstNodeKind_TypedRead);
+    AssertEq(typed_read->lhs->kind, Memmy_AstNodeKind_Function);
+
+    Memmy_AstNode *variable = 0;
+    Test_ParseAstExpr(arena, "$function", &variable);
+    AssertEq(variable->kind, Memmy_AstNodeKind_Variable);
+    AssertStrEq(variable->name, String8_Lit("function"));
+
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyAstRejectsFunctionWithoutOperand)
+{
+    Arena *arena = Arena_CreateDefault();
+    Memmy_AstNode *expr = 0;
+    Memmy_AstDiagnostic diagnostic = {0};
+
+    AssertEq(Memmy_Ast_ParseExpr(arena, String8_Lit("function"), &expr, &diagnostic), Memmy_AstStatus_ParseError);
+    AssertStrEq(diagnostic.context, String8_Lit("ast"));
+    AssertStrEq(diagnostic.message, String8_Lit("expected address expression"));
+
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyAstReportsPreciseDiagnosticOffsets)
 {
     Arena *arena = Arena_CreateDefault();
@@ -659,6 +702,7 @@ TestSuite suite_memmy_ast = TestSuite_Make(
     TestCase_Make(Test_MemmyAstParsesPocketReferenceAddressLists),
     TestCase_Make(Test_MemmyAstParsesPocketReferenceIndexingAddressLists),
     TestCase_Make(Test_MemmyAstParsesPocketReferencePhase4Assignments),
-    TestCase_Make(Test_MemmyAstRejectsInvalidReferenceScans),
-    TestCase_Make(Test_MemmyAstParsesListTransforms), TestCase_Make(Test_MemmyAstRejectsInvalidListTransforms),
+    TestCase_Make(Test_MemmyAstRejectsInvalidReferenceScans), TestCase_Make(Test_MemmyAstParsesListTransforms),
+    TestCase_Make(Test_MemmyAstRejectsInvalidListTransforms), TestCase_Make(Test_MemmyAstParsesFunctionLookup),
+    TestCase_Make(Test_MemmyAstRejectsFunctionWithoutOperand),
     TestCase_Make(Test_MemmyAstParsesPocketReferenceCommands), );

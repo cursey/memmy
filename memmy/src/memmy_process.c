@@ -153,6 +153,31 @@ Memmy_Status Memmy_Process_EnumerateRegions(Arena *arena, Memmy_Process *process
     return backend->enumerate_regions(arena, process, sink, error);
 }
 
+Memmy_Status Memmy_Process_FindFunction(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Range *out,
+                                        Memmy_Error *error)
+{
+    if (arena == 0 || out == 0)
+    {
+        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("backend"),
+                        String8_Lit("missing output arena or function range output"));
+        return Memmy_Status_InvalidArgument;
+    }
+
+    Memmy_Backend *backend = 0;
+    Memmy_Status status = memmy_RequireProcessBackend(process, &backend, error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+    if (backend->find_function == 0)
+    {
+        return memmy_Unsupported(error, "backend cannot find functions");
+    }
+
+    *out = (Memmy_Range){0};
+    return backend->find_function(arena, process, address, out, error);
+}
+
 Memmy_Status Memmy_Process_Read(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size, U64 *bytes_read,
                                 Memmy_Error *error)
 {

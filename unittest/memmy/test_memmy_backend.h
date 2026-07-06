@@ -7,6 +7,7 @@
 #define TEST_MEMMY_BACKEND_MAX_PROCESSES 16
 #define TEST_MEMMY_BACKEND_MAX_MODULES 32
 #define TEST_MEMMY_BACKEND_MAX_REGIONS 32
+#define TEST_MEMMY_BACKEND_MAX_FUNCTIONS 32
 #define TEST_MEMMY_BACKEND_MAX_UNREADABLE_RANGES 16
 
 typedef struct Test_MemmyBackendProcess Test_MemmyBackendProcess;
@@ -45,6 +46,13 @@ struct Test_MemmyBackendUnreadableRange
     Memmy_Addr end;
 };
 
+typedef struct Test_MemmyBackendFunction Test_MemmyBackendFunction;
+struct Test_MemmyBackendFunction
+{
+    U32 pid;
+    Memmy_Range range;
+};
+
 typedef struct Test_MemmyBackend Test_MemmyBackend;
 struct Test_MemmyBackend
 {
@@ -69,6 +77,8 @@ struct Test_MemmyBackend
     U64 module_count;
     Test_MemmyBackendRegion regions[TEST_MEMMY_BACKEND_MAX_REGIONS];
     U64 region_count;
+    Test_MemmyBackendFunction functions[TEST_MEMMY_BACKEND_MAX_FUNCTIONS];
+    U64 function_count;
     Test_MemmyBackendUnreadableRange unreadable_ranges[TEST_MEMMY_BACKEND_MAX_UNREADABLE_RANGES];
     U64 unreadable_range_count;
 };
@@ -82,6 +92,8 @@ Test_MemmyBackendModule *Test_MemmyBackend_AddModule(Test_MemmyBackend *backend,
 Test_MemmyBackendRegion *Test_MemmyBackend_AddRegion(Test_MemmyBackend *backend, U32 pid, Memmy_Addr base,
                                                      Memmy_Size size, Memmy_RegionAccess access,
                                                      Memmy_RegionState state);
+Test_MemmyBackendFunction *Test_MemmyBackend_AddFunction(Test_MemmyBackend *backend, U32 pid, Memmy_Addr start,
+                                                         Memmy_Addr end);
 Test_MemmyBackendUnreadableRange *Test_MemmyBackend_AddUnreadableRange(Test_MemmyBackend *backend, Memmy_Addr start,
                                                                        Memmy_Addr end);
 void Test_MemmyBackend_SetMemoryBase(Test_MemmyBackend *backend, Memmy_Addr base);

@@ -35,6 +35,7 @@ enum
     Memmy_AstNodeKind_Assignment,
     Memmy_AstNodeKind_Command,
     Memmy_AstNodeKind_ReferenceScan,
+    Memmy_AstNodeKind_Function,
 };
 
 typedef U32 Memmy_AstReferenceMode;

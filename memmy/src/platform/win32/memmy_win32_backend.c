@@ -11,6 +11,7 @@
 #include <windows.h>
 #include <tlhelp32.h>
 // clang-format on
+#include <stddef.h>
 
 typedef struct Memmy_Win32Backend Memmy_Win32Backend;
 struct Memmy_Win32Backend
@@ -22,6 +23,23 @@ typedef struct Memmy_Win32ProcessData Memmy_Win32ProcessData;
 struct Memmy_Win32ProcessData
 {
     HANDLE handle;
+};
+
+typedef struct Memmy_Win32ModuleSearch Memmy_Win32ModuleSearch;
+struct Memmy_Win32ModuleSearch
+{
+    Memmy_Addr address;
+    Memmy_Module module;
+    B32 found;
+    Memmy_Error *error;
+};
+
+typedef struct Memmy_Win32RuntimeFunctionEntry Memmy_Win32RuntimeFunctionEntry;
+struct Memmy_Win32RuntimeFunctionEntry
+{
+    U32 begin_address;
+    U32 end_address;
+    U32 unwind_info_address;
 };
 
 static B32 Memmy_Win32_IsNative64(void)
@@ -333,6 +351,242 @@ static Memmy_Status Memmy_Win32_EnumerateModules(Arena *arena, Memmy_Process *pr
     return Memmy_Status_Ok;
 }
 
+static Memmy_Status Memmy_Win32_ReadExact(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size,
+                                          Memmy_Error *error)
+{
+    U64 bytes_read = 0;
+    Memmy_Status status = Memmy_Process_Read(process, addr, buffer, size, &bytes_read, error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+    if (bytes_read != size)
+    {
+        Memmy_Error_Set(error, Memmy_Status_PartialRead, String8_Lit("win32"), String8_Lit("partial PE metadata read"));
+        if (error != 0)
+        {
+            error->byte_count = bytes_read;
+        }
+        return Memmy_Status_PartialRead;
+    }
+    return Memmy_Status_Ok;
+}
+
+static Memmy_Status Memmy_Win32_ModuleSearch_Push(void *user_data, Memmy_Module *module)
+{
+    Memmy_Win32ModuleSearch *search = (Memmy_Win32ModuleSearch *)user_data;
+    Memmy_Addr end = 0;
+    if (!AddU64Checked(module->base, module->size, &end))
+    {
+        Memmy_Error_Set(search->error, Memmy_Status_Overflow, String8_Lit("function"),
+                        String8_Lit("module end overflow"));
+        return Memmy_Status_Overflow;
+    }
+
+    if (search->address >= module->base && search->address < end)
+    {
+        search->module = *module;
+        search->found = 1;
+    }
+    return Memmy_Status_Ok;
+}
+
+static Memmy_Status Memmy_Win32_RvaToVa(Memmy_Module module, U32 rva, Memmy_Addr *out, Memmy_Error *error)
+{
+    if ((U64)rva > module.size)
+    {
+        Memmy_Error_Set(error, Memmy_Status_NotFound, String8_Lit("function"),
+                        String8_Lit("function metadata not found"));
+        return Memmy_Status_NotFound;
+    }
+    if (!AddU64Checked(module.base, (U64)rva, out))
+    {
+        Memmy_Error_Set(error, Memmy_Status_Overflow, String8_Lit("function"), String8_Lit("RVA overflow"));
+        return Memmy_Status_Overflow;
+    }
+    return Memmy_Status_Ok;
+}
+
+static Memmy_Status Memmy_Win32_FunctionMetadataNotFound(Memmy_Error *error)
+{
+    Memmy_Error_Set(error, Memmy_Status_NotFound, String8_Lit("function"), String8_Lit("function metadata not found"));
+    return Memmy_Status_NotFound;
+}
+
+static Memmy_Status Memmy_Win32_FindFunction(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Range *out,
+                                             Memmy_Error *error)
+{
+    Memmy_Win32ModuleSearch search = {
+        .address = address,
+        .error = error,
+    };
+    Memmy_ModuleSink sink = {
+        .callback = Memmy_Win32_ModuleSearch_Push,
+        .user_data = &search,
+    };
+    Memmy_Status status = Memmy_Win32_EnumerateModules(arena, process, sink, error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+    if (!search.found)
+    {
+        return Memmy_Win32_FunctionMetadataNotFound(error);
+    }
+
+    Memmy_Module module = search.module;
+    IMAGE_DOS_HEADER dos = {0};
+    status = Memmy_Win32_ReadExact(process, module.base, &dos, sizeof(dos), error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+    if (dos.e_magic != IMAGE_DOS_SIGNATURE || dos.e_lfanew < 0)
+    {
+        return Memmy_Win32_FunctionMetadataNotFound(error);
+    }
+
+    Memmy_Addr nt = 0;
+    if (!AddU64Checked(module.base, (U64)dos.e_lfanew, &nt))
+    {
+        Memmy_Error_Set(error, Memmy_Status_Overflow, String8_Lit("function"), String8_Lit("PE header overflow"));
+        return Memmy_Status_Overflow;
+    }
+
+    DWORD signature = 0;
+    status = Memmy_Win32_ReadExact(process, nt, &signature, sizeof(signature), error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+    if (signature != IMAGE_NT_SIGNATURE)
+    {
+        return Memmy_Win32_FunctionMetadataNotFound(error);
+    }
+
+    Memmy_Addr file_header_addr = 0;
+    if (!AddU64Checked(nt, sizeof(signature), &file_header_addr))
+    {
+        Memmy_Error_Set(error, Memmy_Status_Overflow, String8_Lit("function"), String8_Lit("PE header overflow"));
+        return Memmy_Status_Overflow;
+    }
+
+    IMAGE_FILE_HEADER file_header = {0};
+    status = Memmy_Win32_ReadExact(process, file_header_addr, &file_header, sizeof(file_header), error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+
+    Memmy_Addr optional_header_addr = 0;
+    if (!AddU64Checked(file_header_addr, sizeof(file_header), &optional_header_addr))
+    {
+        Memmy_Error_Set(error, Memmy_Status_Overflow, String8_Lit("function"), String8_Lit("PE header overflow"));
+        return Memmy_Status_Overflow;
+    }
+
+    WORD optional_magic = 0;
+    status = Memmy_Win32_ReadExact(process, optional_header_addr, &optional_magic, sizeof(optional_magic), error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+    if (optional_magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC)
+    {
+        return Memmy_Win32_FunctionMetadataNotFound(error);
+    }
+
+    U64 exception_dir_offset = offsetof(IMAGE_OPTIONAL_HEADER64, DataDirectory) +
+                               sizeof(IMAGE_DATA_DIRECTORY) * IMAGE_DIRECTORY_ENTRY_EXCEPTION;
+    U64 exception_dir_end = exception_dir_offset + sizeof(IMAGE_DATA_DIRECTORY);
+    if ((U64)file_header.SizeOfOptionalHeader < exception_dir_end)
+    {
+        return Memmy_Win32_FunctionMetadataNotFound(error);
+    }
+
+    Memmy_Addr exception_dir_addr = 0;
+    if (!AddU64Checked(optional_header_addr, exception_dir_offset, &exception_dir_addr))
+    {
+        Memmy_Error_Set(error, Memmy_Status_Overflow, String8_Lit("function"), String8_Lit("PE header overflow"));
+        return Memmy_Status_Overflow;
+    }
+
+    IMAGE_DATA_DIRECTORY exception_dir = {0};
+    status = Memmy_Win32_ReadExact(process, exception_dir_addr, &exception_dir, sizeof(exception_dir), error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+    if (exception_dir.VirtualAddress == 0 || exception_dir.Size < sizeof(Memmy_Win32RuntimeFunctionEntry) ||
+        exception_dir.Size % sizeof(Memmy_Win32RuntimeFunctionEntry) != 0)
+    {
+        return Memmy_Win32_FunctionMetadataNotFound(error);
+    }
+    if ((U64)exception_dir.VirtualAddress > module.size || (U64)exception_dir.Size > module.size ||
+        (U64)exception_dir.VirtualAddress > module.size - (U64)exception_dir.Size)
+    {
+        return Memmy_Win32_FunctionMetadataNotFound(error);
+    }
+
+    Memmy_Addr table_addr = 0;
+    status = Memmy_Win32_RvaToVa(module, exception_dir.VirtualAddress, &table_addr, error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+
+    U64 entry_count = exception_dir.Size / sizeof(Memmy_Win32RuntimeFunctionEntry);
+    for (U64 i = 0; i < entry_count; i++)
+    {
+        U64 entry_offset = 0;
+        if (i > U64_MAX / sizeof(Memmy_Win32RuntimeFunctionEntry))
+        {
+            Memmy_Error_Set(error, Memmy_Status_Overflow, String8_Lit("function"),
+                            String8_Lit("function table offset overflow"));
+            return Memmy_Status_Overflow;
+        }
+        entry_offset = i * sizeof(Memmy_Win32RuntimeFunctionEntry);
+
+        Memmy_Addr entry_addr = 0;
+        if (!AddU64Checked(table_addr, entry_offset, &entry_addr))
+        {
+            Memmy_Error_Set(error, Memmy_Status_Overflow, String8_Lit("function"),
+                            String8_Lit("function table address overflow"));
+            return Memmy_Status_Overflow;
+        }
+
+        Memmy_Win32RuntimeFunctionEntry entry = {0};
+        status = Memmy_Win32_ReadExact(process, entry_addr, &entry, sizeof(entry), error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+
+        Memmy_Addr start = 0;
+        status = Memmy_Win32_RvaToVa(module, entry.begin_address, &start, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        Memmy_Addr end = 0;
+        status = Memmy_Win32_RvaToVa(module, entry.end_address, &end, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        if (end < start)
+        {
+            return Memmy_Win32_FunctionMetadataNotFound(error);
+        }
+        if (address >= start && address < end)
+        {
+            return Memmy_Range_FromStartEnd(start, end, out, error);
+        }
+    }
+
+    return Memmy_Win32_FunctionMetadataNotFound(error);
+}
+
 static Memmy_RegionState Memmy_Win32_RegionState(DWORD state)
 {
     if (state == MEM_COMMIT)
@@ -430,6 +684,7 @@ Memmy_Backend *Memmy_Win32Backend_Create(Arena *arena)
         .write = Memmy_Win32_Write,
         .enumerate_modules = Memmy_Win32_EnumerateModules,
         .enumerate_regions = Memmy_Win32_EnumerateRegions,
+        .find_function = Memmy_Win32_FindFunction,
     };
     return &backend->backend;
 }

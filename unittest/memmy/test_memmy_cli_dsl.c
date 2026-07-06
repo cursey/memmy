@@ -601,9 +601,63 @@ Test(Test_MemmyCliHelpFormatsText)
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
     AssertTrue(String8_Find(out, String8_Lit("range refs ptr addr"), 0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("function address"), 0) != STRING8_NPOS);
     AssertTrue(String8_Find(out, String8_Lit("/procs [filter]"), 0) != STRING8_NPOS);
     AssertTrue(String8_Find(out, String8_Lit("/exit"), 0) != STRING8_NPOS);
 
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliExprFormatsFunctionRangeTextAndJsonl)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+    Test_MemmyBackend_AddFunction(&test_backend, 1234, 0x1000, 0x1050);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy", "--pid", "1234", "--expr", "function @0x1024"};
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("[0x0000000000001000..0x0000000000001050)\n"));
+
+    out = (String8){0};
+    char *jsonl_argv[] = {"memmy", "--jsonl", "--pid", "1234", "--expr", "function @0x1024"};
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(jsonl_argv), jsonl_argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("{\"type\":\"range\",\"start\":\"0x0000000000001000\","
+                                 "\"end\":\"0x0000000000001050\"}\n"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliExprFormatsFunctionRangeListText)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+    Test_MemmyBackend_AddFunction(&test_backend, 1234, 0x1000, 0x1050);
+    Test_MemmyBackend_AddFunction(&test_backend, 1234, 0x1070, 0x10a0);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy", "--pid", "1234", "--expr", "[@0x1020..+0x90]{cc} => function $"};
+
+    test_backend.memory[0x20] = 0xcc;
+    test_backend.memory[0x70] = 0xcc;
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("START              END\n"
+                                 "0x0000000000001000 0x0000000000001050\n"
+                                 "0x0000000000001070 0x00000000000010a0\n"));
+
+    Memmy_Context_Set(0);
     Arena_Destroy(arena);
 }
 
@@ -1207,6 +1261,8 @@ TestSuite suite_memmy_cli_dsl = TestSuite_Make(
     TestCase_Make(Test_MemmyCliExprFormatsReferenceScanJsonlLikeScan),
     TestCase_Make(Test_MemmyCliInputStringHandlesReferenceScan), TestCase_Make(Test_MemmyCliExprFormatsRangeListText),
     TestCase_Make(Test_MemmyCliExprFormatsRangeListJsonl), TestCase_Make(Test_MemmyCliRangeListAssignmentAndVars),
+    TestCase_Make(Test_MemmyCliExprFormatsFunctionRangeTextAndJsonl),
+    TestCase_Make(Test_MemmyCliExprFormatsFunctionRangeListText),
     TestCase_Make(Test_MemmyCliExprEmptyScanTransformReturnsNotFound),
     TestCase_Make(Test_MemmyCliExprJsonlScanWriterFailureStopsBeforeSummary),
     TestCase_Make(Test_MemmyCliExprScansWholeProcessValueWithRegions), );

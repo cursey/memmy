@@ -91,6 +91,12 @@ Test(Test_MemmyProcessMissingBackendCallbacksReturnUnsupported)
     AssertEq(Memmy_Process_EnumerateRegions(arena, process, Test_RegionSink(&regions, arena), &error),
              Memmy_Status_Unsupported);
 
+    Memmy_Range function = {0};
+    test_backend.backend.find_function = 0;
+    AssertEq(Memmy_Process_FindFunction(arena, process, test_backend.memory_base, &function, &error),
+             Memmy_Status_Unsupported);
+    AssertStrEq(error.context, String8_Lit("backend"));
+
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
 }

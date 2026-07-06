@@ -9,6 +9,7 @@ x                    constant integer/math expression
 [@a..+n]             sized address range [a, a+n)
 <module>             module range in attached/selected process
 [0..]                readable regions of attached/selected process
+function address     function range containing address
 $name                variable
 ```
 
@@ -40,6 +41,7 @@ All memory operations use the current selected process: module targets,
 
 [0..]                attached process readable regions
 <client.dll>         attached process module range
+function @0x1234     function range containing address
 ```
 
 ## Addresses
@@ -55,6 +57,7 @@ All memory operations use the current selected process: module targets,
 [@0x1234..@0x5678]->            dereference start of range
 <client.dll>->                  dereference module base
 $player->$hp_offset             dereference variable address, then add variable offset
+function $xref                  containing function range for address
 ```
 
 ## Reads
@@ -89,6 +92,7 @@ Pattern scans, value scans, and reference scans evaluate to address lists.
 <client.dll> refs ptr @0x1234
 [0..] refs rel32 $target
 [@0x1234..@0x5678] refs any <client.dll>+0x20
+$xrefs => function $
 ```
 
 `ptr` matches pointer-width little-endian absolute values. `rel32` matches a
@@ -120,6 +124,8 @@ $foo = <client.dll>+0x1234->->0x42->
 $foo = <client.dll>{ab cd ? ? 12 34}[0]
 $foo = (<client.dll> as f32 == 42.777)[2]
 $foo = <client.dll>{aa bb ?? ?? 11 22}
+$fn = function $xref
+$fns = $xrefs => function $
 ```
 
 ## Variables
@@ -175,6 +181,7 @@ range as T == value  value scan -> address list
 range refs ptr addr  pointer reference scan -> address list
 range refs rel32 addr rel32 reference scan -> address list
 range refs any addr  ptr or rel32 reference scan -> address list
+function address     function range containing address
 address as T         typed read
 address as T = value typed write
 $name = expr         bind evaluated result

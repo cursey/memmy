@@ -752,8 +752,8 @@ Test(Test_MemmyEvalReferenceScanRejectsMissingProcessWrongLhsAndTarget)
     AssertStrEq(error.message, String8_Lit("expected scan range"));
 
     Test_EvalParseExpr(arena, "[@0x1000..+0x20] refs ptr $not_address", &expr);
-    AssertEq(Memmy_EvalEnv_Set(env, String8_Lit("not_address"), (Memmy_EvalValue){.kind = Memmy_EvalValueKind_Const,
-                                                                                   .constant = 1}),
+    AssertEq(Memmy_EvalEnv_Set(env, String8_Lit("not_address"),
+                               (Memmy_EvalValue){.kind = Memmy_EvalValueKind_Const, .constant = 1}),
              Memmy_Status_Ok);
     error = (Memmy_Error){0};
     AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_InvalidArgument);
@@ -892,6 +892,92 @@ Test(Test_MemmyEvalListTransformsRangeLists)
     AssertEq(flattened.addresses[2], 0x10);
     AssertEq(flattened.addresses[3], 0x20);
 
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalFunctionLookup)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Memmy_EvalEnv *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+    Test_MemmyBackend_AddFunction(&backend, 4242, 0x1000, 0x1050);
+    Test_MemmyBackend_AddFunction(&backend, 4242, 0x2000, 0x2080);
+
+    Memmy_EvalValue value = {0};
+    Test_EvalExprText(env, arena, "function @0x1024", &value);
+    AssertEq(value.kind, Memmy_EvalValueKind_Range);
+    AssertEq(value.range.start, 0x1000);
+    AssertEq(value.range.end, 0x1050);
+
+    Memmy_EvalValue stored = {0};
+    Test_EvalStatementResult(env, arena, "$fn = function @0x1024", &stored);
+    AssertEq(stored.kind, Memmy_EvalValueKind_Range);
+    AssertEq(stored.range.start, 0x1000);
+    AssertEq(stored.range.end, 0x1050);
+
+    Memmy_Addr xrefs[] = {0x1024, 0x2040};
+    AssertEq(Memmy_EvalEnv_Set(env, String8_Lit("xrefs"),
+                               (Memmy_EvalValue){.kind = Memmy_EvalValueKind_AddressList,
+                                                 .addresses = xrefs,
+                                                 .address_count = ArrayCount(xrefs)}),
+             Memmy_Status_Ok);
+    Memmy_EvalValue ranges = {0};
+    Test_EvalExprText(env, arena, "$xrefs => function $", &ranges);
+    AssertEq(ranges.kind, Memmy_EvalValueKind_RangeList);
+    AssertEq(ranges.range_count, 2);
+    AssertEq(ranges.ranges[0].start, 0x1000);
+    AssertEq(ranges.ranges[0].end, 0x1050);
+    AssertEq(ranges.ranges[1].start, 0x2000);
+    AssertEq(ranges.ranges[1].end, 0x2080);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalFunctionLookupErrors)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Memmy_EvalEnv *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+    Test_MemmyBackend_AddFunction(&backend, 4242, 0x1000, 0x1050);
+
+    Memmy_AstNode *expr = 0;
+    Memmy_EvalValue value = {0};
+    Memmy_Error error = {0};
+
+    Test_EvalParseExpr(arena, "function @0x2000", &expr);
+    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_NotFound);
+    AssertStrEq(error.context, String8_Lit("function"));
+
+    Test_EvalParseExpr(arena, "function [@0x1000..@0x1050]", &expr);
+    error = (Memmy_Error){0};
+    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_Ok);
+    AssertEq(value.kind, Memmy_EvalValueKind_Range);
+    AssertEq(value.range.start, 0x1000);
+    AssertEq(value.range.end, 0x1050);
+
+    Test_EvalParseExpr(arena, "function $bad", &expr);
+    AssertEq(Memmy_EvalEnv_Set(env, String8_Lit("bad"), (Memmy_EvalValue){.kind = Memmy_EvalValueKind_RangeList}),
+             Memmy_Status_Ok);
+    error = (Memmy_Error){0};
+    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_InvalidArgument);
+    AssertStrEq(error.context, String8_Lit("address"));
+
+    Memmy_EvalEnv_ClearDefaultProcess(env);
+    Test_EvalParseExpr(arena, "function @0x1024", &expr);
+    error = (Memmy_Error){0};
+    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_InvalidArgument);
+    AssertStrEq(error.context, String8_Lit("function"));
+
+    Memmy_EvalEnv_SetDefaultProcess(env, 4242, Memmy_PointerWidth_64);
+    backend.backend.find_function = 0;
+    error = (Memmy_Error){0};
+    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_Unsupported);
+    AssertStrEq(error.context, String8_Lit("backend"));
+
+    Memmy_Context_Set(0);
     Arena_Destroy(arena);
 }
 
@@ -1171,6 +1257,7 @@ TestSuite suite_memmy_eval = TestSuite_Make(
     TestCase_Make(Test_MemmyEvalReferenceScanRejectsMissingProcessWrongLhsAndTarget),
     TestCase_Make(Test_MemmyEvalIndexesAssignedAddressLists), TestCase_Make(Test_MemmyEvalIndexesValueScanExpressions),
     TestCase_Make(Test_MemmyEvalListTransformsAddressLists), TestCase_Make(Test_MemmyEvalListTransformsRangeLists),
+    TestCase_Make(Test_MemmyEvalFunctionLookup), TestCase_Make(Test_MemmyEvalFunctionLookupErrors),
     TestCase_Make(Test_MemmyEvalListTransformErrors),
     TestCase_Make(Test_MemmyEvalEmptyListTransformDoesNotEvaluateRhsEffects),
     TestCase_Make(Test_MemmyEvalAnchorTargetExampleFlow),

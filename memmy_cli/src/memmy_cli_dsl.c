@@ -100,6 +100,7 @@ static String8 Memmy_Cli_DslHelp(Arena *arena)
                                            "  [@a..+n]             sized address range [a, a+n)\n"
                                            "  <module>             module range in selected process\n"
                                            "  [0..]                selected process readable regions\n"
+                                           "  function address     function range containing address\n"
                                            "  $name                variable\n"
                                            "\n"
                                            "Targets:\n"
@@ -117,6 +118,7 @@ static String8 Memmy_Cli_DslHelp(Arena *arena)
                                            "  list => expr         transform each address/range item\n"
                                            "  $                    current item inside transform RHS\n"
                                            "  $matches => [$..+0x20]\n"
+                                           "  $xrefs => function $\n"
                                            "  $ranges => $ + 4\n"
                                            "  $name = expr         bind evaluated result\n"
                                            "  $name[N]             index address/range list\n"
@@ -495,22 +497,19 @@ static Memmy_Status Memmy_CliEvalResultWriter_WriteValue(Memmy_CliEvalResultWrit
             {
                 String8 start = Memmy_Cli_FormatAddress(arena, pointer_width, value.ranges[i].start);
                 String8 end = Memmy_Cli_FormatAddress(arena, pointer_width, value.ranges[i].end);
-                Memmy_Status status =
-                    Memmy_CliEvalResultWriter_Write(result_writer,
-                                                    String8_PushF(arena,
-                                                                  "{\"type\":\"range\",\"start\":\"%.*s\","
-                                                                  "\"end\":\"%.*s\"}\n",
-                                                                  (int)start.len, (char *)start.data, (int)end.len,
-                                                                  (char *)end.data));
+                Memmy_Status status = Memmy_CliEvalResultWriter_Write(
+                    result_writer, String8_PushF(arena,
+                                                 "{\"type\":\"range\",\"start\":\"%.*s\","
+                                                 "\"end\":\"%.*s\"}\n",
+                                                 (int)start.len, (char *)start.data, (int)end.len, (char *)end.data));
                 if (status != Memmy_Status_Ok)
                 {
                     return status;
                 }
             }
-            return Memmy_CliEvalResultWriter_Write(
-                result_writer,
-                String8_PushF(arena, "{\"type\":\"summary\",\"ranges\":%llu}\n",
-                              (unsigned long long)value.range_count));
+            return Memmy_CliEvalResultWriter_Write(result_writer,
+                                                   String8_PushF(arena, "{\"type\":\"summary\",\"ranges\":%llu}\n",
+                                                                 (unsigned long long)value.range_count));
         }
 
         Memmy_Status status = Memmy_CliEvalResultWriter_Write(result_writer, String8_Lit("START              END\n"));
@@ -522,10 +521,9 @@ static Memmy_Status Memmy_CliEvalResultWriter_WriteValue(Memmy_CliEvalResultWrit
         {
             String8 start = Memmy_Cli_FormatAddress(arena, pointer_width, value.ranges[i].start);
             String8 end = Memmy_Cli_FormatAddress(arena, pointer_width, value.ranges[i].end);
-            status = Memmy_CliEvalResultWriter_Write(
-                result_writer,
-                String8_PushF(arena, "%.*s %.*s\n", (int)start.len, (char *)start.data, (int)end.len,
-                              (char *)end.data));
+            status = Memmy_CliEvalResultWriter_Write(result_writer,
+                                                     String8_PushF(arena, "%.*s %.*s\n", (int)start.len,
+                                                                   (char *)start.data, (int)end.len, (char *)end.data));
             if (status != Memmy_Status_Ok)
             {
                 return status;
@@ -539,9 +537,9 @@ static Memmy_Status Memmy_CliEvalResultWriter_WriteValue(Memmy_CliEvalResultWrit
 static Memmy_Status Memmy_CliEvalResultWriter_WriteAddressList(Memmy_CliEvalResultWriter *result_writer,
                                                                Memmy_EvalValue value)
 {
-    Memmy_Status status = Memmy_CliScanOutput_Begin(
-        &result_writer->scan_output, result_writer->arena, result_writer->writer,
-        Memmy_CliEvalResultWriter_PointerWidth(result_writer), result_writer->jsonl);
+    Memmy_Status status =
+        Memmy_CliScanOutput_Begin(&result_writer->scan_output, result_writer->arena, result_writer->writer,
+                                  Memmy_CliEvalResultWriter_PointerWidth(result_writer), result_writer->jsonl);
     if (status != Memmy_Status_Ok)
     {
         result_writer->status = status;

@@ -226,6 +226,26 @@ static Memmy_Status Test_MemmyBackend_EnumerateRegions(Arena *arena, Memmy_Proce
     return Memmy_Status_Ok;
 }
 
+static Memmy_Status Test_MemmyBackend_FindFunction(Arena *arena, Memmy_Process *process, Memmy_Addr address,
+                                                   Memmy_Range *out, Memmy_Error *error)
+{
+    Unused(arena);
+
+    Test_MemmyBackend *backend = (Test_MemmyBackend *)process->backend_data;
+    for (U64 i = 0; i < backend->function_count; i++)
+    {
+        Test_MemmyBackendFunction *function = &backend->functions[i];
+        if (function->pid == process->pid && address >= function->range.start && address < function->range.end)
+        {
+            *out = function->range;
+            return Memmy_Status_Ok;
+        }
+    }
+
+    Memmy_Error_Set(error, Memmy_Status_NotFound, String8_Lit("function"), String8_Lit("function metadata not found"));
+    return Memmy_Status_NotFound;
+}
+
 void Test_MemmyBackend_Init(Test_MemmyBackend *backend)
 {
     *backend = (Test_MemmyBackend){
@@ -239,6 +259,7 @@ void Test_MemmyBackend_Init(Test_MemmyBackend *backend)
                 .write = Test_MemmyBackend_Write,
                 .enumerate_modules = Test_MemmyBackend_EnumerateModules,
                 .enumerate_regions = Test_MemmyBackend_EnumerateRegions,
+                .find_function = Test_MemmyBackend_FindFunction,
             },
         .memory_base = 0x1000,
         .read_status = Memmy_Status_Ok,
@@ -327,6 +348,22 @@ Test_MemmyBackendRegion *Test_MemmyBackend_AddRegion(Test_MemmyBackend *backend,
         .state = state,
     };
     return region;
+}
+
+Test_MemmyBackendFunction *Test_MemmyBackend_AddFunction(Test_MemmyBackend *backend, U32 pid, Memmy_Addr start,
+                                                         Memmy_Addr end)
+{
+    if (backend->function_count >= TEST_MEMMY_BACKEND_MAX_FUNCTIONS)
+    {
+        return 0;
+    }
+
+    Test_MemmyBackendFunction *function = &backend->functions[backend->function_count++];
+    *function = (Test_MemmyBackendFunction){
+        .pid = pid,
+        .range = {.start = start, .end = end},
+    };
+    return function;
 }
 
 Test_MemmyBackendUnreadableRange *Test_MemmyBackend_AddUnreadableRange(Test_MemmyBackend *backend, Memmy_Addr start,

@@ -1161,38 +1161,41 @@ static Memmy_Status Memmy_Eval_Command(Memmy_EvalExec *exec, Memmy_AstStatement 
     }
     if (statement->command_kind == Memmy_AstCommandKind_Help)
     {
-        Memmy_EvalResult_Push(sink, (Memmy_EvalResult){
-                                        .kind = Memmy_EvalResultKind_Help,
-                                        .text = String8_Lit("Core values:\n"
-                                                            "  x                    constant integer/math expression\n"
-                                                            "  @x                   absolute address\n"
-                                                            "  [@a..@b]             explicit address range [a, b)\n"
-                                                            "  [@a..+n]             sized address range [a, a+n)\n"
-                                                            "  <module>             module range in selected process\n"
-                                                            "  [0..]                selected process readable regions\n"
-                                                            "  $name                variable\n"
-                                                            "\n"
-                                                            "Memory:\n"
-                                                            "  range refs <ptr|rel32|any> address\n"
-                                                            "  list => expr         transform each address/range item\n"
-                                                            "  $                    current item inside transform RHS\n"
-                                                            "  $matches => [$..+0x20]\n"
-                                                            "  $ranges => $ + 4\n"
-                                                            "  $name[N]             index address/range list\n"
-                                                            "\n"
-                                                            "Commands:\n"
-                                                            "  /procs [filter]\n"
-                                                            "  /attach <pid|name>  select process and clear variables\n"
-                                                            "  /detach             clear selected process and variables\n"
-                                                            "  /mods [filter]\n"
-                                                            "  /regions\n"
-                                                            "  /vars\n"
-                                                            "  /unset $var\n"
-                                                            "  /clear\n"
-                                                            "  /help\n"
-                                                            "  /exit\n"
-                                                            "  /quit\n"),
-                                    });
+        Memmy_EvalResult_Push(sink,
+                              (Memmy_EvalResult){
+                                  .kind = Memmy_EvalResultKind_Help,
+                                  .text = String8_Lit("Core values:\n"
+                                                      "  x                    constant integer/math expression\n"
+                                                      "  @x                   absolute address\n"
+                                                      "  [@a..@b]             explicit address range [a, b)\n"
+                                                      "  [@a..+n]             sized address range [a, a+n)\n"
+                                                      "  <module>             module range in selected process\n"
+                                                      "  [0..]                selected process readable regions\n"
+                                                      "  function address     function range containing address\n"
+                                                      "  $name                variable\n"
+                                                      "\n"
+                                                      "Memory:\n"
+                                                      "  range refs <ptr|rel32|any> address\n"
+                                                      "  list => expr         transform each address/range item\n"
+                                                      "  $                    current item inside transform RHS\n"
+                                                      "  $matches => [$..+0x20]\n"
+                                                      "  $xrefs => function $\n"
+                                                      "  $ranges => $ + 4\n"
+                                                      "  $name[N]             index address/range list\n"
+                                                      "\n"
+                                                      "Commands:\n"
+                                                      "  /procs [filter]\n"
+                                                      "  /attach <pid|name>  select process and clear variables\n"
+                                                      "  /detach             clear selected process and variables\n"
+                                                      "  /mods [filter]\n"
+                                                      "  /regions\n"
+                                                      "  /vars\n"
+                                                      "  /unset $var\n"
+                                                      "  /clear\n"
+                                                      "  /help\n"
+                                                      "  /exit\n"
+                                                      "  /quit\n"),
+                              });
         return Memmy_Status_Ok;
     }
     if (statement->command_kind == Memmy_AstCommandKind_Exit || statement->command_kind == Memmy_AstCommandKind_Quit)
@@ -1693,6 +1696,38 @@ static Memmy_Status Memmy_EvalExprWithContext(Memmy_EvalExec *exec, Memmy_AstNod
         };
         return Memmy_Status_Ok;
     }
+    if (expr->kind == Memmy_AstNodeKind_Function)
+    {
+        Memmy_EvalValue value = {0};
+        Memmy_Status status = Memmy_EvalExprWithContext(exec, expr->lhs, &value, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        Memmy_Addr address = 0;
+        status = Memmy_EvalValue_AsAddress(&value, &address, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+
+        Memmy_Process *process = 0;
+        status = Memmy_Eval_RequireProcess(exec, &value, String8_Lit("function"), &process, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+
+        Memmy_Range range = {0};
+        status = Memmy_Process_FindFunction(env->arena, process, address, &range, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+
+        *out = (Memmy_EvalValue){.kind = Memmy_EvalValueKind_Range, .range = range};
+        return Memmy_Status_Ok;
+    }
     if (expr->kind == Memmy_AstNodeKind_Deref)
     {
         Memmy_EvalValue base = {0};
@@ -2040,8 +2075,7 @@ static Memmy_Status Memmy_EvalExprWithContext(Memmy_EvalExec *exec, Memmy_AstNod
         U64 count = list.kind == Memmy_EvalValueKind_AddressList ? list.address_count : list.range_count;
         if (index < 0 || (U64)index >= count)
         {
-            Memmy_EvalError(error, Memmy_Status_NotFound, String8_Lit("index"),
-                            String8_Lit("list index out of range"));
+            Memmy_EvalError(error, Memmy_Status_NotFound, String8_Lit("index"), String8_Lit("list index out of range"));
             return Memmy_Status_NotFound;
         }
 
