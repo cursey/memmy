@@ -9,6 +9,7 @@ enum
     Memmy_TokenKind_Invalid,
     Memmy_TokenKind_Identifier,
     Memmy_TokenKind_Variable,
+    Memmy_TokenKind_CurrentItem,
     Memmy_TokenKind_Integer,
     Memmy_TokenKind_String,
     Memmy_TokenKind_Target,
@@ -22,6 +23,7 @@ enum
     Memmy_TokenKind_RParen,
     Memmy_TokenKind_At,
     Memmy_TokenKind_Arrow,
+    Memmy_TokenKind_FatArrow,
     Memmy_TokenKind_DotDot,
     Memmy_TokenKind_Plus,
     Memmy_TokenKind_Minus,
@@ -49,6 +51,7 @@ struct Memmy_Parser
     U64 pos;
     Memmy_Token token;
     Memmy_AstDiagnostic *diagnostic;
+    U32 current_item_scope_depth;
 };
 
 static B32 Memmy_Char_IsIdentStart(U8 c)
@@ -187,16 +190,27 @@ static Memmy_AstStatus Memmy_Parser_Next(Memmy_Parser *parser)
     }
     else if (c == '$')
     {
-        if (!Memmy_Char_IsIdentStart(Memmy_Parser_Peek(parser)))
+        if (Memmy_Parser_AtEnd(parser))
+        {
+            kind = Memmy_TokenKind_CurrentItem;
+        }
+        else if (Memmy_Char_IsIdentStart(Memmy_Parser_Peek(parser)))
+        {
+            while (!Memmy_Parser_AtEnd(parser) && Memmy_Char_IsIdentContinue(Memmy_Parser_Peek(parser)))
+            {
+                parser->pos++;
+            }
+            kind = Memmy_TokenKind_Variable;
+        }
+        else if (Char8_IsDigit(Memmy_Parser_Peek(parser)))
         {
             Memmy_Parser_SetError(parser, String8_Lit("invalid variable name"), start, parser->pos - start);
             return Memmy_AstStatus_ParseError;
         }
-        while (!Memmy_Parser_AtEnd(parser) && Memmy_Char_IsIdentContinue(Memmy_Parser_Peek(parser)))
+        else
         {
-            parser->pos++;
+            kind = Memmy_TokenKind_CurrentItem;
         }
-        kind = Memmy_TokenKind_Variable;
     }
     else if (c == '"')
     {
@@ -271,6 +285,11 @@ static Memmy_AstStatus Memmy_Parser_Next(Memmy_Parser *parser)
     {
         parser->pos++;
         kind = Memmy_TokenKind_EqualEqual;
+    }
+    else if (c == '=' && Memmy_Parser_Peek(parser) == '>')
+    {
+        parser->pos++;
+        kind = Memmy_TokenKind_FatArrow;
     }
     else if (c == '{')
     {
@@ -348,6 +367,7 @@ static Memmy_AstNode *Memmy_Parser_PushNode(Memmy_Parser *parser, Memmy_AstNodeK
 
 static Memmy_AstStatus Memmy_Parser_ParseConstSum(Memmy_Parser *parser, Memmy_AstNode **out);
 static Memmy_AstStatus Memmy_Parser_ParseExpr(Memmy_Parser *parser, Memmy_AstNode **out);
+static Memmy_AstStatus Memmy_Parser_ParseExprNoTransform(Memmy_Parser *parser, Memmy_AstNode **out);
 static Memmy_AstStatus Memmy_Parser_ParseTargetOrTargetAddress(Memmy_Parser *parser, Memmy_AstNode **out);
 
 static B32 Memmy_AstNode_CanFoldConst(Memmy_AstNode *node)
@@ -465,6 +485,21 @@ static Memmy_AstStatus Memmy_Parser_ParseConstPrimary(Memmy_Parser *parser, Memm
         Memmy_Token token = parser->token;
         Memmy_AstNode *node = Memmy_Parser_PushNode(parser, Memmy_AstNodeKind_Variable, token);
         node->name = String8_Substr(token.text, 1, token.text.len - 1);
+        node->contains_variable = 1;
+        *out = node;
+        return Memmy_Parser_Next(parser);
+    }
+
+    if (parser->token.kind == Memmy_TokenKind_CurrentItem)
+    {
+        if (parser->current_item_scope_depth == 0)
+        {
+            Memmy_Parser_SetError(parser, String8_Lit("bare '$' is only valid inside transform expressions"),
+                                  parser->token.byte_offset, parser->token.byte_count);
+            return Memmy_AstStatus_ParseError;
+        }
+        Memmy_Token token = parser->token;
+        Memmy_AstNode *node = Memmy_Parser_PushNode(parser, Memmy_AstNodeKind_CurrentItem, token);
         node->contains_variable = 1;
         *out = node;
         return Memmy_Parser_Next(parser);
@@ -745,8 +780,14 @@ static Memmy_AstStatus Memmy_Parser_ParseRangeEndpoint(Memmy_Parser *parser, Mem
     {
         return Memmy_Parser_ParseTargetOrTargetAddress(parser, out);
     }
+    if (parser->token.kind == Memmy_TokenKind_Variable || parser->token.kind == Memmy_TokenKind_CurrentItem ||
+        parser->token.kind == Memmy_TokenKind_Integer || parser->token.kind == Memmy_TokenKind_Plus ||
+        parser->token.kind == Memmy_TokenKind_Minus || parser->token.kind == Memmy_TokenKind_LParen)
+    {
+        return Memmy_Parser_ParseConstSum(parser, out);
+    }
 
-    Memmy_Parser_SetError(parser, String8_Lit("expected address or target"), parser->token.byte_offset,
+    Memmy_Parser_SetError(parser, String8_Lit("expected address expression or target"), parser->token.byte_offset,
                           parser->token.byte_count);
     return Memmy_AstStatus_ParseError;
 }
@@ -790,9 +831,12 @@ static Memmy_AstStatus Memmy_Parser_ParseRange(Memmy_Parser *parser, Memmy_AstNo
         return Memmy_AstStatus_ParseError;
     }
 
-    if (parser->token.kind != Memmy_TokenKind_At && parser->token.kind != Memmy_TokenKind_Target)
+    if (parser->token.kind != Memmy_TokenKind_At && parser->token.kind != Memmy_TokenKind_Target &&
+        parser->token.kind != Memmy_TokenKind_Variable && parser->token.kind != Memmy_TokenKind_CurrentItem &&
+        parser->token.kind != Memmy_TokenKind_Integer && parser->token.kind != Memmy_TokenKind_Plus &&
+        parser->token.kind != Memmy_TokenKind_Minus && parser->token.kind != Memmy_TokenKind_LParen)
     {
-        Memmy_Parser_SetError(parser, String8_Lit("expected address or target"), parser->token.byte_offset,
+        Memmy_Parser_SetError(parser, String8_Lit("expected address expression or target"), parser->token.byte_offset,
                               parser->token.byte_count);
         return Memmy_AstStatus_ParseError;
     }
@@ -818,7 +862,10 @@ static Memmy_AstStatus Memmy_Parser_ParseRange(Memmy_Parser *parser, Memmy_AstNo
 
     B32 range_is_sized = 0;
     Memmy_AstNode *end_or_size = 0;
-    if (parser->token.kind == Memmy_TokenKind_At || parser->token.kind == Memmy_TokenKind_Target)
+    if (parser->token.kind == Memmy_TokenKind_At || parser->token.kind == Memmy_TokenKind_Target ||
+        parser->token.kind == Memmy_TokenKind_Variable || parser->token.kind == Memmy_TokenKind_CurrentItem ||
+        parser->token.kind == Memmy_TokenKind_Integer || parser->token.kind == Memmy_TokenKind_Minus ||
+        parser->token.kind == Memmy_TokenKind_LParen)
     {
         status = Memmy_Parser_ParseRangeEndpoint(parser, &end_or_size);
     }
@@ -951,7 +998,8 @@ static Memmy_AstStatus Memmy_Parser_ParseExprPrimary(Memmy_Parser *parser, Memmy
 static B32 Memmy_Parser_TokenEndsExpr(Memmy_TokenKind kind)
 {
     return kind == Memmy_TokenKind_Eof || kind == Memmy_TokenKind_RBracket || kind == Memmy_TokenKind_RParen ||
-           kind == Memmy_TokenKind_Equal || kind == Memmy_TokenKind_EqualEqual || kind == Memmy_TokenKind_LBrace;
+           kind == Memmy_TokenKind_Equal || kind == Memmy_TokenKind_EqualEqual || kind == Memmy_TokenKind_LBrace ||
+           kind == Memmy_TokenKind_FatArrow;
 }
 
 static Memmy_AstStatus Memmy_Parser_ParseDerefChain(Memmy_Parser *parser, Memmy_AstNode **out)
@@ -1209,7 +1257,7 @@ static Memmy_AstStatus Memmy_Parser_ParsePostfix(Memmy_Parser *parser, Memmy_Ast
     return Memmy_AstStatus_Ok;
 }
 
-static Memmy_AstStatus Memmy_Parser_ParseExpr(Memmy_Parser *parser, Memmy_AstNode **out)
+static Memmy_AstStatus Memmy_Parser_ParseExprNoTransform(Memmy_Parser *parser, Memmy_AstNode **out)
 {
     Memmy_AstStatus status = Memmy_Parser_ParseExprPrimary(parser, out);
     if (status == Memmy_AstStatus_Ok)
@@ -1219,6 +1267,38 @@ static Memmy_AstStatus Memmy_Parser_ParseExpr(Memmy_Parser *parser, Memmy_AstNod
     if (status == Memmy_AstStatus_Ok)
     {
         status = Memmy_Parser_ParsePostfix(parser, out);
+    }
+    return status;
+}
+
+static Memmy_AstStatus Memmy_Parser_ParseExpr(Memmy_Parser *parser, Memmy_AstNode **out)
+{
+    Memmy_AstStatus status = Memmy_Parser_ParseExprNoTransform(parser, out);
+    while (status == Memmy_AstStatus_Ok && parser->token.kind == Memmy_TokenKind_FatArrow)
+    {
+        Memmy_Token op = parser->token;
+        status = Memmy_Parser_Next(parser);
+        if (status != Memmy_AstStatus_Ok)
+        {
+            return status;
+        }
+
+        Memmy_AstNode *rhs = 0;
+        parser->current_item_scope_depth++;
+        status = Memmy_Parser_ParseExprNoTransform(parser, &rhs);
+        parser->current_item_scope_depth--;
+        if (status != Memmy_AstStatus_Ok)
+        {
+            return status;
+        }
+
+        Memmy_AstNode *lhs = *out;
+        Memmy_AstNode *node = Memmy_Parser_PushNode(parser, Memmy_AstNodeKind_ListTransform, op);
+        node->lhs = lhs;
+        node->rhs = rhs;
+        node->contains_variable = lhs->contains_variable || rhs->contains_variable;
+        Memmy_Parser_NodeCoverInput(parser, node, lhs->byte_offset, rhs->byte_offset + rhs->byte_count);
+        *out = node;
     }
     return status;
 }

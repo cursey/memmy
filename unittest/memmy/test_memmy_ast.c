@@ -455,6 +455,64 @@ Test(Test_MemmyAstParsesPocketReferencePhase4Assignments)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyAstParsesListTransforms)
+{
+    Arena *arena = Arena_CreateDefault();
+
+    Memmy_AstNode *address_transform = 0;
+    Test_ParseAstExpr(arena, "$refs => $ + 4", &address_transform);
+    AssertEq(address_transform->kind, Memmy_AstNodeKind_ListTransform);
+    AssertEq(address_transform->lhs->kind, Memmy_AstNodeKind_Variable);
+    AssertStrEq(address_transform->lhs->name, String8_Lit("refs"));
+    AssertEq(address_transform->rhs->kind, Memmy_AstNodeKind_ConstArithmetic);
+    AssertEq(address_transform->rhs->op, Memmy_AstConstOp_Add);
+    AssertEq(address_transform->rhs->lhs->kind, Memmy_AstNodeKind_CurrentItem);
+    AssertEq(address_transform->rhs->rhs->value, 4);
+
+    Memmy_AstNode *range_transform = 0;
+    Test_ParseAstExpr(arena, "$refs => [$..+0x20]", &range_transform);
+    AssertEq(range_transform->kind, Memmy_AstNodeKind_ListTransform);
+    AssertEq(range_transform->rhs->kind, Memmy_AstNodeKind_Range);
+    AssertTrue(range_transform->rhs->range_is_sized);
+    AssertEq(range_transform->rhs->lhs->kind, Memmy_AstNodeKind_CurrentItem);
+    AssertEq(range_transform->rhs->rhs->value, 0x20);
+
+    Memmy_AstNode *chained_transform = 0;
+    Test_ParseAstExpr(arena, "$refs => [$..+0x20] => $ + 4", &chained_transform);
+    AssertEq(chained_transform->kind, Memmy_AstNodeKind_ListTransform);
+    AssertEq(chained_transform->lhs->kind, Memmy_AstNodeKind_ListTransform);
+    AssertEq(chained_transform->lhs->rhs->kind, Memmy_AstNodeKind_Range);
+    AssertEq(chained_transform->rhs->kind, Memmy_AstNodeKind_ConstArithmetic);
+    AssertEq(chained_transform->rhs->lhs->kind, Memmy_AstNodeKind_CurrentItem);
+
+    Memmy_AstNode *deref_precedence = 0;
+    Test_ParseAstExpr(arena, "$refs => $->0x8", &deref_precedence);
+    AssertEq(deref_precedence->kind, Memmy_AstNodeKind_ListTransform);
+    AssertEq(deref_precedence->rhs->kind, Memmy_AstNodeKind_Deref);
+    AssertEq(deref_precedence->rhs->lhs->kind, Memmy_AstNodeKind_CurrentItem);
+
+    Memmy_AstStatement assignment = {0};
+    Test_ParseAstStatement(arena, "$ranges = $refs => [$..+0x20]", &assignment);
+    AssertEq(assignment.kind, Memmy_AstNodeKind_Assignment);
+    AssertEq(assignment.assignment_value->kind, Memmy_AstNodeKind_ListTransform);
+
+    Memmy_AstNode *variable_range = 0;
+    Test_ParseAstExpr(arena, "[$start..$end]", &variable_range);
+    AssertEq(variable_range->kind, Memmy_AstNodeKind_Range);
+    AssertEq(variable_range->lhs->kind, Memmy_AstNodeKind_Variable);
+    AssertEq(variable_range->rhs->kind, Memmy_AstNodeKind_Variable);
+
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyAstRejectsInvalidListTransforms)
+{
+    Test_RejectAstExpr("$");
+    Test_RejectAstExpr("$refs =>");
+    Test_RejectAstExpr("$refs => $bad =>");
+    Test_RejectAstExpr("[$..+0x20]");
+}
+
 Test(Test_MemmyAstReportsPreciseDiagnosticOffsets)
 {
     Arena *arena = Arena_CreateDefault();
@@ -556,4 +614,5 @@ TestSuite suite_memmy_ast = TestSuite_Make(
     TestCase_Make(Test_MemmyAstParsesPocketReferenceAddressLists),
     TestCase_Make(Test_MemmyAstParsesPocketReferenceIndexingAddressLists),
     TestCase_Make(Test_MemmyAstParsesPocketReferencePhase4Assignments),
+    TestCase_Make(Test_MemmyAstParsesListTransforms), TestCase_Make(Test_MemmyAstRejectsInvalidListTransforms),
     TestCase_Make(Test_MemmyAstParsesPocketReferenceCommands), );

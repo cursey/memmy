@@ -20,6 +20,7 @@ enum
     Memmy_AstNodeKind_Null,
     Memmy_AstNodeKind_ConstArithmetic,
     Memmy_AstNodeKind_Variable,
+    Memmy_AstNodeKind_CurrentItem,
     Memmy_AstNodeKind_Target,
     Memmy_AstNodeKind_Address,
     Memmy_AstNodeKind_Range,
@@ -30,6 +31,7 @@ enum
     Memmy_AstNodeKind_PatternScan,
     Memmy_AstNodeKind_ValueScan,
     Memmy_AstNodeKind_Index,
+    Memmy_AstNodeKind_ListTransform,
     Memmy_AstNodeKind_Assignment,
     Memmy_AstNodeKind_Command,
 };
