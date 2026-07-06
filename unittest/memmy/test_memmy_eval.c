@@ -728,32 +728,6 @@ Test(Test_MemmyEvalListTransformsAddressLists)
     AssertEq(stored.kind, Memmy_EvalValueKind_RangeList);
     AssertEq(stored.range_count, 2);
 
-    Memmy_Addr *empty_refs = 0;
-    AssertEq(Memmy_EvalEnv_Set(env, String8_Lit("empty_refs"),
-                               (Memmy_EvalValue){.kind = Memmy_EvalValueKind_AddressList,
-                                                 .addresses = empty_refs,
-                                                 .address_count = 0}),
-             Memmy_Status_Ok);
-    Memmy_EvalValue empty_addresses = {0};
-    Test_EvalExprText(env, arena, "$empty_refs => $ + 4", &empty_addresses);
-    AssertEq(empty_addresses.kind, Memmy_EvalValueKind_AddressList);
-    AssertEq(empty_addresses.address_count, 0);
-
-    Memmy_EvalValue empty_ranges = {0};
-    Test_EvalExprText(env, arena, "$empty_refs => [$..+0x20]", &empty_ranges);
-    AssertEq(empty_ranges.kind, Memmy_EvalValueKind_RangeList);
-    AssertEq(empty_ranges.range_count, 0);
-
-    Memmy_EvalValue empty_ranges_from_variable = {0};
-    Test_EvalExprText(env, arena, "$empty_refs => $ranges", &empty_ranges_from_variable);
-    AssertEq(empty_ranges_from_variable.kind, Memmy_EvalValueKind_RangeList);
-    AssertEq(empty_ranges_from_variable.range_count, 0);
-
-    Memmy_EvalValue empty_ranges_from_nested_transform = {0};
-    Test_EvalExprText(env, arena, "$empty_refs => ($ranges => $)", &empty_ranges_from_nested_transform);
-    AssertEq(empty_ranges_from_nested_transform.kind, Memmy_EvalValueKind_RangeList);
-    AssertEq(empty_ranges_from_nested_transform.range_count, 0);
-
     Arena_Destroy(arena);
 }
 
@@ -820,34 +794,28 @@ Test(Test_MemmyEvalListTransformErrors)
     AssertStrEq(error.context, String8_Lit("transform"));
 
     Memmy_Addr *empty_refs = 0;
-    AssertEq(Memmy_EvalEnv_Set(env, String8_Lit("empty_refs"),
-                               (Memmy_EvalValue){.kind = Memmy_EvalValueKind_AddressList,
-                                                 .addresses = empty_refs,
-                                                 .address_count = 0}),
+    AssertEq(
+        Memmy_EvalEnv_Set(
+            env, String8_Lit("empty_refs"),
+            (Memmy_EvalValue){.kind = Memmy_EvalValueKind_AddressList, .addresses = empty_refs, .address_count = 0}),
+        Memmy_Status_Ok);
+    Memmy_Range *empty_ranges = 0;
+    AssertEq(Memmy_EvalEnv_Set(
+                 env, String8_Lit("empty_ranges"),
+                 (Memmy_EvalValue){.kind = Memmy_EvalValueKind_RangeList, .ranges = empty_ranges, .range_count = 0}),
              Memmy_Status_Ok);
-    AssertEq(Memmy_EvalEnv_Set(env, String8_Lit("addr"),
-                               (Memmy_EvalValue){.kind = Memmy_EvalValueKind_Address, .address = 0x1000}),
-             Memmy_Status_Ok);
-    Memmy_Range ranges[] = {{.start = 0x1000, .end = 0x1020}};
-    AssertEq(Memmy_EvalEnv_Set(env, String8_Lit("ranges"),
-                               (Memmy_EvalValue){.kind = Memmy_EvalValueKind_RangeList,
-                                                 .ranges = ranges,
-                                                 .range_count = ArrayCount(ranges)}),
-             Memmy_Status_Ok);
-    Test_EvalParseExpr(arena, "$empty_refs => 42", &expr);
-    error = (Memmy_Error){0};
-    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_InvalidArgument);
-    AssertStrEq(error.context, String8_Lit("transform"));
 
-    Test_EvalParseExpr(arena, "$empty_refs => (@0x1000 => $)", &expr);
+    Test_EvalParseExpr(arena, "$empty_refs => $ + 4", &expr);
     error = (Memmy_Error){0};
-    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_InvalidArgument);
+    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_NotFound);
     AssertStrEq(error.context, String8_Lit("transform"));
+    AssertStrEq(error.message, String8_Lit("transform input list is empty"));
 
-    Test_EvalParseExpr(arena, "$empty_refs => $addr + $ranges", &expr);
+    Test_EvalParseExpr(arena, "$empty_ranges => $ + 4", &expr);
     error = (Memmy_Error){0};
-    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_InvalidArgument);
+    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_NotFound);
     AssertStrEq(error.context, String8_Lit("transform"));
+    AssertStrEq(error.message, String8_Lit("transform input list is empty"));
 
     Test_EvalParseExpr(arena, "$refs => $ + 1", &expr);
     error = (Memmy_Error){0};
@@ -875,18 +843,19 @@ Test(Test_MemmyEvalEmptyListTransformDoesNotEvaluateRhsEffects)
     Memmy_EvalEnv *env = 0;
     Test_EvalEnvWithProcess(arena, &backend, &env);
     Memmy_Addr *empty_refs = 0;
-    AssertEq(Memmy_EvalEnv_Set(env, String8_Lit("empty_refs"),
-                               (Memmy_EvalValue){.kind = Memmy_EvalValueKind_AddressList,
-                                                 .addresses = empty_refs,
-                                                 .address_count = 0}),
-             Memmy_Status_Ok);
+    AssertEq(
+        Memmy_EvalEnv_Set(
+            env, String8_Lit("empty_refs"),
+            (Memmy_EvalValue){.kind = Memmy_EvalValueKind_AddressList, .addresses = empty_refs, .address_count = 0}),
+        Memmy_Status_Ok);
 
     Memmy_AstNode *expr = 0;
     Test_EvalParseExpr(arena, "$empty_refs => (@0x1004 as u8 = 1)", &expr);
     Memmy_EvalValue value = {0};
     Memmy_Error error = {0};
-    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_InvalidArgument);
+    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_NotFound);
     AssertStrEq(error.context, String8_Lit("transform"));
+    AssertStrEq(error.message, String8_Lit("transform input list is empty"));
     AssertEq(backend.memory[4], 4);
 
     Memmy_Context_Set(0);
@@ -1073,8 +1042,8 @@ TestSuite suite_memmy_eval = TestSuite_Make(
     TestCase_Make(Test_MemmyEvalPatternScanAssignmentMaterializesAddressList),
     TestCase_Make(Test_MemmyEvalValueScanAssignmentMaterializesAddressList),
     TestCase_Make(Test_MemmyEvalIndexesAssignedAddressLists), TestCase_Make(Test_MemmyEvalIndexesValueScanExpressions),
-    TestCase_Make(Test_MemmyEvalListTransformsAddressLists),
-    TestCase_Make(Test_MemmyEvalListTransformsRangeLists), TestCase_Make(Test_MemmyEvalListTransformErrors),
+    TestCase_Make(Test_MemmyEvalListTransformsAddressLists), TestCase_Make(Test_MemmyEvalListTransformsRangeLists),
+    TestCase_Make(Test_MemmyEvalListTransformErrors),
     TestCase_Make(Test_MemmyEvalEmptyListTransformDoesNotEvaluateRhsEffects),
     TestCase_Make(Test_MemmyEvalAnchorTargetExampleFlow),
     TestCase_Make(Test_MemmyEvalParenthesizedTypedReadsInAddressArithmetic),

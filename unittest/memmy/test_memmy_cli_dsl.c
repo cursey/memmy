@@ -1005,6 +1005,28 @@ Test(Test_MemmyCliRangeListAssignmentAndVars)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyCliExprEmptyScanTransformReturnsNotFound)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy", "--pid", "1234", "--expr", "[@0x1020..+0x20]{ff} => [$..+0x20]"};
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_NotFound);
+    AssertStrEq(error.context, String8_Lit("transform"));
+    AssertStrEq(error.message, String8_Lit("transform input list is empty"));
+    AssertStrEq(out, String8_Lit(""));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyCliExprJsonlScanWriterFailureStopsBeforeSummary)
 {
     Arena *arena = Arena_CreateDefault();
@@ -1099,8 +1121,8 @@ TestSuite suite_memmy_cli_dsl = TestSuite_Make(
     TestCase_Make(Test_MemmyCliExprFormatsPatternScanTextLikePscan),
     TestCase_Make(Test_MemmyCliExprFormatsPatternScanJsonlLikePscan),
     TestCase_Make(Test_MemmyCliExprFormatsValueScanTextLikeScan),
-    TestCase_Make(Test_MemmyCliExprFormatsValueScanJsonlLikeScan),
-    TestCase_Make(Test_MemmyCliExprFormatsRangeListText), TestCase_Make(Test_MemmyCliExprFormatsRangeListJsonl),
-    TestCase_Make(Test_MemmyCliRangeListAssignmentAndVars),
+    TestCase_Make(Test_MemmyCliExprFormatsValueScanJsonlLikeScan), TestCase_Make(Test_MemmyCliExprFormatsRangeListText),
+    TestCase_Make(Test_MemmyCliExprFormatsRangeListJsonl), TestCase_Make(Test_MemmyCliRangeListAssignmentAndVars),
+    TestCase_Make(Test_MemmyCliExprEmptyScanTransformReturnsNotFound),
     TestCase_Make(Test_MemmyCliExprJsonlScanWriterFailureStopsBeforeSummary),
     TestCase_Make(Test_MemmyCliExprScansWholeProcessValueWithRegions), );
