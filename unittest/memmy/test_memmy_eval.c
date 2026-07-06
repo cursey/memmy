@@ -833,6 +833,15 @@ Test(Test_MemmyEvalListTransformsAddressLists)
     AssertEq(ranges.ranges[1].start, 0x2000);
     AssertEq(ranges.ranges[1].end, 0x2020);
 
+    Memmy_EvalValue offset_ranges = {0};
+    Test_EvalStatementResult(env, arena, "$offset_ranges = $refs => [$ - 0x80..+0x180]", &offset_ranges);
+    AssertEq(offset_ranges.kind, Memmy_EvalValueKind_RangeList);
+    AssertEq(offset_ranges.range_count, 2);
+    AssertEq(offset_ranges.ranges[0].start, 0x0f80);
+    AssertEq(offset_ranges.ranges[0].end, 0x1100);
+    AssertEq(offset_ranges.ranges[1].start, 0x1f80);
+    AssertEq(offset_ranges.ranges[1].end, 0x2100);
+
     Memmy_EvalValue second = {0};
     Test_EvalExprText(env, arena, "$ranges[1]", &second);
     AssertEq(second.kind, Memmy_EvalValueKind_Range);
