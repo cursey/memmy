@@ -38,10 +38,15 @@ static Memmy_Status Memmy_Cli_RunReplSessionLineWithOptions(Arena *arena, Memmy_
 
 static void Memmy_CliReplSession_SetAttachedProcess(Memmy_CliReplSession *session, Memmy_ProcessInfo info)
 {
-    session->has_attached_process = 1;
-    session->attached_process = info;
-    session->attached_process.name = String8_Copy(session->env->arena, info.name);
-    session->attached_process.path = String8_Copy(session->env->arena, info.path);
+    if (session != 0)
+    {
+        session->has_attached_process = 1;
+        session->attached_process = info;
+        session->attached_process.name = String8_Copy(session->env->arena, info.name);
+        session->attached_process.path = String8_Copy(session->env->arena, info.path);
+        Memmy_EvalEnv_SetDefaultProcess(session->env, info.pid, info.pointer_width);
+        Memmy_EvalEnv_Clear(session->env);
+    }
 }
 
 static void Memmy_CliReplSession_ClearAttachedProcess(Memmy_CliReplSession *session)
@@ -51,6 +56,7 @@ static void Memmy_CliReplSession_ClearAttachedProcess(Memmy_CliReplSession *sess
         session->has_attached_process = 0;
         session->attached_process = (Memmy_ProcessInfo){0};
         Memmy_EvalEnv_ClearDefaultProcess(session->env);
+        Memmy_EvalEnv_Clear(session->env);
     }
 }
 

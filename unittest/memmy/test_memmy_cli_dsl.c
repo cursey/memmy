@@ -383,6 +383,31 @@ Test(Test_MemmyCliScriptCanSwitchAttachedProcesses)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyCliScriptAttachClearsVariables)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy"};
+
+    AssertEq(Memmy_Cli_RunInputString(arena, (I32)ArrayCount(argv), argv,
+                                      String8_Lit("/attach 1234\n"
+                                                  "$addr = <client.dll>+0\n"
+                                                  "/attach 5678\n"
+                                                  "/vars\n"),
+                                      &out, &error),
+             Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit(""));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyCliScriptAttachOverridesInitialPidSelector)
 {
     Arena *arena = Arena_CreateDefault();
@@ -403,6 +428,33 @@ Test(Test_MemmyCliScriptAttachOverridesInitialPidSelector)
              Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("0x0000000000001020\n"
                                  "0x0000000000003020\n"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliScriptDetachClearsVariablesAndSelectedProcess)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy"};
+
+    AssertEq(Memmy_Cli_RunInputString(arena, (I32)ArrayCount(argv), argv,
+                                      String8_Lit("$addr = @0x1000\n"
+                                                  "/detach\n"
+                                                  "/vars\n"
+                                                  "@0x1000 as u8\n"),
+                                      &out, &error),
+             Memmy_Status_InvalidArgument);
+    AssertStrEq(out, String8_Lit("memmy: invalid_argument: missing selected process\n"));
+    AssertStrEq(error.context, String8_Lit("read"));
+    AssertStrEq(error.message, String8_Lit("missing selected process"));
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -944,7 +996,9 @@ TestSuite suite_memmy_cli_dsl = TestSuite_Make(
     TestCase_Make(Test_MemmyCliExprRunsStatementSyntax),
     TestCase_Make(Test_MemmyCliScriptMixesStatementsAssignmentsExpressionsAndExit),
     TestCase_Make(Test_MemmyCliScriptCanSwitchAttachedProcesses),
+    TestCase_Make(Test_MemmyCliScriptAttachClearsVariables),
     TestCase_Make(Test_MemmyCliScriptAttachOverridesInitialPidSelector),
+    TestCase_Make(Test_MemmyCliScriptDetachClearsVariablesAndSelectedProcess),
     TestCase_Make(Test_MemmyCliScriptDetachDoesNotFallBackToInitialPidSelector),
     TestCase_Make(Test_MemmyCliScriptPidSelectorRejectsProcessQualifiedTarget),
     TestCase_Make(Test_MemmyCliVarsFormatsTextAndJsonl),

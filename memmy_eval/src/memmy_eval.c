@@ -127,61 +127,6 @@ static Memmy_EvalValue Memmy_EvalValue_Copy(Arena *arena, Memmy_EvalValue value)
     return value;
 }
 
-static void Memmy_EvalValue_CopyProcess(Memmy_EvalValue *dst, Memmy_EvalValue src)
-{
-    if (dst != 0)
-    {
-        dst->has_process = src.has_process;
-        dst->pid = src.pid;
-        dst->pointer_width = src.pointer_width;
-    }
-}
-
-static void Memmy_EvalValue_AttachProcess(Memmy_EvalValue *dst, Memmy_Process *process)
-{
-    if (dst != 0 && process != 0)
-    {
-        dst->has_process = 1;
-        dst->pid = process->pid;
-        dst->pointer_width = process->pointer_width;
-    }
-}
-
-static Memmy_Status Memmy_EvalValue_CombineProcess(Memmy_EvalValue lhs, Memmy_EvalValue rhs, Memmy_EvalValue *out,
-                                                   String8 context, Memmy_Error *error)
-{
-    if (out != 0)
-    {
-        out->has_process = 0;
-        out->pid = 0;
-        out->pointer_width = Memmy_PointerWidth_Unknown;
-    }
-
-    if (!lhs.has_process && !rhs.has_process)
-    {
-        return Memmy_Status_Ok;
-    }
-    if (lhs.has_process && !rhs.has_process)
-    {
-        Memmy_EvalValue_CopyProcess(out, lhs);
-        return Memmy_Status_Ok;
-    }
-    if (!lhs.has_process && rhs.has_process)
-    {
-        Memmy_EvalValue_CopyProcess(out, rhs);
-        return Memmy_Status_Ok;
-    }
-    if (lhs.pid != rhs.pid)
-    {
-        Memmy_EvalError(error, Memmy_Status_InvalidArgument, context,
-                        String8_Lit("range endpoints refer to different processes"));
-        return Memmy_Status_InvalidArgument;
-    }
-
-    Memmy_EvalValue_CopyProcess(out, lhs);
-    return Memmy_Status_Ok;
-}
-
 static void Memmy_EvalExec_Close(Memmy_EvalExec *exec)
 {
     if (exec == 0)
@@ -231,12 +176,9 @@ static Memmy_Status Memmy_EvalExec_OpenProcess(Memmy_EvalExec *exec, U32 pid, Me
 static Memmy_Status Memmy_Eval_RequireProcess(Memmy_EvalExec *exec, Memmy_EvalValue *value, String8 context,
                                               Memmy_Process **out, Memmy_Error *error)
 {
+    (void)value;
     U32 pid = 0;
-    if (value != 0 && value->has_process)
-    {
-        pid = value->pid;
-    }
-    else if (exec != 0 && exec->env != 0 && exec->env->has_default_process)
+    if (exec != 0 && exec->env != 0 && exec->env->has_default_process)
     {
         pid = exec->env->default_pid;
     }
@@ -247,12 +189,6 @@ static Memmy_Status Memmy_Eval_RequireProcess(Memmy_EvalExec *exec, Memmy_EvalVa
     }
 
     return Memmy_EvalExec_OpenProcess(exec, pid, out, error);
-}
-
-static Memmy_EvalValue Memmy_EvalValue_WithProcess(Memmy_EvalValue value, Memmy_Process *process)
-{
-    Memmy_EvalValue_AttachProcess(&value, process);
-    return value;
 }
 
 static void Memmy_EvalResult_Push(Memmy_EvalResultSink *sink, Memmy_EvalResult result)
@@ -774,7 +710,6 @@ static Memmy_Status Memmy_Eval_ApplyBinary(Memmy_AstConstOp op, Memmy_EvalValue 
             .kind = Memmy_EvalValueKind_Address,
             .address = address,
         };
-        Memmy_EvalValue_CopyProcess(out, lhs);
         return Memmy_Status_Ok;
     }
 
@@ -928,8 +863,7 @@ static Memmy_Status Memmy_Eval_Target(Memmy_EvalExec *exec, Memmy_AstNode *targe
     if (target->target_module.len != 0)
     {
         Memmy_Module module = {0};
-        Memmy_Process *process = 0;
-        Memmy_Status status = Memmy_Eval_ResolveModule(exec, target, &module, &process, error);
+        Memmy_Status status = Memmy_Eval_ResolveModule(exec, target, &module, 0, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -941,8 +875,7 @@ static Memmy_Status Memmy_Eval_Target(Memmy_EvalExec *exec, Memmy_AstNode *targe
         {
             return status;
         }
-        *out =
-            Memmy_EvalValue_WithProcess((Memmy_EvalValue){.kind = Memmy_EvalValueKind_Range, .range = range}, process);
+        *out = (Memmy_EvalValue){.kind = Memmy_EvalValueKind_Range, .range = range};
         return Memmy_Status_Ok;
     }
 
@@ -1127,8 +1060,8 @@ static Memmy_Status Memmy_Eval_Command(Memmy_EvalExec *exec, Memmy_AstStatement 
                                                             "\n"
                                                             "Commands:\n"
                                                             "  /procs [filter]\n"
-                                                            "  /attach <pid|name>\n"
-                                                            "  /detach\n"
+                                                            "  /attach <pid|name>  select process and clear variables\n"
+                                                            "  /detach             clear selected process and variables\n"
                                                             "  /mods [filter]\n"
                                                             "  /regions\n"
                                                             "  /vars\n"
@@ -1374,7 +1307,8 @@ static Memmy_Status Memmy_EvalExprWithContext(Memmy_EvalExec *exec, Memmy_AstNod
         {
             return status;
         }
-        *out = Memmy_EvalValue_WithProcess((Memmy_EvalValue){.kind = Memmy_EvalValueKind_ProcessRange}, process);
+        (void)process;
+        *out = (Memmy_EvalValue){.kind = Memmy_EvalValueKind_ProcessRange};
         return Memmy_Status_Ok;
     }
     if (expr->kind == Memmy_AstNodeKind_Address)
@@ -1403,7 +1337,6 @@ static Memmy_Status Memmy_EvalExprWithContext(Memmy_EvalExec *exec, Memmy_AstNod
                 .kind = Memmy_EvalValueKind_Address,
                 .address = (Memmy_Addr)constant,
             };
-            Memmy_EvalValue_CopyProcess(out, value);
             return Memmy_Status_Ok;
         }
 
@@ -1441,7 +1374,6 @@ static Memmy_Status Memmy_EvalExprWithContext(Memmy_EvalExec *exec, Memmy_AstNod
             .kind = Memmy_EvalValueKind_Address,
             .address = address,
         };
-        Memmy_EvalValue_CopyProcess(out, base);
         return Memmy_Status_Ok;
     }
     if (expr->kind == Memmy_AstNodeKind_Range)
@@ -1498,24 +1430,10 @@ static Memmy_Status Memmy_EvalExprWithContext(Memmy_EvalExec *exec, Memmy_AstNod
             return status;
         }
 
-        Memmy_EvalValue process_value = {0};
-        if (expr->range_is_sized)
-        {
-            Memmy_EvalValue_CopyProcess(&process_value, start_value);
-        }
-        else
-        {
-            status = Memmy_EvalValue_CombineProcess(start_value, rhs, &process_value, String8_Lit("range"), error);
-            if (status != Memmy_Status_Ok)
-            {
-                return status;
-            }
-        }
         *out = (Memmy_EvalValue){
             .kind = Memmy_EvalValueKind_Range,
             .range = range,
         };
-        Memmy_EvalValue_CopyProcess(out, process_value);
         return Memmy_Status_Ok;
     }
     if (expr->kind == Memmy_AstNodeKind_Deref)
@@ -1563,8 +1481,7 @@ static Memmy_Status Memmy_EvalExprWithContext(Memmy_EvalExec *exec, Memmy_AstNod
                 return status;
             }
         }
-        *out = Memmy_EvalValue_WithProcess((Memmy_EvalValue){.kind = Memmy_EvalValueKind_Address, .address = address},
-                                           process);
+        *out = (Memmy_EvalValue){.kind = Memmy_EvalValueKind_Address, .address = address};
         return Memmy_Status_Ok;
     }
     if (expr->kind == Memmy_AstNodeKind_TypedRead)
@@ -1608,7 +1525,6 @@ static Memmy_Status Memmy_EvalExprWithContext(Memmy_EvalExec *exec, Memmy_AstNod
             .address = address,
             .typed_value = value,
         };
-        Memmy_EvalValue_AttachProcess(out, process);
         return Memmy_Status_Ok;
     }
     if (expr->kind == Memmy_AstNodeKind_TypedWrite)
@@ -1677,7 +1593,6 @@ static Memmy_Status Memmy_EvalExprWithContext(Memmy_EvalExec *exec, Memmy_AstNod
             .typed_value = new_value,
             .old_typed_value = old_value,
         };
-        Memmy_EvalValue_AttachProcess(out, process);
         return Memmy_Status_Ok;
     }
     if (expr->kind == Memmy_AstNodeKind_PatternScan)
@@ -1725,7 +1640,7 @@ static Memmy_Status Memmy_EvalExprWithContext(Memmy_EvalExec *exec, Memmy_AstNod
             return status;
         }
 
-        *out = Memmy_EvalValue_WithProcess(Memmy_Eval_AddressListFromCollector(env->arena, &collector), process);
+        *out = Memmy_Eval_AddressListFromCollector(env->arena, &collector);
         return Memmy_Status_Ok;
     }
     if (expr->kind == Memmy_AstNodeKind_ValueScan)
@@ -1780,7 +1695,7 @@ static Memmy_Status Memmy_EvalExprWithContext(Memmy_EvalExec *exec, Memmy_AstNod
             return status;
         }
 
-        *out = Memmy_EvalValue_WithProcess(Memmy_Eval_AddressListFromCollector(env->arena, &collector), process);
+        *out = Memmy_Eval_AddressListFromCollector(env->arena, &collector);
         return Memmy_Status_Ok;
     }
     if (expr->kind == Memmy_AstNodeKind_Index)
@@ -1821,7 +1736,6 @@ static Memmy_Status Memmy_EvalExprWithContext(Memmy_EvalExec *exec, Memmy_AstNod
             .kind = Memmy_EvalValueKind_Address,
             .address = list.addresses[index],
         };
-        Memmy_EvalValue_CopyProcess(out, list);
         return Memmy_Status_Ok;
     }
 

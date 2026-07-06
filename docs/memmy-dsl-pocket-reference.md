@@ -21,6 +21,9 @@ $name                variable
 `<client.dll>` requires a REPL attachment via `/attach`, or one-shot selection via
 `--pid` / `--name`.
 
+All memory operations use the current selected process: module targets,
+`[0..]`, dereferences, reads, writes, scans, `/mods`, and `/regions`.
+
 ## Constants
 
 ```txt
@@ -118,14 +121,18 @@ $foo                 print variable
 $foo[0]              index address list variable
 ```
 
+Variables store only value data. They do not remember which process was selected
+when they were assigned, so reading, writing, dereferencing, scanning, or
+formatting a stored address uses the current selected process.
+
 ## REPL Commands
 
 ```txt
 /procs               list processes
 /procs game          fuzzy-filter processes
-/attach game.exe     attach by process name
-/attach 1234         attach by PID
-/detach              clear attached process
+/attach game.exe     attach by process name and clear variables
+/attach 1234         attach by PID and clear variables
+/detach              clear attached process and variables
 /mods                list attached process modules
 /mods client         fuzzy-filter attached process modules
 /regions             list attached process memory regions
@@ -161,5 +168,7 @@ address as T         typed read
 address as T = value typed write
 $name = expr         bind evaluated result
 $name[N]             index address list
+/attach process      select process and clear variables
+/detach              clear selected process and variables
 /command             control REPL
 ```

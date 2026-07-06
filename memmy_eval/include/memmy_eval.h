@@ -40,9 +40,6 @@ struct Memmy_EvalValue
     U64 address_count;
     Memmy_Value typed_value;
     Memmy_Value old_typed_value;
-    B32 has_process;
-    U32 pid;
-    Memmy_PointerWidth pointer_width;
 };
 
 typedef U32 Memmy_EvalResultKind;

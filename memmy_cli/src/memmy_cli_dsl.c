@@ -82,6 +82,15 @@ static Memmy_PointerWidth Memmy_CliEvalResultWriter_PointerWidth(Memmy_CliEvalRe
     return Memmy_PointerWidth_64;
 }
 
+static U32 Memmy_CliEvalResultWriter_Pid(Memmy_CliEvalResultWriter *result_writer)
+{
+    if (result_writer->env != 0 && result_writer->env->has_default_process)
+    {
+        return result_writer->env->default_pid;
+    }
+    return 0;
+}
+
 static String8 Memmy_Cli_DslHelp(Arena *arena)
 {
     return String8_Copy(arena, String8_Lit("Core values:\n"
@@ -107,8 +116,8 @@ static String8 Memmy_Cli_DslHelp(Arena *arena)
                                            "\n"
                                            "Commands:\n"
                                            "  /procs [filter]\n"
-                                           "  /attach <pid|name>\n"
-                                           "  /detach\n"
+                                           "  /attach <pid|name>  select process and clear variables\n"
+                                           "  /detach             clear selected process and variables\n"
                                            "  /mods [filter]\n"
                                            "  /regions\n"
                                            "  /vars\n"
@@ -428,9 +437,7 @@ static Memmy_Status Memmy_CliEvalResultWriter_WriteValue(Memmy_CliEvalResultWrit
                                                          Memmy_EvalValue value)
 {
     Arena *arena = result_writer->arena;
-    Memmy_PointerWidth pointer_width = value.pointer_width != Memmy_PointerWidth_Unknown
-                                           ? value.pointer_width
-                                           : Memmy_CliEvalResultWriter_PointerWidth(result_writer);
+    Memmy_PointerWidth pointer_width = Memmy_CliEvalResultWriter_PointerWidth(result_writer);
     if (value.kind == Memmy_EvalValueKind_Null)
     {
         return Memmy_Status_Ok;
@@ -477,9 +484,7 @@ static Memmy_Status Memmy_CliEvalResultWriter_WriteAddressList(Memmy_CliEvalResu
 {
     Memmy_Status status = Memmy_CliScanOutput_Begin(
         &result_writer->scan_output, result_writer->arena, result_writer->writer,
-        value.pointer_width != Memmy_PointerWidth_Unknown ? value.pointer_width
-                                                          : Memmy_CliEvalResultWriter_PointerWidth(result_writer),
-        result_writer->jsonl);
+        Memmy_CliEvalResultWriter_PointerWidth(result_writer), result_writer->jsonl);
     if (status != Memmy_Status_Ok)
     {
         result_writer->status = status;
@@ -542,9 +547,7 @@ static void Memmy_CliEvalResultWriter_Push(Memmy_EvalResultSink *sink, Memmy_Eva
     else if (result.kind == Memmy_EvalResultKind_Read)
     {
         Memmy_CliPeekOutput peek = {
-            .pointer_width = result.value.pointer_width != Memmy_PointerWidth_Unknown
-                                 ? result.value.pointer_width
-                                 : Memmy_CliEvalResultWriter_PointerWidth(result_writer),
+            .pointer_width = Memmy_CliEvalResultWriter_PointerWidth(result_writer),
             .address = result.address,
             .type = result.new_value.type,
             .type_text = Memmy_Cli_TypeString(result.new_value.type),
@@ -560,10 +563,8 @@ static void Memmy_CliEvalResultWriter_Push(Memmy_EvalResultSink *sink, Memmy_Eva
     else if (result.kind == Memmy_EvalResultKind_Write)
     {
         Memmy_CliPokeOutput poke = {
-            .pid = result.value.has_process ? result.value.pid : 0,
-            .pointer_width = result.value.pointer_width != Memmy_PointerWidth_Unknown
-                                 ? result.value.pointer_width
-                                 : Memmy_CliEvalResultWriter_PointerWidth(result_writer),
+            .pid = Memmy_CliEvalResultWriter_Pid(result_writer),
+            .pointer_width = Memmy_CliEvalResultWriter_PointerWidth(result_writer),
             .address = result.address,
             .type = result.new_value.type,
             .type_text = Memmy_Cli_TypeString(result.new_value.type),
