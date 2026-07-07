@@ -5,7 +5,9 @@
 #include "memmy_darwin_backend.h"
 
 #include "base_checked.h"
+#include "base_memory.h"
 #include "base_os.h"
+#include "memmy_range.h"
 
 #include <errno.h>
 #include <libproc.h>
@@ -25,6 +27,24 @@ struct Memmy_DarwinProcessData
 {
     mach_port_t task;
     B32 owns_task;
+};
+
+typedef struct Memmy_DarwinModuleSearch Memmy_DarwinModuleSearch;
+struct Memmy_DarwinModuleSearch
+{
+    Memmy_Addr address;
+    Memmy_Module module;
+    B32 found;
+    Memmy_Error *error;
+};
+
+typedef struct Memmy_DarwinSegmentInfo Memmy_DarwinSegmentInfo;
+struct Memmy_DarwinSegmentInfo
+{
+    U64 vmaddr;
+    U64 vmsize;
+    U64 fileoff;
+    U64 filesize;
 };
 
 static String8 Memmy_Darwin_Basename(String8 path);
@@ -127,7 +147,7 @@ static Memmy_Status Memmy_Darwin_EnumerateProcesses(Arena *arena, Memmy_ProcessI
             .pid = (U32)pid,
             .path = path_string,
             .name = name[0] != 0 ? Memmy_Darwin_CopyCString(arena, name)
-                                  : String8_Copy(arena, Memmy_Darwin_Basename(path_string)),
+                                 : String8_Copy(arena, Memmy_Darwin_Basename(path_string)),
             .pointer_width = Memmy_Darwin_PointerWidth(),
         };
         Memmy_Status status = sink.callback(sink.user_data, &info);
@@ -353,6 +373,28 @@ static Memmy_Status Memmy_Darwin_ImageSize(Arena *arena, Memmy_Process *process,
     return Memmy_Status_Ok;
 }
 
+static Memmy_Status Memmy_Darwin_ReadExact(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size,
+                                           Memmy_Error *error)
+{
+    U64 bytes_read = 0;
+    Memmy_Status status = Memmy_Process_Read(process, addr, buffer, size, &bytes_read, error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+    if (bytes_read != size)
+    {
+        Memmy_Error_Set(error, Memmy_Status_PartialRead, String8_Lit("darwin"),
+                        String8_Lit("partial Mach-O metadata read"));
+        if (error != 0)
+        {
+            error->byte_count = bytes_read;
+        }
+        return Memmy_Status_PartialRead;
+    }
+    return Memmy_Status_Ok;
+}
+
 static String8 Memmy_Darwin_Basename(String8 path)
 {
     U64 start = 0;
@@ -457,6 +499,364 @@ static Memmy_Status Memmy_Darwin_EnumerateModules(Arena *arena, Memmy_Process *p
     return Memmy_Status_Ok;
 }
 
+static Memmy_Status Memmy_Darwin_ModuleSearch_Push(void *user_data, Memmy_Module *module)
+{
+    Memmy_DarwinModuleSearch *search = (Memmy_DarwinModuleSearch *)user_data;
+    Memmy_Addr end = 0;
+    if (!AddU64Checked(module->base, module->size, &end))
+    {
+        Memmy_Error_Set(search->error, Memmy_Status_Overflow, String8_Lit("function"),
+                        String8_Lit("module end overflow"));
+        return Memmy_Status_Overflow;
+    }
+
+    if (search->address >= module->base && search->address < end)
+    {
+        search->module = *module;
+        search->found = 1;
+    }
+    return Memmy_Status_Ok;
+}
+
+static Memmy_Status Memmy_Darwin_FunctionMetadataNotFound(Memmy_Error *error)
+{
+    Memmy_Error_Set(error, Memmy_Status_NotFound, String8_Lit("function"), String8_Lit("function metadata not found"));
+    return Memmy_Status_NotFound;
+}
+
+static B32 Memmy_Darwin_SegmentContainsFileRange(Memmy_DarwinSegmentInfo segment, U64 fileoff, U64 filesize)
+{
+    U64 segment_file_end = 0;
+    U64 data_end = 0;
+    if (!AddU64Checked(segment.fileoff, segment.filesize, &segment_file_end) ||
+        !AddU64Checked(fileoff, filesize, &data_end))
+    {
+        return 0;
+    }
+    return fileoff >= segment.fileoff && data_end <= segment_file_end;
+}
+
+static Memmy_Status Memmy_Darwin_DecodeUleb128(U8 *data, U64 size, U64 *cursor, U64 *out, Memmy_Error *error)
+{
+    U64 result = 0;
+    U32 shift = 0;
+    while (*cursor < size)
+    {
+        U8 byte = data[*cursor];
+        *cursor += 1;
+
+        if (shift >= 64 || ((U64)(byte & 0x7f) << shift) >> shift != (U64)(byte & 0x7f))
+        {
+            return Memmy_Darwin_FunctionMetadataNotFound(error);
+        }
+        result |= (U64)(byte & 0x7f) << shift;
+        if ((byte & 0x80) == 0)
+        {
+            *out = result;
+            return Memmy_Status_Ok;
+        }
+        shift += 7;
+    }
+    return Memmy_Darwin_FunctionMetadataNotFound(error);
+}
+
+static Memmy_Status Memmy_Darwin_FindFunction(Arena *arena, Memmy_Process *process, Memmy_Addr address,
+                                              Memmy_Range *out, Memmy_Error *error)
+{
+    Memmy_DarwinModuleSearch search = {
+        .address = address,
+        .error = error,
+    };
+    Memmy_ModuleSink sink = {
+        .callback = Memmy_Darwin_ModuleSearch_Push,
+        .user_data = &search,
+    };
+    Memmy_Status status = Memmy_Darwin_EnumerateModules(arena, process, sink, error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+    if (!search.found)
+    {
+        return Memmy_Darwin_FunctionMetadataNotFound(error);
+    }
+
+    Memmy_Module module = search.module;
+    struct mach_header_64 header = {0};
+    status = Memmy_Darwin_ReadExact(process, module.base, &header, sizeof(header), error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+    if (header.magic != MH_MAGIC_64 || header.sizeofcmds == 0)
+    {
+        return Memmy_Darwin_FunctionMetadataNotFound(error);
+    }
+    if (header.sizeofcmds > Megabytes(64))
+    {
+        Memmy_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("darwin"),
+                        String8_Lit("Mach-O load command table is too large"));
+        return Memmy_Status_Unsupported;
+    }
+
+    Scratch scratch = Scratch_Begin(&arena, 1);
+    U8 *commands = Arena_PushArrayNoZero(scratch.arena, U8, header.sizeofcmds);
+    status = Memmy_Darwin_ReadExact(process, module.base + sizeof(header), commands, header.sizeofcmds, error);
+    if (status != Memmy_Status_Ok)
+    {
+        Scratch_End(scratch);
+        return status;
+    }
+
+    U64 function_starts_fileoff = 0;
+    U64 function_starts_size = 0;
+    B32 found_function_starts = 0;
+    B32 found_image_base = 0;
+    B32 found_function_starts_segment = 0;
+    B32 found_text_end = 0;
+    Memmy_DarwinSegmentInfo image_base_segment = {0};
+    Memmy_DarwinSegmentInfo function_starts_segment = {0};
+    U64 text_end_offset = 0;
+
+    U64 cursor_offset = 0;
+    for (U32 i = 0; i < header.ncmds; i++)
+    {
+        if (cursor_offset + sizeof(struct load_command) > header.sizeofcmds)
+        {
+            Scratch_End(scratch);
+            return Memmy_Darwin_FunctionMetadataNotFound(error);
+        }
+
+        struct load_command const *load = (struct load_command const *)(commands + cursor_offset);
+        if (load->cmdsize < sizeof(struct load_command) || cursor_offset + load->cmdsize > header.sizeofcmds)
+        {
+            Scratch_End(scratch);
+            return Memmy_Darwin_FunctionMetadataNotFound(error);
+        }
+
+        if (load->cmd == LC_SEGMENT_64)
+        {
+            if (load->cmdsize < sizeof(struct segment_command_64))
+            {
+                Scratch_End(scratch);
+                return Memmy_Darwin_FunctionMetadataNotFound(error);
+            }
+
+            struct segment_command_64 const *segment = (struct segment_command_64 const *)load;
+            if (!found_image_base || segment->fileoff == 0)
+            {
+                image_base_segment = (Memmy_DarwinSegmentInfo){
+                    .vmaddr = segment->vmaddr,
+                    .vmsize = segment->vmsize,
+                    .fileoff = segment->fileoff,
+                    .filesize = segment->filesize,
+                };
+                found_image_base = 1;
+            }
+
+            if (found_function_starts && Memmy_Darwin_SegmentContainsFileRange(
+                                             (Memmy_DarwinSegmentInfo){
+                                                 .vmaddr = segment->vmaddr,
+                                                 .vmsize = segment->vmsize,
+                                                 .fileoff = segment->fileoff,
+                                                 .filesize = segment->filesize,
+                                             },
+                                             function_starts_fileoff, function_starts_size))
+            {
+                function_starts_segment = (Memmy_DarwinSegmentInfo){
+                    .vmaddr = segment->vmaddr,
+                    .vmsize = segment->vmsize,
+                    .fileoff = segment->fileoff,
+                    .filesize = segment->filesize,
+                };
+                found_function_starts_segment = 1;
+            }
+
+            U64 section_table_size = (U64)segment->nsects * sizeof(struct section_64);
+            if ((U64)load->cmdsize >= sizeof(struct segment_command_64) &&
+                section_table_size <= (U64)load->cmdsize - sizeof(struct segment_command_64))
+            {
+                struct section_64 const *sections =
+                    (struct section_64 const *)((U8 const *)segment + sizeof(struct segment_command_64));
+                for (U32 section_index = 0; section_index < segment->nsects; section_index++)
+                {
+                    struct section_64 const *section = sections + section_index;
+                    if (Memory_Equals(section->segname, "__TEXT", 6) && Memory_Equals(section->sectname, "__text", 6))
+                    {
+                        if (!AddU64Checked(section->addr, section->size, &text_end_offset))
+                        {
+                            Scratch_End(scratch);
+                            Memmy_Error_Set(error, Memmy_Status_Overflow, String8_Lit("function"),
+                                            String8_Lit("text section end overflow"));
+                            return Memmy_Status_Overflow;
+                        }
+                        found_text_end = 1;
+                    }
+                }
+            }
+        }
+        else if (load->cmd == LC_FUNCTION_STARTS)
+        {
+            if (load->cmdsize < sizeof(struct linkedit_data_command))
+            {
+                Scratch_End(scratch);
+                return Memmy_Darwin_FunctionMetadataNotFound(error);
+            }
+            struct linkedit_data_command const *function_starts = (struct linkedit_data_command const *)load;
+            function_starts_fileoff = function_starts->dataoff;
+            function_starts_size = function_starts->datasize;
+            found_function_starts = function_starts_size != 0;
+        }
+
+        cursor_offset += load->cmdsize;
+    }
+
+    if (!found_image_base || !found_function_starts)
+    {
+        Scratch_End(scratch);
+        return Memmy_Darwin_FunctionMetadataNotFound(error);
+    }
+
+    if (!found_function_starts_segment)
+    {
+        cursor_offset = 0;
+        for (U32 i = 0; i < header.ncmds; i++)
+        {
+            struct load_command const *load = (struct load_command const *)(commands + cursor_offset);
+            if (load->cmd == LC_SEGMENT_64)
+            {
+                struct segment_command_64 const *segment = (struct segment_command_64 const *)load;
+                Memmy_DarwinSegmentInfo candidate = {
+                    .vmaddr = segment->vmaddr,
+                    .vmsize = segment->vmsize,
+                    .fileoff = segment->fileoff,
+                    .filesize = segment->filesize,
+                };
+                if (Memmy_Darwin_SegmentContainsFileRange(candidate, function_starts_fileoff, function_starts_size))
+                {
+                    function_starts_segment = candidate;
+                    found_function_starts_segment = 1;
+                    break;
+                }
+            }
+            cursor_offset += load->cmdsize;
+        }
+    }
+
+    if (!found_function_starts_segment || function_starts_size > Megabytes(64))
+    {
+        Scratch_End(scratch);
+        if (function_starts_size > Megabytes(64))
+        {
+            Memmy_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("darwin"),
+                            String8_Lit("Mach-O function-start table is too large"));
+            return Memmy_Status_Unsupported;
+        }
+        return Memmy_Darwin_FunctionMetadataNotFound(error);
+    }
+
+    U64 slide = 0;
+    if (!SubU64Checked(module.base, image_base_segment.vmaddr, &slide))
+    {
+        Scratch_End(scratch);
+        Memmy_Error_Set(error, Memmy_Status_Overflow, String8_Lit("function"), String8_Lit("Mach-O slide overflow"));
+        return Memmy_Status_Overflow;
+    }
+
+    U64 function_starts_segment_offset = function_starts_fileoff - function_starts_segment.fileoff;
+    Memmy_Addr function_starts_addr = 0;
+    if (!AddU64Checked(slide, function_starts_segment.vmaddr, &function_starts_addr) ||
+        !AddU64Checked(function_starts_addr, function_starts_segment_offset, &function_starts_addr))
+    {
+        Scratch_End(scratch);
+        Memmy_Error_Set(error, Memmy_Status_Overflow, String8_Lit("function"),
+                        String8_Lit("function-start table address overflow"));
+        return Memmy_Status_Overflow;
+    }
+
+    U8 *function_starts_data = Arena_PushArrayNoZero(scratch.arena, U8, function_starts_size);
+    status = Memmy_Darwin_ReadExact(process, function_starts_addr, function_starts_data, function_starts_size, error);
+    if (status != Memmy_Status_Ok)
+    {
+        Scratch_End(scratch);
+        return status;
+    }
+
+    Memmy_Addr range_end = 0;
+    if (found_text_end)
+    {
+        if (!AddU64Checked(slide, text_end_offset, &range_end))
+        {
+            Scratch_End(scratch);
+            Memmy_Error_Set(error, Memmy_Status_Overflow, String8_Lit("function"),
+                            String8_Lit("text section address overflow"));
+            return Memmy_Status_Overflow;
+        }
+    }
+    else if (!AddU64Checked(module.base, module.size, &range_end))
+    {
+        Scratch_End(scratch);
+        Memmy_Error_Set(error, Memmy_Status_Overflow, String8_Lit("function"), String8_Lit("module end overflow"));
+        return Memmy_Status_Overflow;
+    }
+
+    U64 function_offset = 0;
+    Memmy_Addr previous_start = 0;
+    B32 have_previous_start = 0;
+    U64 function_starts_cursor = 0;
+    while (function_starts_cursor < function_starts_size)
+    {
+        U64 delta = 0;
+        status = Memmy_Darwin_DecodeUleb128(function_starts_data, function_starts_size, &function_starts_cursor, &delta,
+                                            error);
+        if (status != Memmy_Status_Ok)
+        {
+            Scratch_End(scratch);
+            return status;
+        }
+        if (delta == 0)
+        {
+            break;
+        }
+        if (!AddU64Checked(function_offset, delta, &function_offset))
+        {
+            Scratch_End(scratch);
+            Memmy_Error_Set(error, Memmy_Status_Overflow, String8_Lit("function"),
+                            String8_Lit("function offset overflow"));
+            return Memmy_Status_Overflow;
+        }
+
+        Memmy_Addr start = 0;
+        if (!AddU64Checked(module.base, function_offset, &start))
+        {
+            Scratch_End(scratch);
+            Memmy_Error_Set(error, Memmy_Status_Overflow, String8_Lit("function"),
+                            String8_Lit("function address overflow"));
+            return Memmy_Status_Overflow;
+        }
+
+        if (have_previous_start && address >= previous_start && address < start)
+        {
+            status = Memmy_Range_FromStartEnd(previous_start, start, out, error);
+            Scratch_End(scratch);
+            return status;
+        }
+
+        previous_start = start;
+        have_previous_start = 1;
+    }
+
+    if (have_previous_start && address >= previous_start && address < range_end)
+    {
+        status = Memmy_Range_FromStartEnd(previous_start, range_end, out, error);
+        Scratch_End(scratch);
+        return status;
+    }
+
+    Scratch_End(scratch);
+    return Memmy_Darwin_FunctionMetadataNotFound(error);
+}
+
 static Memmy_RegionAccess Memmy_Darwin_RegionAccess(vm_prot_t protection)
 {
     Memmy_RegionAccess result = 0;
@@ -542,6 +942,7 @@ Memmy_Backend *Memmy_DarwinBackend_Create(Arena *arena)
         .write = Memmy_Darwin_Write,
         .enumerate_modules = Memmy_Darwin_EnumerateModules,
         .enumerate_regions = Memmy_Darwin_EnumerateRegions,
+        .find_function = Memmy_Darwin_FindFunction,
     };
     return &backend->backend;
 }
