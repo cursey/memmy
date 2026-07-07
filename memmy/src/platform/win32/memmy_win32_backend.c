@@ -672,6 +672,167 @@ static Memmy_Status Memmy_Win32_EnumerateRegions(Arena *arena, Memmy_Process *pr
     return Memmy_Status_Ok;
 }
 
+static B32 Memmy_Win32_IsReadableCommitted(MEMORY_BASIC_INFORMATION *mbi)
+{
+    Memmy_RegionAccess access = Memmy_Win32_RegionAccess(mbi->Protect);
+    return mbi->State == MEM_COMMIT && (access & Memmy_RegionAccess_Read) != 0 &&
+           (access & Memmy_RegionAccess_Guard) == 0;
+}
+
+static B32 Memmy_Win32_IsExecutableCommitted(MEMORY_BASIC_INFORMATION *mbi)
+{
+    Memmy_RegionAccess access = Memmy_Win32_RegionAccess(mbi->Protect);
+    return mbi->State == MEM_COMMIT && (access & Memmy_RegionAccess_Execute) != 0 &&
+           (access & Memmy_RegionAccess_Guard) == 0;
+}
+
+static B32 Memmy_Win32_QueryAddress(Memmy_Process *process, Memmy_Addr address, MEMORY_BASIC_INFORMATION *out)
+{
+    Memmy_Win32ProcessData *data = (Memmy_Win32ProcessData *)process->backend_data;
+    SIZE_T got = VirtualQueryEx(data->handle, (void *)(uintptr_t)address, out, sizeof(*out));
+    return got != 0;
+}
+
+static B32 Memmy_Win32_AddressInRegion(MEMORY_BASIC_INFORMATION *mbi, Memmy_Addr address)
+{
+    Memmy_Addr base = (Memmy_Addr)(uintptr_t)mbi->BaseAddress;
+    Memmy_Addr end = base + (Memmy_Size)mbi->RegionSize;
+    return address >= base && address < end && end >= base;
+}
+
+static B32 Memmy_Win32_ReadPointer(Memmy_Process *process, Memmy_Addr address, Memmy_Addr *out)
+{
+    Memmy_Error ignored = {0};
+    if (process->pointer_width == Memmy_PointerWidth_32)
+    {
+        U32 value = 0;
+        if (Memmy_Win32_ReadExact(process, address, &value, sizeof(value), &ignored) != Memmy_Status_Ok)
+        {
+            return 0;
+        }
+        *out = value;
+    }
+    else
+    {
+        U64 value = 0;
+        if (Memmy_Win32_ReadExact(process, address, &value, sizeof(value), &ignored) != Memmy_Status_Ok)
+        {
+            return 0;
+        }
+        *out = value;
+    }
+    return 1;
+}
+
+static B32 Memmy_Win32_IsPlausibleVtable(Memmy_Process *process, Memmy_Addr vtable, U32 min_vtable_entries)
+{
+    MEMORY_BASIC_INFORMATION vtable_mbi = {0};
+    if (!Memmy_Win32_QueryAddress(process, vtable, &vtable_mbi) || !Memmy_Win32_IsReadableCommitted(&vtable_mbi))
+    {
+        return 0;
+    }
+
+    U64 pointer_size = process->pointer_width == Memmy_PointerWidth_32 ? 4 : 8;
+    for (U32 i = 0; i < min_vtable_entries; i++)
+    {
+        Memmy_Addr entry_addr = vtable + (U64)i * pointer_size;
+        if (!Memmy_Win32_AddressInRegion(&vtable_mbi, entry_addr))
+        {
+            return 0;
+        }
+
+        Memmy_Addr function_addr = 0;
+        if (!Memmy_Win32_ReadPointer(process, entry_addr, &function_addr))
+        {
+            return 0;
+        }
+
+        MEMORY_BASIC_INFORMATION function_mbi = {0};
+        if (!Memmy_Win32_QueryAddress(process, function_addr, &function_mbi) ||
+            !Memmy_Win32_IsExecutableCommitted(&function_mbi))
+        {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static Memmy_Status Memmy_Win32_FindObjectBase(Arena *arena, Memmy_Process *process, Memmy_Addr address,
+                                               Memmy_ObjectBaseOptions *options, Memmy_ObjectBaseResult *out,
+                                               Memmy_Error *error)
+{
+    Unused(arena);
+
+    MEMORY_BASIC_INFORMATION mbi = {0};
+    if (!Memmy_Win32_QueryAddress(process, address, &mbi) || !Memmy_Win32_IsReadableCommitted(&mbi))
+    {
+        Memmy_Error_Set(error, Memmy_Status_NotFound, String8_Lit("objectbase"),
+                        String8_Lit("object base metadata not found"));
+        return Memmy_Status_NotFound;
+    }
+
+    U64 pointer_size = process->pointer_width == Memmy_PointerWidth_32 ? 4 : 8;
+    Memmy_Addr region_base = (Memmy_Addr)(uintptr_t)mbi.BaseAddress;
+    Memmy_Addr region_end = region_base + (Memmy_Size)mbi.RegionSize;
+    Memmy_Addr scan_min = address > options->max_scan_back ? address - options->max_scan_back : 0;
+    scan_min = Max(scan_min, region_base);
+    Memmy_Addr candidate = address - (address % pointer_size);
+    B32 found = 0;
+    B32 ambiguous = 0;
+    Memmy_ObjectBaseResult best = {0};
+
+    for (;;)
+    {
+        if (candidate < scan_min || candidate + pointer_size > region_end)
+        {
+            break;
+        }
+
+        Memmy_Addr vtable = 0;
+        if (Memmy_Win32_ReadPointer(process, candidate, &vtable) &&
+            Memmy_Win32_IsPlausibleVtable(process, vtable, options->min_vtable_entries))
+        {
+            Memmy_ObjectBaseResult result = {
+                .address = candidate,
+                .vptr_address = candidate,
+                .vtable = vtable,
+                .confidence = Memmy_ObjectBaseConfidence_Weak,
+            };
+            if (!found)
+            {
+                best = result;
+                found = 1;
+            }
+            else if (best.confidence == result.confidence)
+            {
+                ambiguous = 1;
+            }
+        }
+
+        if (candidate < pointer_size)
+        {
+            break;
+        }
+        candidate -= pointer_size;
+    }
+
+    if (!found)
+    {
+        Memmy_Error_Set(error, Memmy_Status_NotFound, String8_Lit("objectbase"),
+                        String8_Lit("object base metadata not found"));
+        return Memmy_Status_NotFound;
+    }
+    if (ambiguous)
+    {
+        Memmy_Error_Set(error, Memmy_Status_Ambiguous, String8_Lit("objectbase"),
+                        String8_Lit("multiple object base candidates found"));
+        return Memmy_Status_Ambiguous;
+    }
+
+    *out = best;
+    return Memmy_Status_Ok;
+}
+
 Memmy_Backend *Memmy_Win32Backend_Create(Arena *arena)
 {
     Memmy_Win32Backend *backend = Arena_PushStruct(arena, Memmy_Win32Backend);
@@ -685,6 +846,7 @@ Memmy_Backend *Memmy_Win32Backend_Create(Arena *arena)
         .enumerate_modules = Memmy_Win32_EnumerateModules,
         .enumerate_regions = Memmy_Win32_EnumerateRegions,
         .find_function = Memmy_Win32_FindFunction,
+        .find_object_base = Memmy_Win32_FindObjectBase,
     };
     return &backend->backend;
 }

@@ -18,6 +18,23 @@ static void Test_MemmyCliExpr_SetupBackend(Test_MemmyBackend *backend)
                                 Memmy_RegionAccess_Read | Memmy_RegionAccess_Write, Memmy_RegionState_Committed);
 }
 
+static void Test_MemmyCliExpr_WriteU64LE(Test_MemmyBackend *backend, Memmy_Addr addr, U64 value);
+
+static void Test_MemmyCliExpr_ConfigureObjectBase(Test_MemmyBackend *backend, U32 pid, Memmy_Addr object,
+                                                  Memmy_Addr vtable, Memmy_Addr code)
+{
+    for (U64 i = 0; i < backend->region_count; i++)
+    {
+        if (backend->regions[i].pid == pid)
+        {
+            backend->regions[i].access |= Memmy_RegionAccess_Execute;
+        }
+    }
+    Test_MemmyCliExpr_WriteU64LE(backend, object, vtable);
+    Test_MemmyCliExpr_WriteU64LE(backend, vtable, code);
+    Test_MemmyCliExpr_WriteU64LE(backend, vtable + 8, code + 8);
+}
+
 static void Test_MemmyCliExpr_WriteU64LE(Test_MemmyBackend *backend, Memmy_Addr addr, U64 value)
 {
     U64 offset = addr - backend->memory_base;
@@ -606,9 +623,37 @@ Test(Test_MemmyCliHelpFormatsText)
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
     AssertTrue(String8_Find(out, String8_Lit("range refs ptr addr"), 0) != STRING8_NPOS);
     AssertTrue(String8_Find(out, String8_Lit("function address"), 0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("objectbase address"), 0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("$hits => objectbase $"), 0) != STRING8_NPOS);
     AssertTrue(String8_Find(out, String8_Lit("/procs [filter]"), 0) != STRING8_NPOS);
     AssertTrue(String8_Find(out, String8_Lit("/exit"), 0) != STRING8_NPOS);
 
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliExprFormatsObjectBaseAddressTextAndJsonl)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+    Test_MemmyCliExpr_ConfigureObjectBase(&test_backend, 1234, 0x1020, 0x1080, 0x10c0);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy", "--pid", "1234", "--expr", "objectbase @0x1038"};
+
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("0x0000000000001020\n"));
+
+    out = (String8){0};
+    char *jsonl_argv[] = {"memmy", "--jsonl", "--pid", "1234", "--expr", "objectbase @0x1038"};
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(jsonl_argv), jsonl_argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("{\"type\":\"address\",\"address\":\"0x0000000000001020\"}\n"));
+
+    Memmy_Context_Set(0);
     Arena_Destroy(arena);
 }
 
@@ -1265,6 +1310,7 @@ TestSuite suite_memmy_cli_dsl = TestSuite_Make(
     TestCase_Make(Test_MemmyCliExprFormatsReferenceScanJsonlLikeScan),
     TestCase_Make(Test_MemmyCliInputStringHandlesReferenceScan), TestCase_Make(Test_MemmyCliExprFormatsRangeListText),
     TestCase_Make(Test_MemmyCliExprFormatsRangeListJsonl), TestCase_Make(Test_MemmyCliRangeListAssignmentAndVars),
+    TestCase_Make(Test_MemmyCliExprFormatsObjectBaseAddressTextAndJsonl),
     TestCase_Make(Test_MemmyCliExprFormatsFunctionRangeTextAndJsonl),
     TestCase_Make(Test_MemmyCliExprFormatsFunctionRangeListText),
     TestCase_Make(Test_MemmyCliExprEmptyScanTransformReturnsNotFound),

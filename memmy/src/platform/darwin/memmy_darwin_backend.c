@@ -930,6 +930,21 @@ static Memmy_Status Memmy_Darwin_EnumerateRegions(Arena *arena, Memmy_Process *p
     return Memmy_Status_Ok;
 }
 
+static Memmy_Status Memmy_Darwin_FindObjectBase(Arena *arena, Memmy_Process *process, Memmy_Addr address,
+                                                Memmy_ObjectBaseOptions *options, Memmy_ObjectBaseResult *out,
+                                                Memmy_Error *error)
+{
+    Unused(arena);
+    Unused(process);
+    Unused(address);
+    Unused(options);
+    Unused(out);
+
+    Memmy_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("objectbase"),
+                    String8_Lit("Darwin object-base discovery is not implemented"));
+    return Memmy_Status_Unsupported;
+}
+
 Memmy_Backend *Memmy_DarwinBackend_Create(Arena *arena)
 {
     Memmy_DarwinBackend *backend = Arena_PushStruct(arena, Memmy_DarwinBackend);
@@ -943,6 +958,7 @@ Memmy_Backend *Memmy_DarwinBackend_Create(Arena *arena)
         .enumerate_modules = Memmy_Darwin_EnumerateModules,
         .enumerate_regions = Memmy_Darwin_EnumerateRegions,
         .find_function = Memmy_Darwin_FindFunction,
+        .find_object_base = Memmy_Darwin_FindObjectBase,
     };
     return &backend->backend;
 }

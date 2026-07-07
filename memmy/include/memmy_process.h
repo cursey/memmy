@@ -67,6 +67,31 @@ struct Memmy_Region
     Memmy_RegionState state;
 };
 
+typedef U32 Memmy_ObjectBaseConfidence;
+enum
+{
+    Memmy_ObjectBaseConfidence_None,
+    Memmy_ObjectBaseConfidence_Weak,
+    Memmy_ObjectBaseConfidence_Strong,
+};
+
+typedef struct Memmy_ObjectBaseOptions Memmy_ObjectBaseOptions;
+struct Memmy_ObjectBaseOptions
+{
+    U64 max_scan_back;
+    U32 min_vtable_entries;
+};
+
+typedef struct Memmy_ObjectBaseResult Memmy_ObjectBaseResult;
+struct Memmy_ObjectBaseResult
+{
+    Memmy_Addr address;
+    Memmy_Addr vptr_address;
+    Memmy_Addr vtable;
+    Memmy_ObjectBaseConfidence confidence;
+    String8 type_name;
+};
+
 Memmy_Status Memmy_EnumerateProcesses(Arena *arena, Memmy_ProcessInfoSink sink, Memmy_Error *error);
 Memmy_Status Memmy_Process_Open(Arena *arena, U32 pid, Memmy_Process **out, Memmy_Error *error);
 B32 Memmy_Process_IsOpen(Memmy_Process *process);
@@ -77,6 +102,9 @@ Memmy_Status Memmy_Process_EnumerateRegions(Arena *arena, Memmy_Process *process
                                             Memmy_Error *error);
 Memmy_Status Memmy_Process_FindFunction(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Range *out,
                                         Memmy_Error *error);
+Memmy_Status Memmy_Process_FindObjectBase(Arena *arena, Memmy_Process *process, Memmy_Addr address,
+                                          Memmy_ObjectBaseOptions *options, Memmy_ObjectBaseResult *out,
+                                          Memmy_Error *error);
 Memmy_Status Memmy_Process_Read(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size, U64 *bytes_read,
                                 Memmy_Error *error);
 Memmy_Status Memmy_Process_Write(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size, U64 *bytes_written,

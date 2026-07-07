@@ -107,6 +107,21 @@ static void Test_EvalWriteU64LE(U8 *dst, U64 value)
     }
 }
 
+static void Test_EvalConfigureObjectBase(Test_MemmyBackend *backend, U32 pid, Memmy_Addr object, Memmy_Addr vtable,
+                                         Memmy_Addr code)
+{
+    for (U64 i = 0; i < backend->region_count; i++)
+    {
+        if (backend->regions[i].pid == pid)
+        {
+            backend->regions[i].access |= Memmy_RegionAccess_Execute;
+        }
+    }
+    Test_EvalWriteU64LE(backend->memory + (object - backend->memory_base), vtable);
+    Test_EvalWriteU64LE(backend->memory + (vtable - backend->memory_base), code);
+    Test_EvalWriteU64LE(backend->memory + (vtable + 8 - backend->memory_base), code + 8);
+}
+
 Test(Test_MemmyEvalCreatesEnvAndBindsArenaOwnedValues)
 {
     Arena *arena = Arena_CreateDefault();
@@ -1086,6 +1101,68 @@ Test(Test_MemmyEvalFunctionLookupErrors)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyEvalObjectBaseLookup)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Memmy_EvalEnv *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+
+    Memmy_Addr object = backend.memory_base + 0x20;
+    Test_EvalConfigureObjectBase(&backend, 4242, object, backend.memory_base + 0x80, backend.memory_base + 0xc0);
+
+    Memmy_EvalValue value = {0};
+    Test_EvalExprText(env, arena, "objectbase @0x1038", &value);
+    AssertEq(value.kind, Memmy_EvalValueKind_Address);
+    AssertEq(value.address, object);
+
+    Memmy_EvalValue stored = {0};
+    Test_EvalStatementResult(env, arena, "$obj = objectbase @0x1038", &stored);
+    AssertEq(stored.kind, Memmy_EvalValueKind_Address);
+    AssertEq(stored.address, object);
+
+    Memmy_Addr hits[] = {0x1038, 0x1038};
+    AssertEq(Memmy_EvalEnv_Set(env, String8_Lit("hits"),
+                               (Memmy_EvalValue){.kind = Memmy_EvalValueKind_AddressList,
+                                                 .addresses = hits,
+                                                 .address_count = ArrayCount(hits)}),
+             Memmy_Status_Ok);
+    Memmy_EvalValue bases = {0};
+    Test_EvalExprText(env, arena, "$hits => objectbase $", &bases);
+    AssertEq(bases.kind, Memmy_EvalValueKind_AddressList);
+    AssertEq(bases.address_count, 2);
+    AssertEq(bases.addresses[0], object);
+    AssertEq(bases.addresses[1], object);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalObjectBaseLookupErrors)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Memmy_EvalEnv *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+
+    Memmy_AstNode *expr = 0;
+    Memmy_EvalValue value = {0};
+    Memmy_Error error = {0};
+
+    Test_EvalParseExpr(arena, "objectbase @0x1040", &expr);
+    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_NotFound);
+    AssertStrEq(error.context, String8_Lit("objectbase"));
+
+    Memmy_EvalEnv_ClearDefaultProcess(env);
+    Test_EvalParseExpr(arena, "objectbase @0x1038", &expr);
+    error = (Memmy_Error){0};
+    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_InvalidArgument);
+    AssertStrEq(error.context, String8_Lit("objectbase"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyEvalListTransformErrors)
 {
     Arena *arena = Arena_CreateDefault();
@@ -1365,6 +1442,7 @@ TestSuite suite_memmy_eval = TestSuite_Make(
     TestCase_Make(Test_MemmyEvalIndexesAssignedAddressLists), TestCase_Make(Test_MemmyEvalIndexesValueScanExpressions),
     TestCase_Make(Test_MemmyEvalListTransformsAddressLists), TestCase_Make(Test_MemmyEvalListTransformsRangeLists),
     TestCase_Make(Test_MemmyEvalFunctionLookup), TestCase_Make(Test_MemmyEvalFunctionLookupErrors),
+    TestCase_Make(Test_MemmyEvalObjectBaseLookup), TestCase_Make(Test_MemmyEvalObjectBaseLookupErrors),
     TestCase_Make(Test_MemmyEvalListTransformErrors),
     TestCase_Make(Test_MemmyEvalEmptyListTransformDoesNotEvaluateRhsEffects),
     TestCase_Make(Test_MemmyEvalAnchorTargetExampleFlow),

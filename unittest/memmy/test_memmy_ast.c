@@ -647,6 +647,41 @@ Test(Test_MemmyAstParsesFunctionLookup)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyAstParsesObjectBaseLookup)
+{
+    Arena *arena = Arena_CreateDefault();
+
+    Memmy_AstNode *absolute = 0;
+    Test_ParseAstExpr(arena, "objectbase @0x1234", &absolute);
+    AssertEq(absolute->kind, Memmy_AstNodeKind_ObjectBase);
+    AssertEq(absolute->lhs->kind, Memmy_AstNodeKind_Address);
+
+    Memmy_AstNode *variable_operand = 0;
+    Test_ParseAstExpr(arena, "objectbase $addr", &variable_operand);
+    AssertEq(variable_operand->kind, Memmy_AstNodeKind_ObjectBase);
+    AssertEq(variable_operand->lhs->kind, Memmy_AstNodeKind_Variable);
+    AssertStrEq(variable_operand->lhs->name, String8_Lit("addr"));
+    AssertTrue(variable_operand->contains_variable);
+
+    Memmy_AstNode *transform = 0;
+    Test_ParseAstExpr(arena, "$hits => objectbase $", &transform);
+    AssertEq(transform->kind, Memmy_AstNodeKind_ListTransform);
+    AssertEq(transform->rhs->kind, Memmy_AstNodeKind_ObjectBase);
+    AssertEq(transform->rhs->lhs->kind, Memmy_AstNodeKind_CurrentItem);
+
+    Memmy_AstNode *typed_read = 0;
+    Test_ParseAstExpr(arena, "objectbase @0x1234 as u8", &typed_read);
+    AssertEq(typed_read->kind, Memmy_AstNodeKind_TypedRead);
+    AssertEq(typed_read->lhs->kind, Memmy_AstNodeKind_ObjectBase);
+
+    Memmy_AstNode *variable = 0;
+    Test_ParseAstExpr(arena, "$objectbase", &variable);
+    AssertEq(variable->kind, Memmy_AstNodeKind_Variable);
+    AssertStrEq(variable->name, String8_Lit("objectbase"));
+
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyAstRejectsFunctionWithoutOperand)
 {
     Arena *arena = Arena_CreateDefault();
@@ -654,6 +689,19 @@ Test(Test_MemmyAstRejectsFunctionWithoutOperand)
     Memmy_AstDiagnostic diagnostic = {0};
 
     AssertEq(Memmy_Ast_ParseExpr(arena, String8_Lit("function"), &expr, &diagnostic), Memmy_AstStatus_ParseError);
+    AssertStrEq(diagnostic.context, String8_Lit("ast"));
+    AssertStrEq(diagnostic.message, String8_Lit("expected address expression"));
+
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyAstRejectsObjectBaseWithoutOperand)
+{
+    Arena *arena = Arena_CreateDefault();
+    Memmy_AstNode *expr = 0;
+    Memmy_AstDiagnostic diagnostic = {0};
+
+    AssertEq(Memmy_Ast_ParseExpr(arena, String8_Lit("objectbase"), &expr, &diagnostic), Memmy_AstStatus_ParseError);
     AssertStrEq(diagnostic.context, String8_Lit("ast"));
     AssertStrEq(diagnostic.message, String8_Lit("expected address expression"));
 
@@ -764,5 +812,6 @@ TestSuite suite_memmy_ast = TestSuite_Make(
     TestCase_Make(Test_MemmyAstParsesPocketReferencePhase4Assignments),
     TestCase_Make(Test_MemmyAstRejectsInvalidReferenceScans), TestCase_Make(Test_MemmyAstParsesListTransforms),
     TestCase_Make(Test_MemmyAstRejectsInvalidListTransforms), TestCase_Make(Test_MemmyAstParsesFunctionLookup),
-    TestCase_Make(Test_MemmyAstRejectsFunctionWithoutOperand),
+    TestCase_Make(Test_MemmyAstParsesObjectBaseLookup), TestCase_Make(Test_MemmyAstRejectsFunctionWithoutOperand),
+    TestCase_Make(Test_MemmyAstRejectsObjectBaseWithoutOperand),
     TestCase_Make(Test_MemmyAstParsesPocketReferenceCommands), );

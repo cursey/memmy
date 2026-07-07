@@ -178,6 +178,46 @@ Memmy_Status Memmy_Process_FindFunction(Arena *arena, Memmy_Process *process, Me
     return backend->find_function(arena, process, address, out, error);
 }
 
+Memmy_Status Memmy_Process_FindObjectBase(Arena *arena, Memmy_Process *process, Memmy_Addr address,
+                                          Memmy_ObjectBaseOptions *options, Memmy_ObjectBaseResult *out,
+                                          Memmy_Error *error)
+{
+    if (arena == 0 || out == 0)
+    {
+        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("backend"),
+                        String8_Lit("missing output arena or object-base output"));
+        return Memmy_Status_InvalidArgument;
+    }
+
+    Memmy_Backend *backend = 0;
+    Memmy_Status status = memmy_RequireProcessBackend(process, &backend, error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+    if (backend->find_object_base == 0)
+    {
+        return memmy_Unsupported(error, "backend cannot find object bases");
+    }
+
+    Memmy_ObjectBaseOptions defaults = {0};
+    if (options == 0)
+    {
+        options = &defaults;
+    }
+    if (options->max_scan_back == 0)
+    {
+        options->max_scan_back = 0x1000;
+    }
+    if (options->min_vtable_entries == 0)
+    {
+        options->min_vtable_entries = 2;
+    }
+
+    *out = (Memmy_ObjectBaseResult){0};
+    return backend->find_object_base(arena, process, address, options, out, error);
+}
+
 Memmy_Status Memmy_Process_Read(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size, U64 *bytes_read,
                                 Memmy_Error *error)
 {

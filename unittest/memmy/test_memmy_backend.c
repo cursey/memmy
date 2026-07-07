@@ -246,6 +246,176 @@ static Memmy_Status Test_MemmyBackend_FindFunction(Arena *arena, Memmy_Process *
     return Memmy_Status_NotFound;
 }
 
+static B32 Test_MemmyBackend_RegionContains(Test_MemmyBackendRegion *region, Memmy_Addr address)
+{
+    Memmy_Addr end = region->base + region->size;
+    return address >= region->base && address < end && end >= region->base;
+}
+
+static Test_MemmyBackendRegion *Test_MemmyBackend_FindRegion(Test_MemmyBackend *backend, U32 pid, Memmy_Addr address)
+{
+    for (U64 i = 0; i < backend->region_count; i++)
+    {
+        Test_MemmyBackendRegion *region = &backend->regions[i];
+        if (region->pid == pid && Test_MemmyBackend_RegionContains(region, address))
+        {
+            return region;
+        }
+    }
+    return 0;
+}
+
+static B32 Test_MemmyBackend_IsReadableCommitted(Test_MemmyBackendRegion *region)
+{
+    return region != 0 && region->state == Memmy_RegionState_Committed &&
+           (region->access & Memmy_RegionAccess_Read) != 0 && (region->access & Memmy_RegionAccess_Guard) == 0;
+}
+
+static B32 Test_MemmyBackend_IsExecutableCommitted(Test_MemmyBackendRegion *region)
+{
+    return region != 0 && region->state == Memmy_RegionState_Committed &&
+           (region->access & Memmy_RegionAccess_Execute) != 0 && (region->access & Memmy_RegionAccess_Guard) == 0;
+}
+
+static B32 Test_MemmyBackend_ReadPointer(Test_MemmyBackend *backend, Memmy_Process *process, Memmy_Addr address,
+                                         Memmy_Addr *out)
+{
+    U64 offset = 0;
+    U64 pointer_size = process->pointer_width == Memmy_PointerWidth_32 ? 4 : 8;
+    if (address < backend->memory_base || address - backend->memory_base > TEST_MEMMY_BACKEND_MEMORY_SIZE ||
+        pointer_size > TEST_MEMMY_BACKEND_MEMORY_SIZE - (address - backend->memory_base))
+    {
+        return 0;
+    }
+
+    offset = address - backend->memory_base;
+    if (pointer_size == 4)
+    {
+        U32 value = 0;
+        memcpy(&value, backend->memory + offset, sizeof(value));
+        *out = value;
+    }
+    else
+    {
+        U64 value = 0;
+        memcpy(&value, backend->memory + offset, sizeof(value));
+        *out = value;
+    }
+    return 1;
+}
+
+static B32 Test_MemmyBackend_IsPlausibleVtable(Test_MemmyBackend *backend, Memmy_Process *process, Memmy_Addr vtable,
+                                               U32 min_vtable_entries)
+{
+    Test_MemmyBackendRegion *vtable_region = Test_MemmyBackend_FindRegion(backend, process->pid, vtable);
+    if (!Test_MemmyBackend_IsReadableCommitted(vtable_region))
+    {
+        return 0;
+    }
+
+    U64 pointer_size = process->pointer_width == Memmy_PointerWidth_32 ? 4 : 8;
+    for (U32 i = 0; i < min_vtable_entries; i++)
+    {
+        Memmy_Addr entry_addr = vtable + (U64)i * pointer_size;
+        if (!Test_MemmyBackend_RegionContains(vtable_region, entry_addr))
+        {
+            return 0;
+        }
+
+        Memmy_Addr function_addr = 0;
+        if (!Test_MemmyBackend_ReadPointer(backend, process, entry_addr, &function_addr))
+        {
+            return 0;
+        }
+
+        Test_MemmyBackendRegion *function_region = Test_MemmyBackend_FindRegion(backend, process->pid, function_addr);
+        if (!Test_MemmyBackend_IsExecutableCommitted(function_region))
+        {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static Memmy_Status Test_MemmyBackend_FindObjectBase(Arena *arena, Memmy_Process *process, Memmy_Addr address,
+                                                     Memmy_ObjectBaseOptions *options, Memmy_ObjectBaseResult *out,
+                                                     Memmy_Error *error)
+{
+    Unused(arena);
+
+    Test_MemmyBackend *backend = (Test_MemmyBackend *)process->backend_data;
+    Test_MemmyBackendRegion *region = Test_MemmyBackend_FindRegion(backend, process->pid, address);
+    if (!Test_MemmyBackend_IsReadableCommitted(region))
+    {
+        Memmy_Error_Set(error, Memmy_Status_NotFound, String8_Lit("objectbase"),
+                        String8_Lit("object base metadata not found"));
+        return Memmy_Status_NotFound;
+    }
+
+    U64 pointer_size = process->pointer_width == Memmy_PointerWidth_32 ? 4 : 8;
+    Memmy_Addr scan_min = address > options->max_scan_back ? address - options->max_scan_back : 0;
+    scan_min = Max(scan_min, region->base);
+    Memmy_Addr candidate = address - (address % pointer_size);
+    if (candidate > address)
+    {
+        candidate -= pointer_size;
+    }
+
+    B32 found = 0;
+    Memmy_ObjectBaseResult best = {0};
+    B32 ambiguous = 0;
+    for (;;)
+    {
+        if (candidate < scan_min || candidate + pointer_size > region->base + region->size)
+        {
+            break;
+        }
+
+        Memmy_Addr vtable = 0;
+        if (Test_MemmyBackend_ReadPointer(backend, process, candidate, &vtable) &&
+            Test_MemmyBackend_IsPlausibleVtable(backend, process, vtable, options->min_vtable_entries))
+        {
+            Memmy_ObjectBaseResult result = {
+                .address = candidate,
+                .vptr_address = candidate,
+                .vtable = vtable,
+                .confidence = Memmy_ObjectBaseConfidence_Weak,
+            };
+            if (!found)
+            {
+                best = result;
+                found = 1;
+            }
+            else if (best.confidence == result.confidence)
+            {
+                ambiguous = 1;
+            }
+        }
+
+        if (candidate < pointer_size)
+        {
+            break;
+        }
+        candidate -= pointer_size;
+    }
+
+    if (!found)
+    {
+        Memmy_Error_Set(error, Memmy_Status_NotFound, String8_Lit("objectbase"),
+                        String8_Lit("object base metadata not found"));
+        return Memmy_Status_NotFound;
+    }
+    if (ambiguous)
+    {
+        Memmy_Error_Set(error, Memmy_Status_Ambiguous, String8_Lit("objectbase"),
+                        String8_Lit("multiple object base candidates found"));
+        return Memmy_Status_Ambiguous;
+    }
+
+    *out = best;
+    return Memmy_Status_Ok;
+}
+
 void Test_MemmyBackend_Init(Test_MemmyBackend *backend)
 {
     *backend = (Test_MemmyBackend){
@@ -260,6 +430,7 @@ void Test_MemmyBackend_Init(Test_MemmyBackend *backend)
                 .enumerate_modules = Test_MemmyBackend_EnumerateModules,
                 .enumerate_regions = Test_MemmyBackend_EnumerateRegions,
                 .find_function = Test_MemmyBackend_FindFunction,
+                .find_object_base = Test_MemmyBackend_FindObjectBase,
             },
         .memory_base = 0x1000,
         .read_status = Memmy_Status_Ok,

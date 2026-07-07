@@ -1,5 +1,12 @@
 #include "test_memmy_common.h"
 
+static void Test_MemmyProcess_WritePointer(Test_MemmyBackend *backend, Memmy_Addr address, Memmy_Addr value)
+{
+    U64 offset = address - backend->memory_base;
+    U64 raw = value;
+    memcpy(backend->memory + offset, &raw, sizeof(raw));
+}
+
 Test(Test_MemmyTestBackendReadWrite)
 {
     Arena *arena = Arena_CreateDefault();
@@ -94,6 +101,12 @@ Test(Test_MemmyProcessMissingBackendCallbacksReturnUnsupported)
     Memmy_Range function = {0};
     test_backend.backend.find_function = 0;
     AssertEq(Memmy_Process_FindFunction(arena, process, test_backend.memory_base, &function, &error),
+             Memmy_Status_Unsupported);
+    AssertStrEq(error.context, String8_Lit("backend"));
+
+    Memmy_ObjectBaseResult object_base = {0};
+    test_backend.backend.find_object_base = 0;
+    AssertEq(Memmy_Process_FindObjectBase(arena, process, test_backend.memory_base, 0, &object_base, &error),
              Memmy_Status_Unsupported);
     AssertStrEq(error.context, String8_Lit("backend"));
 
@@ -324,10 +337,166 @@ Test(Test_MemmyTestBackendConfiguredInventory)
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
 }
+
+Test(Test_MemmyProcessFindObjectBaseSuccess)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    test_backend.regions[0].access |= Memmy_RegionAccess_Execute;
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    Memmy_Process *process = 0;
+    Memmy_Error error = {0};
+    AssertEq(Memmy_Process_Open(arena, 4242, &process, &error), Memmy_Status_Ok);
+
+    Memmy_Addr object = test_backend.memory_base + 0x20;
+    Memmy_Addr vtable = test_backend.memory_base + 0x80;
+    Memmy_Addr code = test_backend.memory_base + 0xc0;
+    Test_MemmyProcess_WritePointer(&test_backend, object, vtable);
+    Test_MemmyProcess_WritePointer(&test_backend, vtable, code);
+    Test_MemmyProcess_WritePointer(&test_backend, vtable + 8, code + 8);
+
+    Memmy_ObjectBaseResult result = {0};
+    AssertEq(Memmy_Process_FindObjectBase(arena, process, object + 0x18, 0, &result, &error), Memmy_Status_Ok);
+    AssertEq(result.address, object);
+    AssertEq(result.vptr_address, object);
+    AssertEq(result.vtable, vtable);
+    AssertEq(result.confidence, Memmy_ObjectBaseConfidence_Weak);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyProcessFindObjectBaseStopsAtMaxBack)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    test_backend.regions[0].access |= Memmy_RegionAccess_Execute;
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    Memmy_Process *process = 0;
+    Memmy_Error error = {0};
+    AssertEq(Memmy_Process_Open(arena, 4242, &process, &error), Memmy_Status_Ok);
+
+    Memmy_Addr object = test_backend.memory_base + 0x20;
+    Memmy_Addr vtable = test_backend.memory_base + 0x80;
+    Memmy_Addr code = test_backend.memory_base + 0xc0;
+    Test_MemmyProcess_WritePointer(&test_backend, object, vtable);
+    Test_MemmyProcess_WritePointer(&test_backend, vtable, code);
+    Test_MemmyProcess_WritePointer(&test_backend, vtable + 8, code + 8);
+
+    Memmy_ObjectBaseOptions options = {.max_scan_back = 0x10};
+    Memmy_ObjectBaseResult result = {0};
+    AssertEq(Memmy_Process_FindObjectBase(arena, process, object + 0x18, &options, &result, &error),
+             Memmy_Status_NotFound);
+    AssertEq(error.status, Memmy_Status_NotFound);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyProcessFindObjectBaseStopsAtRegionBoundary)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    test_backend.regions[0].access |= Memmy_RegionAccess_Execute;
+    test_backend.region_count = 0;
+    Test_MemmyBackend_AddRegion(&test_backend, 4242, test_backend.memory_base + 0x30, 0x50, Memmy_RegionAccess_Read,
+                                Memmy_RegionState_Committed);
+    Test_MemmyBackend_AddRegion(&test_backend, 4242, test_backend.memory_base + 0xc0, 0x20, Memmy_RegionAccess_Execute,
+                                Memmy_RegionState_Committed);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    Memmy_Process *process = 0;
+    Memmy_Error error = {0};
+    AssertEq(Memmy_Process_Open(arena, 4242, &process, &error), Memmy_Status_Ok);
+
+    Memmy_Addr object_before_region = test_backend.memory_base + 0x20;
+    Memmy_Addr vtable = test_backend.memory_base + 0x40;
+    Memmy_Addr code = test_backend.memory_base + 0xc0;
+    Test_MemmyProcess_WritePointer(&test_backend, object_before_region, vtable);
+    Test_MemmyProcess_WritePointer(&test_backend, vtable, code);
+    Test_MemmyProcess_WritePointer(&test_backend, vtable + 8, code + 8);
+
+    Memmy_ObjectBaseResult result = {0};
+    AssertEq(Memmy_Process_FindObjectBase(arena, process, test_backend.memory_base + 0x48, 0, &result, &error),
+             Memmy_Status_NotFound);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyProcessFindObjectBaseNoCandidate)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    test_backend.regions[0].access |= Memmy_RegionAccess_Execute;
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    Memmy_Process *process = 0;
+    Memmy_Error error = {0};
+    AssertEq(Memmy_Process_Open(arena, 4242, &process, &error), Memmy_Status_Ok);
+
+    Memmy_ObjectBaseResult result = {0};
+    AssertEq(Memmy_Process_FindObjectBase(arena, process, test_backend.memory_base + 0x40, 0, &result, &error),
+             Memmy_Status_NotFound);
+    AssertEq(error.status, Memmy_Status_NotFound);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyProcessFindObjectBaseAmbiguous)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    test_backend.regions[0].access |= Memmy_RegionAccess_Execute;
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    Memmy_Process *process = 0;
+    Memmy_Error error = {0};
+    AssertEq(Memmy_Process_Open(arena, 4242, &process, &error), Memmy_Status_Ok);
+
+    Memmy_Addr object_a = test_backend.memory_base + 0x20;
+    Memmy_Addr object_b = test_backend.memory_base + 0x30;
+    Memmy_Addr vtable = test_backend.memory_base + 0x80;
+    Memmy_Addr code = test_backend.memory_base + 0xc0;
+    Test_MemmyProcess_WritePointer(&test_backend, object_a, vtable);
+    Test_MemmyProcess_WritePointer(&test_backend, object_b, vtable);
+    Test_MemmyProcess_WritePointer(&test_backend, vtable, code);
+    Test_MemmyProcess_WritePointer(&test_backend, vtable + 8, code + 8);
+
+    Memmy_ObjectBaseResult result = {0};
+    AssertEq(Memmy_Process_FindObjectBase(arena, process, object_b + 0x18, 0, &result, &error), Memmy_Status_Ambiguous);
+    AssertEq(error.status, Memmy_Status_Ambiguous);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
 TestSuite suite_memmy_process = TestSuite_Make("Memmy Process", TestCase_Make(Test_MemmyTestBackendReadWrite),
                                                TestCase_Make(Test_MemmyProcessMissingBackendCallbacksReturnUnsupported),
                                                TestCase_Make(Test_MemmyProcessReadDispatchAndFailureMapping),
                                                TestCase_Make(Test_MemmyProcessWriteDispatchAndFailureMapping),
                                                TestCase_Make(Test_MemmyProcessEnumerationPreservesCallbackOrder),
                                                TestCase_Make(Test_MemmyProcessEnumerationPropagatesSinkErrors),
-                                               TestCase_Make(Test_MemmyTestBackendConfiguredInventory), );
+                                               TestCase_Make(Test_MemmyTestBackendConfiguredInventory),
+                                               TestCase_Make(Test_MemmyProcessFindObjectBaseSuccess),
+                                               TestCase_Make(Test_MemmyProcessFindObjectBaseStopsAtMaxBack),
+                                               TestCase_Make(Test_MemmyProcessFindObjectBaseStopsAtRegionBoundary),
+                                               TestCase_Make(Test_MemmyProcessFindObjectBaseNoCandidate),
+                                               TestCase_Make(Test_MemmyProcessFindObjectBaseAmbiguous), );
