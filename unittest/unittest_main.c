@@ -27,9 +27,12 @@ extern TestSuite suite_memmy_scan;
 extern TestSuite suite_memmy_context;
 extern TestSuite suite_memmy_process;
 extern TestSuite suite_memmy_ast;
+extern TestSuite suite_memmy_ast_disasm_x64;
 extern TestSuite suite_memmy_eval;
+extern TestSuite suite_memmy_eval_disasm_x64;
 extern TestSuite suite_memmy_cli;
 extern TestSuite suite_memmy_cli_dsl;
+extern TestSuite suite_memmy_cli_disasm_x64;
 extern TestSuite suite_memmy_cli_repl;
 extern TestSuite suite_memmy_default_backend;
 
@@ -60,9 +63,12 @@ int main(int argc, char **argv)
         suite_memmy_context,
         suite_memmy_process,
         suite_memmy_ast,
+        suite_memmy_ast_disasm_x64,
         suite_memmy_eval,
+        suite_memmy_eval_disasm_x64,
         suite_memmy_cli,
         suite_memmy_cli_dsl,
+        suite_memmy_cli_disasm_x64,
         suite_memmy_cli_repl,
         suite_memmy_default_backend,
     };

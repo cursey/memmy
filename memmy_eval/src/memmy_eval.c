@@ -107,6 +107,8 @@ static Memmy_Status Memmy_EvalStatementWithContext(Memmy_EvalExec *exec, Memmy_A
                                                    Memmy_EvalResultSink *sink, Memmy_Error *error);
 static Memmy_Status Memmy_Eval_Command(Memmy_EvalExec *exec, Memmy_AstStatement *statement, Memmy_EvalResultSink *sink,
                                        Memmy_Error *error);
+Memmy_Status Memmy_Eval_DisasmX64Scan(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options,
+                                      Memmy_AstDisasmPattern pattern, Memmy_ScanSink sink, Memmy_Error *error);
 
 static void Memmy_EvalError(Memmy_Error *error, Memmy_Status status, String8 context, String8 message)
 {
@@ -2174,6 +2176,47 @@ static Memmy_Status Memmy_EvalExprWithContext(Memmy_EvalExec *exec, Memmy_AstNod
         };
         status = Memmy_Process_ScanReferences(env->arena, process, &options,
                                               Memmy_Eval_ReferenceScanMode(expr->reference_mode), target, sink, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+
+        *out = Memmy_Eval_AddressListFromCollector(env->arena, &collector);
+        return Memmy_Status_Ok;
+    }
+    if (expr->kind == Memmy_AstNodeKind_DisasmScan)
+    {
+        Memmy_EvalValue range_value = {0};
+        Memmy_Status status = Memmy_EvalExprWithContext(exec, expr->lhs, &range_value, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        Memmy_Process *process = 0;
+        status = Memmy_Eval_RequireProcess(exec, &range_value, String8_Lit("disasm"), &process, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        if (range_value.kind != Memmy_EvalValueKind_Range && range_value.kind != Memmy_EvalValueKind_ProcessRange)
+        {
+            Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("disasm"),
+                            String8_Lit("expected scan range"));
+            return Memmy_Status_InvalidArgument;
+        }
+
+        Memmy_EvalScanCollector collector = {.arena = env->arena};
+        Memmy_ScanSink sink = {
+            .callback = Memmy_EvalScanCollector_Push,
+            .user_data = &collector,
+        };
+        Memmy_ScanOptions options = {
+            .range = range_value.range,
+            .limit = 0,
+            .chunk_size = 0,
+            .scan_readable_regions = range_value.kind == Memmy_EvalValueKind_ProcessRange,
+        };
+        status = Memmy_Eval_DisasmX64Scan(env->arena, process, &options, expr->disasm_pattern, sink, error);
         if (status != Memmy_Status_Ok)
         {
             return status;

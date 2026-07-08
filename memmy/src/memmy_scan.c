@@ -18,8 +18,6 @@ static B32 Memmy_Pattern_MatchesAt(Memmy_Pattern pattern, U8 *bytes)
     return 1;
 }
 
-typedef B32 Memmy_ScanMatchFn(void *user_data, Memmy_Addr address, U8 *bytes, U64 available);
-
 typedef struct Memmy_ScanNeedle Memmy_ScanNeedle;
 struct Memmy_ScanNeedle
 {
@@ -495,6 +493,19 @@ Memmy_Status Memmy_Process_ScanReferences(Arena *arena, Memmy_Process *process, 
         .max_size = mode == Memmy_ReferenceScanMode_Rel32 ? 4 : ptr_size,
         .match = Memmy_ReferenceScan_MatchesAt,
         .user_data = &reference,
+    };
+    return Memmy_Process_ScanNeedle(arena, process, options, needle, sink, error);
+}
+
+Memmy_Status Memmy_Process_ScanCustom(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options, U64 min_size,
+                                      U64 max_size, Memmy_ScanMatchFn *match, void *user_data, Memmy_ScanSink sink,
+                                      Memmy_Error *error)
+{
+    Memmy_ScanNeedle needle = {
+        .min_size = min_size,
+        .max_size = max_size,
+        .match = match,
+        .user_data = user_data,
     };
     return Memmy_Process_ScanNeedle(arena, process, options, needle, sink, error);
 }

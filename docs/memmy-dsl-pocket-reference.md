@@ -83,7 +83,8 @@ $player->$hp_offset as f32 = 100.0
 
 ## Address Lists
 
-Pattern scans, value scans, and reference scans evaluate to address lists.
+Pattern scans, value scans, reference scans, and disassembly scans evaluate to
+address lists.
 
 ```txt
 <client.dll>{AB CD ?? ?? 12 34}
@@ -97,12 +98,29 @@ Pattern scans, value scans, and reference scans evaluate to address lists.
 <client.dll> refs ptr @0x1234
 [0..] refs rel32 $target
 [@0x1234..@0x5678] refs any <client.dll>+0x20
+
+<client.dll> disasm x64 { mov reg, [rip+disp32]; xor rax, rax }
+[0..] disasm x64 { mov rax, [rip+disp32] }
 $xrefs => function $
 ```
 
 `ptr` matches pointer-width little-endian absolute values. `rel32` matches a
 signed 32-bit displacement where the displacement field address plus 4 plus the
 displacement equals the target address. `any` returns the union of both modes.
+
+`disasm x64` matches consecutive decoded x64 instructions using structured
+Zydis instruction and operand data, not formatted disassembly text. The v1
+operand forms are:
+
+```txt
+reg              any explicit register operand
+rax/eax/xmm0     exact explicit register operand
+[rip+disp32]     RIP-relative memory operand with a 32-bit displacement
+```
+
+Only x64 is supported. Operands are matched against visible explicit operands.
+`[rip+disp32]` checks the RIP-relative memory shape only; it does not resolve or
+filter the absolute target address.
 
 ## Indexing Address Lists
 
@@ -186,6 +204,7 @@ range as T == value  value scan -> address list
 range refs ptr addr  pointer reference scan -> address list
 range refs rel32 addr rel32 reference scan -> address list
 range refs any addr  ptr or rel32 reference scan -> address list
+range disasm x64 {...} x64 disassembly scan -> address list
 function address     function range containing address
 address as T         typed read
 address as T = value typed write

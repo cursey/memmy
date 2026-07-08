@@ -1324,6 +1324,80 @@ static Memmy_AstStatus Memmy_Parser_ParseReferenceScan(Memmy_Parser *parser, Mem
     return Memmy_AstStatus_Ok;
 }
 
+static Memmy_AstStatus Memmy_Parser_ParseDisasmScan(Memmy_Parser *parser, Memmy_AstNode **out)
+{
+    Memmy_AstNode *range = *out;
+    Memmy_Token disasm = parser->token;
+    Memmy_AstStatus status = Memmy_Parser_Next(parser);
+    if (status != Memmy_AstStatus_Ok)
+    {
+        return status;
+    }
+
+    if (parser->token.kind != Memmy_TokenKind_Identifier)
+    {
+        Memmy_Parser_SetError(parser, String8_Lit("expected disasm architecture"), parser->token.byte_offset,
+                              parser->token.byte_count);
+        return Memmy_AstStatus_ParseError;
+    }
+    if (!Memmy_Token_IsIdentifier(parser->token, String8_Lit("x64")))
+    {
+        Memmy_Parser_SetError(parser, String8_Lit("unsupported disasm architecture"), parser->token.byte_offset,
+                              parser->token.byte_count);
+        return Memmy_AstStatus_ParseError;
+    }
+
+    status = Memmy_Parser_Next(parser);
+    if (status != Memmy_AstStatus_Ok)
+    {
+        return status;
+    }
+    if (parser->token.kind != Memmy_TokenKind_LBrace)
+    {
+        Memmy_Parser_SetError(parser, String8_Lit("expected disasm pattern body"), parser->token.byte_offset,
+                              parser->token.byte_count);
+        return Memmy_AstStatus_ParseError;
+    }
+
+    Memmy_Token open = parser->token;
+    U64 body_start = parser->pos;
+    B32 terminated = 0;
+    while (!Memmy_Parser_AtEnd(parser))
+    {
+        if (Memmy_Parser_Peek(parser) == '}')
+        {
+            terminated = 1;
+            break;
+        }
+        parser->pos++;
+    }
+    if (!terminated)
+    {
+        Memmy_Parser_SetError(parser, String8_Lit("unterminated disasm pattern"), open.byte_offset, open.byte_count);
+        return Memmy_AstStatus_ParseError;
+    }
+
+    U64 body_end = parser->pos;
+    parser->pos++;
+
+    Memmy_AstDisasmPattern pattern = {0};
+    String8 body = String8_Substr(parser->input, body_start, body_end - body_start);
+    status =
+        Memmy_Ast_ParseDisasmX64Pattern(parser->arena, parser->input, body, body_start, &pattern, parser->diagnostic);
+    if (status != Memmy_AstStatus_Ok)
+    {
+        return status;
+    }
+
+    Memmy_AstNode *node = Memmy_Parser_PushNode(parser, Memmy_AstNodeKind_DisasmScan, disasm);
+    node->lhs = range;
+    node->disasm_pattern = pattern;
+    node->contains_variable = range->contains_variable;
+    Memmy_Parser_NodeCoverInput(parser, node, range->byte_offset, parser->pos);
+    *out = node;
+    return Memmy_Parser_Next(parser);
+}
+
 static Memmy_AstStatus Memmy_Parser_ParseIndex(Memmy_Parser *parser, Memmy_AstNode **out)
 {
     Memmy_AstNode *base = *out;
@@ -1372,6 +1446,10 @@ static Memmy_AstStatus Memmy_Parser_ParsePostfix(Memmy_Parser *parser, Memmy_Ast
         else if (Memmy_Token_IsIdentifier(parser->token, String8_Lit("refs")))
         {
             status = Memmy_Parser_ParseReferenceScan(parser, out);
+        }
+        else if (Memmy_Token_IsIdentifier(parser->token, String8_Lit("disasm")))
+        {
+            status = Memmy_Parser_ParseDisasmScan(parser, out);
         }
         else if (parser->token.kind == Memmy_TokenKind_LBracket)
         {

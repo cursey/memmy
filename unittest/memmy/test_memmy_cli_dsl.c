@@ -622,6 +622,7 @@ Test(Test_MemmyCliHelpFormatsText)
 
     AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
     AssertTrue(String8_Find(out, String8_Lit("range refs ptr addr"), 0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("range disasm x64"), 0) != STRING8_NPOS);
     AssertTrue(String8_Find(out, String8_Lit("function address"), 0) != STRING8_NPOS);
     AssertTrue(String8_Find(out, String8_Lit("objectbase address"), 0) != STRING8_NPOS);
     AssertTrue(String8_Find(out, String8_Lit("$hits => objectbase $"), 0) != STRING8_NPOS);

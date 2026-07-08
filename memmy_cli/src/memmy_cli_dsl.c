@@ -117,6 +117,7 @@ static String8 Memmy_Cli_DslHelp(Arena *arena)
                                            "  range refs ptr addr  pointer reference scan -> address list\n"
                                            "  range refs rel32 addr rel32 reference scan -> address list\n"
                                            "  range refs any addr  ptr or rel32 reference scan -> address list\n"
+                                           "  range disasm x64 {...} x64 disassembly scan -> address list\n"
                                            "  list => expr         transform each address/range item\n"
                                            "  $                    current item inside transform RHS\n"
                                            "  $matches => [$..+0x20]\n"

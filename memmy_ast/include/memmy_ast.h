@@ -35,8 +35,46 @@ enum
     Memmy_AstNodeKind_Assignment,
     Memmy_AstNodeKind_Command,
     Memmy_AstNodeKind_ReferenceScan,
+    Memmy_AstNodeKind_DisasmScan,
     Memmy_AstNodeKind_Function,
     Memmy_AstNodeKind_ObjectBase,
+};
+
+typedef U32 Memmy_AstDisasmArch;
+enum
+{
+    Memmy_AstDisasmArch_X64,
+};
+
+typedef U32 Memmy_AstDisasmOperandKind;
+enum
+{
+    Memmy_AstDisasmOperandKind_RegisterAny,
+    Memmy_AstDisasmOperandKind_Register,
+    Memmy_AstDisasmOperandKind_RipDisp32,
+};
+
+typedef struct Memmy_AstDisasmOperand Memmy_AstDisasmOperand;
+struct Memmy_AstDisasmOperand
+{
+    Memmy_AstDisasmOperandKind kind;
+    String8 reg;
+};
+
+typedef struct Memmy_AstDisasmInstruction Memmy_AstDisasmInstruction;
+struct Memmy_AstDisasmInstruction
+{
+    String8 mnemonic;
+    Memmy_AstDisasmOperand *operands;
+    U32 operand_count;
+};
+
+typedef struct Memmy_AstDisasmPattern Memmy_AstDisasmPattern;
+struct Memmy_AstDisasmPattern
+{
+    Memmy_AstDisasmArch arch;
+    Memmy_AstDisasmInstruction *instructions;
+    U32 instruction_count;
 };
 
 typedef U32 Memmy_AstReferenceMode;
@@ -105,6 +143,7 @@ struct Memmy_AstNode
     String8 name;
     String8 type_name;
     String8 pattern;
+    Memmy_AstDisasmPattern disasm_pattern;
     String8 value_text;
     String8 target_module;
 };
@@ -124,5 +163,7 @@ struct Memmy_AstStatement
 Memmy_AstStatus Memmy_Ast_ParseExpr(Arena *arena, String8 text, Memmy_AstNode **out, Memmy_AstDiagnostic *diagnostic);
 Memmy_AstStatus Memmy_Ast_ParseStatement(Arena *arena, String8 text, Memmy_AstStatement *out,
                                          Memmy_AstDiagnostic *diagnostic);
+Memmy_AstStatus Memmy_Ast_ParseDisasmX64Pattern(Arena *arena, String8 input, String8 body, U64 body_offset,
+                                                Memmy_AstDisasmPattern *out, Memmy_AstDiagnostic *diagnostic);
 
 #endif // MEMMY_AST_H
