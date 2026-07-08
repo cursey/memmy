@@ -373,6 +373,7 @@ static Memmy_AstStatus Memmy_Parser_ParseExprPrimary(Memmy_Parser *parser, Memmy
 static Memmy_AstStatus Memmy_Parser_ParseTargetOrTargetAddress(Memmy_Parser *parser, Memmy_AstNode **out);
 static B32 Memmy_Parser_TokenEndsExpr(Memmy_TokenKind kind);
 static Memmy_AstStatus Memmy_Parser_ParseDerefChain(Memmy_Parser *parser, Memmy_AstNode **out);
+static Memmy_AstStatus Memmy_Parser_ParsePostfix(Memmy_Parser *parser, Memmy_AstNode **out, B32 tight_only);
 
 static B32 Memmy_AstNode_CanFoldConst(Memmy_AstNode *node)
 {
@@ -949,7 +950,11 @@ static Memmy_AstStatus Memmy_Parser_ParseAddressUnary(Memmy_Parser *parser, Memm
     }
     else
     {
-        status = Memmy_Parser_ParseConstSum(parser, &operand);
+        status = Memmy_Parser_ParseConstProduct(parser, &operand);
+    }
+    if (status == Memmy_AstStatus_Ok)
+    {
+        status = Memmy_Parser_ParsePostfix(parser, &operand, 1);
     }
     if (status == Memmy_AstStatus_Ok)
     {
@@ -1086,6 +1091,10 @@ static Memmy_AstStatus Memmy_Parser_ParseDerefChain(Memmy_Parser *parser, Memmy_
 static Memmy_AstStatus Memmy_Parser_ParseExprAdditive(Memmy_Parser *parser, Memmy_AstNode **out)
 {
     Memmy_AstStatus status = Memmy_Parser_ParseExprPrimary(parser, out);
+    if (status == Memmy_AstStatus_Ok)
+    {
+        status = Memmy_Parser_ParsePostfix(parser, out, 1);
+    }
     if (status != Memmy_AstStatus_Ok)
     {
         return status;
@@ -1102,6 +1111,10 @@ static Memmy_AstStatus Memmy_Parser_ParseExprAdditive(Memmy_Parser *parser, Memm
 
         Memmy_AstNode *rhs = 0;
         status = Memmy_Parser_ParseExprPrimary(parser, &rhs);
+        if (status == Memmy_AstStatus_Ok)
+        {
+            status = Memmy_Parser_ParsePostfix(parser, &rhs, 1);
+        }
         if (status != Memmy_AstStatus_Ok)
         {
             return status;
@@ -1430,7 +1443,7 @@ static Memmy_AstStatus Memmy_Parser_ParseIndex(Memmy_Parser *parser, Memmy_AstNo
     return Memmy_Parser_Next(parser);
 }
 
-static Memmy_AstStatus Memmy_Parser_ParsePostfix(Memmy_Parser *parser, Memmy_AstNode **out)
+static Memmy_AstStatus Memmy_Parser_ParsePostfix(Memmy_Parser *parser, Memmy_AstNode **out, B32 tight_only)
 {
     for (;;)
     {
@@ -1439,15 +1452,15 @@ static Memmy_AstStatus Memmy_Parser_ParsePostfix(Memmy_Parser *parser, Memmy_Ast
         {
             status = Memmy_Parser_ParsePatternScan(parser, out);
         }
-        else if (parser->token.kind == Memmy_TokenKind_As)
+        else if (!tight_only && parser->token.kind == Memmy_TokenKind_As)
         {
             status = Memmy_Parser_ParseTypedMemory(parser, out);
         }
-        else if (Memmy_Token_IsIdentifier(parser->token, String8_Lit("refs")))
+        else if (!tight_only && Memmy_Token_IsIdentifier(parser->token, String8_Lit("refs")))
         {
             status = Memmy_Parser_ParseReferenceScan(parser, out);
         }
-        else if (Memmy_Token_IsIdentifier(parser->token, String8_Lit("disasm")))
+        else if (!tight_only && Memmy_Token_IsIdentifier(parser->token, String8_Lit("disasm")))
         {
             status = Memmy_Parser_ParseDisasmScan(parser, out);
         }
@@ -1477,7 +1490,7 @@ static Memmy_AstStatus Memmy_Parser_ParseExprNoTransform(Memmy_Parser *parser, M
     }
     if (status == Memmy_AstStatus_Ok)
     {
-        status = Memmy_Parser_ParsePostfix(parser, out);
+        status = Memmy_Parser_ParsePostfix(parser, out, 0);
     }
     return status;
 }

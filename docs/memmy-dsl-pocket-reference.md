@@ -10,6 +10,7 @@ x                    constant integer/math expression
 <module>             module range in attached/selected process
 [0..]                readable regions of attached/selected process
 function address     function range containing address
+objectbase address   best-effort object base containing address
 $name                variable
 ```
 
@@ -60,6 +61,8 @@ $rva = $hit - <client.dll>      RVA as a plain constant
 <client.dll>->                  dereference module base
 $player->$hp_offset             dereference variable address, then add variable offset
 function $xref                  containing function range for address
+function (<client.dll>+0x1234)  containing function for module base + offset
+objectbase (<client.dll>+0x1234) containing object base for module base + offset
 ```
 
 Module-relative offsets are ordinary constants. A module target by itself is a
@@ -104,6 +107,10 @@ address lists.
 $xrefs => function $
 ```
 
+Quoted `str` and `wstr` scan/write values use DSL string literal contents, so
+`"hello"` scans/writes `hello` without quote bytes. Supported escapes are
+`\"`, `\\`, `\n`, `\r`, and `\t`.
+
 `ptr` matches pointer-width little-endian absolute values. `rel32` matches a
 signed 32-bit displacement where the displacement field address plus 4 plus the
 displacement equals the target address. `any` returns the union of both modes.
@@ -130,6 +137,7 @@ filter the absolute target address.
 
 $matches = <client.dll>{aa bb ?? ?? 11 22}
 $matches[3]
+$hit = $matches[0] - 0xf
 ```
 
 ## Assignments
@@ -150,6 +158,10 @@ $foo = <client.dll>{aa bb ?? ?? 11 22}
 $fn = function $xref
 $fns = $xrefs => function $
 ```
+
+List transforms fail fast: `$xrefs => function $` stops if any item has no
+function metadata. When an xref scan may include data-section hits, select or
+filter the code hit first, for example `$fn = function $xrefs[0]`.
 
 ## Variables
 

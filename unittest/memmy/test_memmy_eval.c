@@ -1,3 +1,4 @@
+#include "base_memory.h"
 #include "memmy_eval.h"
 #include "test_framework.h"
 #include "test_memmy_backend.h"
@@ -673,6 +674,14 @@ Test(Test_MemmyEvalTypedReadsAndWritesWithFakeBackend)
     AssertEq(text.kind, Memmy_EvalValueKind_TypedValue);
     AssertStrEq(text.typed_value.bytes, String8_Lit("hi"));
 
+    backend.memory[0x48] = 0;
+    backend.memory[0x4d] = 0;
+    Memmy_EvalResult string_write = {0};
+    Test_EvalStatementFullResult(env, arena, "@0x1048 as str = \"hello\"", &string_write);
+    AssertEq(string_write.kind, Memmy_EvalResultKind_Write);
+    AssertStrEq(string_write.new_value.bytes, String8_Lit("hello"));
+    Test_AssertBytes(String8_Make(&backend.memory[0x48], 5), (U8 *)"hello", 5);
+
     Memmy_EvalResult write = {0};
     Test_EvalStatementFullResult(env, arena, "@0x1004 as u32 = 0x11223344", &write);
     AssertEq(write.kind, Memmy_EvalResultKind_Write);
@@ -778,6 +787,36 @@ Test(Test_MemmyEvalValueScanAssignmentMaterializesAddressList)
     AssertEq(matches.address_count, 2);
     AssertEq(matches.addresses[0], 0x1010);
     AssertEq(matches.addresses[1], 0x1030);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalQuotedStringValueScansDecodeDslLiterals)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Memmy_EvalEnv *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+    U8 hello[] = {'h', 'e', 'l', 'l', 'o'};
+    U8 quoted_hello[] = {'"', 'h', 'e', 'l', 'l', 'o', '"'};
+    U8 wide_hi[] = {'H', 0, 'i', 0};
+    Memory_Copy(&backend.memory[0x20], hello, ArrayCount(hello));
+    Memory_Copy(&backend.memory[0x30], quoted_hello, ArrayCount(quoted_hello));
+    Memory_Copy(&backend.memory[0x40], wide_hi, ArrayCount(wide_hi));
+
+    Memmy_EvalValue str_matches = {0};
+    Test_EvalExprText(env, arena, "[@0x1000..+0x80] as str == \"hello\"", &str_matches);
+    AssertEq(str_matches.kind, Memmy_EvalValueKind_AddressList);
+    AssertEq(str_matches.address_count, 2);
+    AssertEq(str_matches.addresses[0], 0x1020);
+    AssertEq(str_matches.addresses[1], 0x1031);
+
+    Memmy_EvalValue wstr_matches = {0};
+    Test_EvalExprText(env, arena, "[@0x1000..+0x80] as wstr == \"Hi\"", &wstr_matches);
+    AssertEq(wstr_matches.kind, Memmy_EvalValueKind_AddressList);
+    AssertEq(wstr_matches.address_count, 1);
+    AssertEq(wstr_matches.addresses[0], 0x1040);
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -1023,6 +1062,9 @@ Test(Test_MemmyEvalFunctionLookup)
     Test_EvalEnvWithProcess(arena, &backend, &env);
     Test_MemmyBackend_AddFunction(&backend, 4242, 0x1000, 0x1050);
     Test_MemmyBackend_AddFunction(&backend, 4242, 0x2000, 0x2080);
+    Test_MemmyBackend_AddModule(&backend, 4242, String8_Lit("client.dll"), String8_Lit("C:\\test\\client.dll"), 0x3000,
+                                0x1000);
+    Test_MemmyBackend_AddFunction(&backend, 4242, 0x3000, 0x3080);
 
     Memmy_EvalValue value = {0};
     Test_EvalExprText(env, arena, "function @0x1024", &value);
@@ -1051,6 +1093,37 @@ Test(Test_MemmyEvalFunctionLookup)
     AssertEq(ranges.ranges[1].start, 0x2000);
     AssertEq(ranges.ranges[1].end, 0x2080);
 
+    Memmy_EvalValue indexed_function = {0};
+    Test_EvalExprText(env, arena, "function $xrefs[0]", &indexed_function);
+    AssertEq(indexed_function.kind, Memmy_EvalValueKind_Range);
+    AssertEq(indexed_function.range.start, 0x1000);
+    AssertEq(indexed_function.range.end, 0x1050);
+
+    Memmy_EvalValue module_offset = {0};
+    Test_EvalExprText(env, arena, "function (<client.dll>+0x24)", &module_offset);
+    AssertEq(module_offset.kind, Memmy_EvalValueKind_Range);
+    AssertEq(module_offset.range.start, 0x3000);
+    AssertEq(module_offset.range.end, 0x3080);
+
+    AssertEq(Memmy_EvalEnv_Set(env, String8_Lit("hit"),
+                               (Memmy_EvalValue){.kind = Memmy_EvalValueKind_Address, .address = 0x3024}),
+             Memmy_Status_Ok);
+    Memmy_EvalValue variable_offset = {0};
+    Test_EvalExprText(env, arena, "function ($hit + 4)", &variable_offset);
+    AssertEq(variable_offset.kind, Memmy_EvalValueKind_Range);
+    AssertEq(variable_offset.range.start, 0x3000);
+    AssertEq(variable_offset.range.end, 0x3080);
+
+    Memmy_EvalValue function_rva = {0};
+    Test_EvalExprText(env, arena, "function $hit - <client.dll>", &function_rva);
+    AssertEq(function_rva.kind, Memmy_EvalValueKind_Const);
+    AssertEq(function_rva.constant, 0);
+
+    Memmy_EvalValue module_offset_rva = {0};
+    Test_EvalExprText(env, arena, "function (<client.dll>+0x24) - <client.dll>", &module_offset_rva);
+    AssertEq(module_offset_rva.kind, Memmy_EvalValueKind_Const);
+    AssertEq(module_offset_rva.constant, 0);
+
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
 }
@@ -1068,6 +1141,17 @@ Test(Test_MemmyEvalFunctionLookupErrors)
     Memmy_Error error = {0};
 
     Test_EvalParseExpr(arena, "function @0x2000", &expr);
+    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_NotFound);
+    AssertStrEq(error.context, String8_Lit("function"));
+
+    Memmy_Addr xrefs[] = {0x1024, 0x2000};
+    AssertEq(Memmy_EvalEnv_Set(env, String8_Lit("xrefs"),
+                               (Memmy_EvalValue){.kind = Memmy_EvalValueKind_AddressList,
+                                                 .addresses = xrefs,
+                                                 .address_count = ArrayCount(xrefs)}),
+             Memmy_Status_Ok);
+    Test_EvalParseExpr(arena, "$xrefs => function $", &expr);
+    error = (Memmy_Error){0};
     AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_NotFound);
     AssertStrEq(error.context, String8_Lit("function"));
 
@@ -1436,6 +1520,7 @@ TestSuite suite_memmy_eval = TestSuite_Make(
     TestCase_Make(Test_MemmyEvalTypedWritePropagatesWriteFailuresAfterOldValueRead),
     TestCase_Make(Test_MemmyEvalPatternScanAssignmentMaterializesAddressList),
     TestCase_Make(Test_MemmyEvalValueScanAssignmentMaterializesAddressList),
+    TestCase_Make(Test_MemmyEvalQuotedStringValueScansDecodeDslLiterals),
     TestCase_Make(Test_MemmyEvalReferenceScansMaterializeAddressLists),
     TestCase_Make(Test_MemmyEvalReferenceScanAssignmentsIndexesTransformsAndProcessRange),
     TestCase_Make(Test_MemmyEvalReferenceScanRejectsMissingProcessWrongLhsAndTarget),

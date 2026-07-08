@@ -584,6 +584,65 @@ static Memmy_Status Memmy_Eval_ReadValue(Arena *arena, Memmy_Process *process, M
     return Memmy_Status_Ok;
 }
 
+static Memmy_Status Memmy_Eval_DecodeStringLiteral(Arena *arena, String8 text, String8 *out, Memmy_Error *error)
+{
+    if (text.len < 2 || text.data[0] != '"' || text.data[text.len - 1] != '"')
+    {
+        *out = text;
+        return Memmy_Status_Ok;
+    }
+
+    U8 *bytes = Arena_PushArrayNoZero(arena, U8, text.len - 2);
+    U64 at = 0;
+    for (U64 i = 1; i + 1 < text.len; i++)
+    {
+        U8 c = text.data[i];
+        if (c == '\\')
+        {
+            i++;
+            if (i + 1 >= text.len)
+            {
+                Memmy_EvalError(error, Memmy_Status_ParseError, String8_Lit("value"),
+                                String8_Lit("unterminated string escape"));
+                return Memmy_Status_ParseError;
+            }
+
+            U8 esc = text.data[i];
+            if (esc == '"')
+            {
+                c = '"';
+            }
+            else if (esc == '\\')
+            {
+                c = '\\';
+            }
+            else if (esc == 'n')
+            {
+                c = '\n';
+            }
+            else if (esc == 'r')
+            {
+                c = '\r';
+            }
+            else if (esc == 't')
+            {
+                c = '\t';
+            }
+            else
+            {
+                Memmy_EvalError(error, Memmy_Status_ParseError, String8_Lit("value"),
+                                String8_Lit("unknown string escape"));
+                return Memmy_Status_ParseError;
+            }
+        }
+
+        bytes[at++] = c;
+    }
+
+    *out = String8_Make(bytes, at);
+    return Memmy_Status_Ok;
+}
+
 static Memmy_Status Memmy_Eval_ParseValue(Memmy_EvalExec *exec, Memmy_Process *process, Memmy_Type type,
                                           String8 value_text, Memmy_Value *out, Memmy_Error *error)
 {
@@ -623,6 +682,21 @@ static Memmy_Status Memmy_Eval_ParseValue(Memmy_EvalExec *exec, Memmy_Process *p
             return status;
         }
         parse_text = String8_PushF(scratch.arena, "%lld", constant);
+    }
+
+    if (type.kind == Memmy_TypeKind_Str || type.kind == Memmy_TypeKind_WStr)
+    {
+        if (!using_scratch)
+        {
+            scratch = Scratch_Begin(&env->arena, 1);
+            using_scratch = 1;
+        }
+        Memmy_Status decode_status = Memmy_Eval_DecodeStringLiteral(scratch.arena, parse_text, &parse_text, error);
+        if (decode_status != Memmy_Status_Ok)
+        {
+            Scratch_End(scratch);
+            return decode_status;
+        }
     }
 
     Memmy_Status status = Memmy_Value_Parse(env->arena, type, process->pointer_width, parse_text, out, error);
@@ -1285,7 +1359,7 @@ static Memmy_Status Memmy_Eval_Command(Memmy_EvalExec *exec, Memmy_AstStatement 
                                           "  list => expr         transform each address/range item\n"
                                           "  $                    current item inside transform RHS\n"
                                           "  $matches => [$..+0x20]\n"
-                                          "  $xrefs => function $\n"
+                                          "  $fn = function $xrefs[0]\n"
                                           "  $hits => objectbase $\n"
                                           "  $ranges => $ + 4\n"
                                           "  $name[N]             index address/range list\n"

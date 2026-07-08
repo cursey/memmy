@@ -991,6 +991,16 @@ Test(Test_MemmyCliExprFormatsValueScanTextLikeScan)
     Test_MemmyCliExpr_SetupBackend(&test_backend);
     test_backend.memory[0x10] = 0x90;
     test_backend.memory[0x30] = 0x90;
+    U8 hello[] = {'h', 'e', 'l', 'l', 'o'};
+    U8 wide_hi[] = {'H', 0, 'i', 0};
+    for (U64 i = 0; i < ArrayCount(hello); i++)
+    {
+        test_backend.memory[0x20 + i] = hello[i];
+    }
+    for (U64 i = 0; i < ArrayCount(wide_hi); i++)
+    {
+        test_backend.memory[0x28 + i] = wide_hi[i];
+    }
 
     Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
     Memmy_Context_Set(&ctx);
@@ -1004,6 +1014,18 @@ Test(Test_MemmyCliExprFormatsValueScanTextLikeScan)
                                  "0x0000000000001010\n"
                                  "0x0000000000001030\n"));
     AssertEq(test_backend.last_open_pid, 1234);
+
+    char *str_argv[] = {"memmy", "--pid", "1234", "--expr", "[@0x1020..+0x10] as str == \"hello\""};
+    error = (Memmy_Error){0};
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(str_argv), str_argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("ADDRESS\n"
+                                 "0x0000000000001020\n"));
+
+    char *wstr_argv[] = {"memmy", "--pid", "1234", "--expr", "[@0x1020..+0x10] as wstr == \"Hi\""};
+    error = (Memmy_Error){0};
+    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(wstr_argv), wstr_argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("ADDRESS\n"
+                                 "0x0000000000001028\n"));
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);

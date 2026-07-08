@@ -507,6 +507,22 @@ Test(Test_MemmyAstParsesPocketReferenceIndexingAddressLists)
     AssertStrEq(variable_index->lhs->name, String8_Lit("matches"));
     AssertEq(variable_index->rhs->value, 3);
 
+    Memmy_AstNode *indexed_arithmetic = 0;
+    Test_ParseAstExpr(arena, "$xrefs[0] - 0xf", &indexed_arithmetic);
+    AssertEq(indexed_arithmetic->kind, Memmy_AstNodeKind_ConstArithmetic);
+    AssertEq(indexed_arithmetic->op, Memmy_AstConstOp_Sub);
+    AssertEq(indexed_arithmetic->lhs->kind, Memmy_AstNodeKind_Index);
+    AssertEq(indexed_arithmetic->lhs->lhs->kind, Memmy_AstNodeKind_Variable);
+    AssertEq(indexed_arithmetic->rhs->value, 0xf);
+
+    Memmy_AstNode *scan_indexed_arithmetic = 0;
+    Test_ParseAstExpr(arena, "(<client.dll>{aa})[0] - <client.dll>", &scan_indexed_arithmetic);
+    AssertEq(scan_indexed_arithmetic->kind, Memmy_AstNodeKind_ConstArithmetic);
+    AssertEq(scan_indexed_arithmetic->op, Memmy_AstConstOp_Sub);
+    AssertEq(scan_indexed_arithmetic->lhs->kind, Memmy_AstNodeKind_Index);
+    AssertEq(scan_indexed_arithmetic->lhs->lhs->kind, Memmy_AstNodeKind_PatternScan);
+    AssertEq(scan_indexed_arithmetic->rhs->kind, Memmy_AstNodeKind_Target);
+
     Arena_Destroy(arena);
 }
 
@@ -634,10 +650,65 @@ Test(Test_MemmyAstParsesFunctionLookup)
     AssertEq(transform->rhs->kind, Memmy_AstNodeKind_Function);
     AssertEq(transform->rhs->lhs->kind, Memmy_AstNodeKind_CurrentItem);
 
+    Memmy_AstNode *indexed_operand = 0;
+    Test_ParseAstExpr(arena, "function $xrefs[0]", &indexed_operand);
+    AssertEq(indexed_operand->kind, Memmy_AstNodeKind_Function);
+    AssertEq(indexed_operand->lhs->kind, Memmy_AstNodeKind_Index);
+    AssertEq(indexed_operand->lhs->lhs->kind, Memmy_AstNodeKind_Variable);
+    AssertStrEq(indexed_operand->lhs->lhs->name, String8_Lit("xrefs"));
+
     Memmy_AstNode *typed_read = 0;
     Test_ParseAstExpr(arena, "function @0x1234 as u8", &typed_read);
     AssertEq(typed_read->kind, Memmy_AstNodeKind_TypedRead);
     AssertEq(typed_read->lhs->kind, Memmy_AstNodeKind_Function);
+
+    Memmy_AstNode *target_offset = 0;
+    Test_ParseAstExpr(arena, "function (<client.dll>+0x123)", &target_offset);
+    AssertEq(target_offset->kind, Memmy_AstNodeKind_Function);
+    AssertEq(target_offset->lhs->kind, Memmy_AstNodeKind_ConstArithmetic);
+    AssertEq(target_offset->lhs->op, Memmy_AstConstOp_Add);
+    AssertEq(target_offset->lhs->lhs->kind, Memmy_AstNodeKind_Target);
+    AssertEq(target_offset->lhs->rhs->value, 0x123);
+
+    Memmy_AstNode *ungrouped_target_offset = 0;
+    Test_ParseAstExpr(arena, "function <client.dll>+0x123", &ungrouped_target_offset);
+    AssertEq(ungrouped_target_offset->kind, Memmy_AstNodeKind_ConstArithmetic);
+    AssertEq(ungrouped_target_offset->op, Memmy_AstConstOp_Add);
+    AssertEq(ungrouped_target_offset->lhs->kind, Memmy_AstNodeKind_Function);
+    AssertEq(ungrouped_target_offset->lhs->lhs->kind, Memmy_AstNodeKind_Target);
+    AssertEq(ungrouped_target_offset->rhs->value, 0x123);
+
+    Memmy_AstNode *lookup_result_rva = 0;
+    Test_ParseAstExpr(arena, "function $xref - <client.dll>", &lookup_result_rva);
+    AssertEq(lookup_result_rva->kind, Memmy_AstNodeKind_ConstArithmetic);
+    AssertEq(lookup_result_rva->op, Memmy_AstConstOp_Sub);
+    AssertEq(lookup_result_rva->lhs->kind, Memmy_AstNodeKind_Function);
+    AssertEq(lookup_result_rva->lhs->lhs->kind, Memmy_AstNodeKind_Variable);
+    AssertEq(lookup_result_rva->rhs->kind, Memmy_AstNodeKind_Target);
+
+    Memmy_AstNode *variable_offset = 0;
+    Test_ParseAstExpr(arena, "function ($xref + 4)", &variable_offset);
+    AssertEq(variable_offset->kind, Memmy_AstNodeKind_Function);
+    AssertEq(variable_offset->lhs->kind, Memmy_AstNodeKind_ConstArithmetic);
+    AssertEq(variable_offset->lhs->op, Memmy_AstConstOp_Add);
+    AssertEq(variable_offset->lhs->lhs->kind, Memmy_AstNodeKind_Variable);
+    AssertEq(variable_offset->lhs->rhs->value, 4);
+
+    Memmy_AstNode *ungrouped_variable_offset = 0;
+    Test_ParseAstExpr(arena, "function $xref + 4", &ungrouped_variable_offset);
+    AssertEq(ungrouped_variable_offset->kind, Memmy_AstNodeKind_ConstArithmetic);
+    AssertEq(ungrouped_variable_offset->op, Memmy_AstConstOp_Add);
+    AssertEq(ungrouped_variable_offset->lhs->kind, Memmy_AstNodeKind_Function);
+    AssertEq(ungrouped_variable_offset->lhs->lhs->kind, Memmy_AstNodeKind_Variable);
+    AssertEq(ungrouped_variable_offset->rhs->value, 4);
+
+    Memmy_AstNode *target_offset_rva = 0;
+    Test_ParseAstExpr(arena, "function (<client.dll>+0x123) - <client.dll>", &target_offset_rva);
+    AssertEq(target_offset_rva->kind, Memmy_AstNodeKind_ConstArithmetic);
+    AssertEq(target_offset_rva->op, Memmy_AstConstOp_Sub);
+    AssertEq(target_offset_rva->lhs->kind, Memmy_AstNodeKind_Function);
+    AssertEq(target_offset_rva->lhs->lhs->kind, Memmy_AstNodeKind_ConstArithmetic);
+    AssertEq(target_offset_rva->rhs->kind, Memmy_AstNodeKind_Target);
 
     Memmy_AstNode *variable = 0;
     Test_ParseAstExpr(arena, "$function", &variable);
@@ -673,6 +744,22 @@ Test(Test_MemmyAstParsesObjectBaseLookup)
     Test_ParseAstExpr(arena, "objectbase @0x1234 as u8", &typed_read);
     AssertEq(typed_read->kind, Memmy_AstNodeKind_TypedRead);
     AssertEq(typed_read->lhs->kind, Memmy_AstNodeKind_ObjectBase);
+
+    Memmy_AstNode *target_offset = 0;
+    Test_ParseAstExpr(arena, "objectbase (<client.dll>+0x123)", &target_offset);
+    AssertEq(target_offset->kind, Memmy_AstNodeKind_ObjectBase);
+    AssertEq(target_offset->lhs->kind, Memmy_AstNodeKind_ConstArithmetic);
+    AssertEq(target_offset->lhs->op, Memmy_AstConstOp_Add);
+    AssertEq(target_offset->lhs->lhs->kind, Memmy_AstNodeKind_Target);
+    AssertEq(target_offset->lhs->rhs->value, 0x123);
+
+    Memmy_AstNode *lookup_result_rva = 0;
+    Test_ParseAstExpr(arena, "objectbase $addr - <client.dll>", &lookup_result_rva);
+    AssertEq(lookup_result_rva->kind, Memmy_AstNodeKind_ConstArithmetic);
+    AssertEq(lookup_result_rva->op, Memmy_AstConstOp_Sub);
+    AssertEq(lookup_result_rva->lhs->kind, Memmy_AstNodeKind_ObjectBase);
+    AssertEq(lookup_result_rva->lhs->lhs->kind, Memmy_AstNodeKind_Variable);
+    AssertEq(lookup_result_rva->rhs->kind, Memmy_AstNodeKind_Target);
 
     Memmy_AstNode *variable = 0;
     Test_ParseAstExpr(arena, "$objectbase", &variable);
