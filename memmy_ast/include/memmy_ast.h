@@ -43,6 +43,7 @@ enum
 typedef U32 Memmy_AstDisasmArch;
 enum
 {
+    Memmy_AstDisasmArch_Null,
     Memmy_AstDisasmArch_X64,
 };
 
@@ -160,10 +161,10 @@ struct Memmy_AstStatement
     String8 text;
 };
 
+// Input text is copied into arena. All returned nodes and slices remain valid for the arena lifetime.
+// Required outputs, and optional diagnostics when supplied, are cleared before validation.
 Memmy_AstStatus Memmy_Ast_ParseExpr(Arena *arena, String8 text, Memmy_AstNode **out, Memmy_AstDiagnostic *diagnostic);
 Memmy_AstStatus Memmy_Ast_ParseStatement(Arena *arena, String8 text, Memmy_AstStatement *out,
                                          Memmy_AstDiagnostic *diagnostic);
-Memmy_AstStatus Memmy_Ast_ParseDisasmX64Pattern(Arena *arena, String8 input, String8 body, U64 body_offset,
-                                                Memmy_AstDisasmPattern *out, Memmy_AstDiagnostic *diagnostic);
 
 #endif // MEMMY_AST_H

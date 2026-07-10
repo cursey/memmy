@@ -403,7 +403,7 @@ static Memmy_Status Memmy_EvalTransform_Append(Memmy_EvalExec *exec, Memmy_EvalV
         return Memmy_Status_InvalidArgument;
     }
 
-    Arena *arena = exec->env->arena;
+    Arena *arena = exec->transient_arena;
     if (value.kind == Memmy_EvalValueKind_Address)
     {
         Memmy_EvalAddressList_Push(arena, addresses, value.address);
@@ -430,7 +430,7 @@ static Memmy_Status Memmy_EvalTransform_Append(Memmy_EvalExec *exec, Memmy_EvalV
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_Eval_ListTransform(Memmy_EvalExec *exec, Memmy_AstNode *expr, Memmy_EvalValue *out,
+Memmy_Status Memmy_Eval_ListTransform(Memmy_EvalExec *exec, Memmy_AstNode const *expr, Memmy_EvalValue *out,
                                       Memmy_Error *error)
 {
     Memmy_EvalValue list = {0};
@@ -493,16 +493,17 @@ Memmy_Status Memmy_Eval_ListTransform(Memmy_EvalExec *exec, Memmy_AstNode *expr,
     exec->current_item = old_current_item;
     if (out_kind == Memmy_EvalValueKind_RangeList)
     {
-        *out = Memmy_Eval_RangeListFromList(exec->env->arena, &ranges);
+        *out = Memmy_Eval_RangeListFromList(exec->out_arena, &ranges);
     }
     else
     {
-        *out = Memmy_Eval_AddressListFromList(exec->env->arena, &addresses);
+        *out = Memmy_Eval_AddressListFromList(exec->out_arena, &addresses);
     }
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_Eval_ValueExpr(Memmy_EvalExec *exec, Memmy_AstNode *expr, Memmy_EvalValue *out, Memmy_Error *error)
+Memmy_Status Memmy_Eval_ValueExpr(Memmy_EvalExec *exec, Memmy_AstNode const *expr, Memmy_EvalValue *out,
+                                  Memmy_Error *error)
 {
     Memmy_EvalEnv *env = exec->env;
     (void)env;
@@ -548,7 +549,7 @@ Memmy_Status Memmy_Eval_ValueExpr(Memmy_EvalExec *exec, Memmy_AstNode *expr, Mem
     }
     if (expr->kind == Memmy_AstNodeKind_Variable)
     {
-        return Memmy_EvalEnv_Find(env, expr->name, out);
+        return Memmy_EvalEnv_Find(exec->out_arena, env, expr->name, out);
     }
     if (expr->kind == Memmy_AstNodeKind_CurrentItem)
     {

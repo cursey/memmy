@@ -17,7 +17,7 @@ Test(Test_MemmyEvalCommandsListProcessesModulesAndRegionsWithFuzzyFilters)
     Memmy_AstStatement statement = {0};
     Test_EvalParseStatement(arena, "/procs CGe", &statement);
     Test_EvalResultCapture capture = {0};
-    Memmy_EvalResultSink sink = {.push = Test_EvalResultCapture_Push, .user_data = &capture};
+    Memmy_EvalResultSink sink = {.callback = Test_EvalResultCapture_Push, .user_data = &capture};
     AssertEq(Memmy_EvalStatement(env, &statement, &sink, 0), Memmy_Status_Ok);
     AssertEq(capture.count, 1);
     AssertEq(capture.results[0].kind, Memmy_EvalResultKind_Process);
@@ -52,7 +52,7 @@ Test(Test_MemmyEvalVarsUnsetAndClearCommands)
     Memmy_AstStatement statement = {0};
     Test_EvalParseStatement(arena, "/vars", &statement);
     Test_EvalResultCapture capture = {0};
-    Memmy_EvalResultSink sink = {.push = Test_EvalResultCapture_Push, .user_data = &capture};
+    Memmy_EvalResultSink sink = {.callback = Test_EvalResultCapture_Push, .user_data = &capture};
     AssertEq(Memmy_EvalStatement(env, &statement, &sink, 0), Memmy_Status_Ok);
     AssertEq(capture.count, 2);
     AssertEq(capture.results[0].kind, Memmy_EvalResultKind_Variable);
@@ -86,7 +86,7 @@ Test(Test_MemmyEvalHelpAndExitCommandsEmitControlResults)
     Memmy_AstStatement statement = {0};
     Test_EvalParseStatement(arena, "/help", &statement);
     Test_EvalResultCapture capture = {0};
-    Memmy_EvalResultSink sink = {.push = Test_EvalResultCapture_Push, .user_data = &capture};
+    Memmy_EvalResultSink sink = {.callback = Test_EvalResultCapture_Push, .user_data = &capture};
     AssertEq(Memmy_EvalStatement(env, &statement, &sink, 0), Memmy_Status_Ok);
     AssertEq(capture.count, 1);
     AssertEq(capture.results[0].kind, Memmy_EvalResultKind_Help);
@@ -107,7 +107,41 @@ Test(Test_MemmyEvalHelpAndExitCommandsEmitControlResults)
     Arena_Destroy(arena);
 }
 
+typedef struct Test_EvalFailingSink Test_EvalFailingSink;
+struct Test_EvalFailingSink
+{
+    U64 count;
+};
+
+static Memmy_Status Test_EvalFailingSink_Push(void *user_data, Memmy_EvalResult const *result)
+{
+    Test_EvalFailingSink *sink = (Test_EvalFailingSink *)user_data;
+    Unused(result);
+    sink->count++;
+    return Memmy_Status_AccessDenied;
+}
+
+Test(Test_MemmyEvalStopsAtFirstSinkFailure)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Memmy_EvalEnv *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+    Test_MemmyBackend_AddProcess(&backend, 7777, String8_Lit("second.exe"), String8_Lit("C:\\second.exe"),
+                                 Memmy_PointerWidth_64);
+    Memmy_AstStatement statement = {0};
+    Test_EvalParseStatement(arena, "/procs", &statement);
+    Test_EvalFailingSink failing = {0};
+    Memmy_EvalResultSink sink = {.callback = Test_EvalFailingSink_Push, .user_data = &failing};
+    AssertEq(Memmy_EvalStatement(env, &statement, &sink, 0), Memmy_Status_AccessDenied);
+    AssertEq(failing.count, 1);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
 TestSuite suite_memmy_eval_command = TestSuite_Make(
     "Memmy Eval Command", TestCase_Make(Test_MemmyEvalCommandsListProcessesModulesAndRegionsWithFuzzyFilters),
     TestCase_Make(Test_MemmyEvalVarsUnsetAndClearCommands),
-    TestCase_Make(Test_MemmyEvalHelpAndExitCommandsEmitControlResults), );
+    TestCase_Make(Test_MemmyEvalHelpAndExitCommandsEmitControlResults),
+    TestCase_Make(Test_MemmyEvalStopsAtFirstSinkFailure), );

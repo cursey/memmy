@@ -388,7 +388,7 @@ Memmy_Status Memmy_Eval_ParseValue(Memmy_EvalExec *exec, Memmy_Process *process,
             &(Memmy_EvalValue){.kind = Memmy_EvalValueKind_TypedValue, .typed_value = {.type = type}}) &&
         String8_FindChar(value_text, '$', 0) != STRING8_NPOS)
     {
-        scratch = Scratch_Begin(&env->arena, 1);
+        scratch = Scratch_Begin((Arena *[]){env->arena, exec->out_arena}, 2);
         using_scratch = 1;
         Memmy_AstNode *expr = 0;
         Memmy_AstDiagnostic diagnostic = {0};
@@ -422,7 +422,7 @@ Memmy_Status Memmy_Eval_ParseValue(Memmy_EvalExec *exec, Memmy_Process *process,
     {
         if (!using_scratch)
         {
-            scratch = Scratch_Begin(&env->arena, 1);
+            scratch = Scratch_Begin((Arena *[]){env->arena, exec->out_arena}, 2);
             using_scratch = 1;
         }
         Memmy_Status decode_status = Memmy_Eval_DecodeStringLiteral(scratch.arena, parse_text, &parse_text, error);
@@ -433,7 +433,7 @@ Memmy_Status Memmy_Eval_ParseValue(Memmy_EvalExec *exec, Memmy_Process *process,
         }
     }
 
-    Memmy_Status status = Memmy_Value_Parse(env->arena, type, process->pointer_width, parse_text, out, error);
+    Memmy_Status status = Memmy_Value_Parse(exec->out_arena, type, process->pointer_width, parse_text, out, error);
     if (using_scratch)
     {
         Scratch_End(scratch);
@@ -489,7 +489,8 @@ Memmy_Status Memmy_Eval_ReadPointer(Memmy_Process *process, Memmy_Addr address, 
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_Eval_MemoryExpr(Memmy_EvalExec *exec, Memmy_AstNode *expr, Memmy_EvalValue *out, Memmy_Error *error)
+Memmy_Status Memmy_Eval_MemoryExpr(Memmy_EvalExec *exec, Memmy_AstNode const *expr, Memmy_EvalValue *out,
+                                   Memmy_Error *error)
 {
     Memmy_EvalEnv *env = exec->env;
     (void)env;
@@ -570,7 +571,7 @@ Memmy_Status Memmy_Eval_MemoryExpr(Memmy_EvalExec *exec, Memmy_AstNode *expr, Me
         }
 
         Memmy_Value value = {0};
-        status = Memmy_Eval_ReadValue(env->arena, process, address, type, &value, error);
+        status = Memmy_Eval_ReadValue(exec->out_arena, process, address, type, &value, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -613,7 +614,7 @@ Memmy_Status Memmy_Eval_MemoryExpr(Memmy_EvalExec *exec, Memmy_AstNode *expr, Me
         }
 
         Memmy_Value old_value = {0};
-        status = Memmy_Eval_ReadValue(env->arena, process, address, type, &old_value, error);
+        status = Memmy_Eval_ReadValue(exec->out_arena, process, address, type, &old_value, error);
         if (status != Memmy_Status_Ok)
         {
             return status;

@@ -132,7 +132,7 @@ static Memmy_Status Test_MemmyBackend_Read(Memmy_Process *process, Memmy_Addr ad
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Test_MemmyBackend_Write(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size,
+static Memmy_Status Test_MemmyBackend_Write(Memmy_Process *process, Memmy_Addr addr, void const *buffer, U64 size,
                                             U64 *bytes_written, Memmy_Error *error)
 {
     Test_MemmyBackend *backend = (Test_MemmyBackend *)process->backend_data;
@@ -338,8 +338,8 @@ static B32 Test_MemmyBackend_IsPlausibleVtable(Test_MemmyBackend *backend, Memmy
 }
 
 static Memmy_Status Test_MemmyBackend_FindObjectBase(Arena *arena, Memmy_Process *process, Memmy_Addr address,
-                                                     Memmy_ObjectBaseOptions *options, Memmy_ObjectBaseResult *out,
-                                                     Memmy_Error *error)
+                                                     Memmy_ObjectBaseOptions const *options,
+                                                     Memmy_ObjectBaseResult *out, Memmy_Error *error)
 {
     Unused(arena);
 

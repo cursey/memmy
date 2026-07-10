@@ -17,21 +17,21 @@ typedef struct Memmy_Range Memmy_Range;
 typedef struct Memmy_Region Memmy_Region;
 typedef struct Memmy_RegionSink Memmy_RegionSink;
 
-typedef Memmy_Status Memmy_ProcessInfoSinkFn(void *user_data, Memmy_ProcessInfo *info);
+typedef Memmy_Status Memmy_ProcessInfoSinkFn(void *user_data, Memmy_ProcessInfo const *info);
 struct Memmy_ProcessInfoSink
 {
     Memmy_ProcessInfoSinkFn *callback;
     void *user_data;
 };
 
-typedef Memmy_Status Memmy_ModuleSinkFn(void *user_data, Memmy_Module *module);
+typedef Memmy_Status Memmy_ModuleSinkFn(void *user_data, Memmy_Module const *module);
 struct Memmy_ModuleSink
 {
     Memmy_ModuleSinkFn *callback;
     void *user_data;
 };
 
-typedef Memmy_Status Memmy_RegionSinkFn(void *user_data, Memmy_Region *region);
+typedef Memmy_Status Memmy_RegionSinkFn(void *user_data, Memmy_Region const *region);
 struct Memmy_RegionSink
 {
     Memmy_RegionSinkFn *callback;
@@ -46,16 +46,17 @@ struct Memmy_Backend
     Memmy_Status (*enumerate_processes)(Arena *arena, Memmy_ProcessInfoSink sink, Memmy_Error *error);
     Memmy_Status (*open_process)(Arena *arena, U32 pid, Memmy_Process **out, Memmy_Error *error);
     void (*close_process)(Memmy_Process *process);
-    Memmy_Status (*read)(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size, U64 *bytes_read,
+    Memmy_Status (*read)(Memmy_Process *process, Memmy_Addr address, void *buffer, U64 size, U64 *bytes_read,
                          Memmy_Error *error);
-    Memmy_Status (*write)(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size, U64 *bytes_written,
+    Memmy_Status (*write)(Memmy_Process *process, Memmy_Addr address, void const *buffer, U64 size, U64 *bytes_written,
                           Memmy_Error *error);
     Memmy_Status (*enumerate_modules)(Arena *arena, Memmy_Process *process, Memmy_ModuleSink sink, Memmy_Error *error);
     Memmy_Status (*enumerate_regions)(Arena *arena, Memmy_Process *process, Memmy_RegionSink sink, Memmy_Error *error);
     Memmy_Status (*find_function)(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Range *out,
                                   Memmy_Error *error);
     Memmy_Status (*find_object_base)(Arena *arena, Memmy_Process *process, Memmy_Addr address,
-                                     Memmy_ObjectBaseOptions *options, Memmy_ObjectBaseResult *out, Memmy_Error *error);
+                                     Memmy_ObjectBaseOptions const *options, Memmy_ObjectBaseResult *out,
+                                     Memmy_Error *error);
 };
 
 #endif // MEMMY_BACKEND_H

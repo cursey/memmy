@@ -45,7 +45,8 @@ static Memmy_EvalValue Memmy_Eval_AddressListFromCollector(Arena *arena, Memmy_E
     };
 }
 
-Memmy_Status Memmy_Eval_ScanExpr(Memmy_EvalExec *exec, Memmy_AstNode *expr, Memmy_EvalValue *out, Memmy_Error *error)
+Memmy_Status Memmy_Eval_ScanExpr(Memmy_EvalExec *exec, Memmy_AstNode const *expr, Memmy_EvalValue *out,
+                                 Memmy_Error *error)
 {
     Memmy_EvalEnv *env = exec->env;
     (void)env;
@@ -71,13 +72,14 @@ Memmy_Status Memmy_Eval_ScanExpr(Memmy_EvalExec *exec, Memmy_AstNode *expr, Memm
         }
 
         Memmy_Pattern pattern = {0};
-        status = Memmy_Pattern_Parse(env->arena, expr->pattern, Memmy_PatternParseFlag_AllowWildcards, &pattern, error);
+        status = Memmy_Pattern_Parse(exec->transient_arena, expr->pattern, Memmy_PatternParseFlag_AllowWildcards,
+                                     &pattern, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
 
-        Memmy_EvalScanCollector collector = {.arena = env->arena};
+        Memmy_EvalScanCollector collector = {.arena = exec->transient_arena};
         Memmy_ScanSink sink = {
             .callback = Memmy_EvalScanCollector_Push,
             .user_data = &collector,
@@ -88,13 +90,13 @@ Memmy_Status Memmy_Eval_ScanExpr(Memmy_EvalExec *exec, Memmy_AstNode *expr, Memm
             .chunk_size = 0,
             .scan_readable_regions = range_value.kind == Memmy_EvalValueKind_ProcessRange,
         };
-        status = Memmy_Process_ScanPattern(env->arena, process, &options, pattern, sink, error);
+        status = Memmy_Process_ScanPattern(exec->transient_arena, process, &options, pattern, sink, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
 
-        *out = Memmy_Eval_AddressListFromCollector(env->arena, &collector);
+        *out = Memmy_Eval_AddressListFromCollector(exec->out_arena, &collector);
         return Memmy_Status_Ok;
     }
     if (expr->kind == Memmy_AstNodeKind_ValueScan)
@@ -132,7 +134,7 @@ Memmy_Status Memmy_Eval_ScanExpr(Memmy_EvalExec *exec, Memmy_AstNode *expr, Memm
             return status;
         }
 
-        Memmy_EvalScanCollector collector = {.arena = env->arena};
+        Memmy_EvalScanCollector collector = {.arena = exec->transient_arena};
         Memmy_ScanSink sink = {
             .callback = Memmy_EvalScanCollector_Push,
             .user_data = &collector,
@@ -143,13 +145,13 @@ Memmy_Status Memmy_Eval_ScanExpr(Memmy_EvalExec *exec, Memmy_AstNode *expr, Memm
             .chunk_size = 0,
             .scan_readable_regions = range_value.kind == Memmy_EvalValueKind_ProcessRange,
         };
-        status = Memmy_Process_ScanValue(env->arena, process, &options, value, sink, error);
+        status = Memmy_Process_ScanValue(exec->transient_arena, process, &options, value, sink, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
 
-        *out = Memmy_Eval_AddressListFromCollector(env->arena, &collector);
+        *out = Memmy_Eval_AddressListFromCollector(exec->out_arena, &collector);
         return Memmy_Status_Ok;
     }
     if (expr->kind == Memmy_AstNodeKind_ReferenceScan)
@@ -186,7 +188,7 @@ Memmy_Status Memmy_Eval_ScanExpr(Memmy_EvalExec *exec, Memmy_AstNode *expr, Memm
             return status;
         }
 
-        Memmy_EvalScanCollector collector = {.arena = env->arena};
+        Memmy_EvalScanCollector collector = {.arena = exec->transient_arena};
         Memmy_ScanSink sink = {
             .callback = Memmy_EvalScanCollector_Push,
             .user_data = &collector,
@@ -197,14 +199,14 @@ Memmy_Status Memmy_Eval_ScanExpr(Memmy_EvalExec *exec, Memmy_AstNode *expr, Memm
             .chunk_size = 0,
             .scan_readable_regions = range_value.kind == Memmy_EvalValueKind_ProcessRange,
         };
-        status = Memmy_Process_ScanReferences(env->arena, process, &options,
+        status = Memmy_Process_ScanReferences(exec->transient_arena, process, &options,
                                               Memmy_Eval_ReferenceScanMode(expr->reference_mode), target, sink, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
 
-        *out = Memmy_Eval_AddressListFromCollector(env->arena, &collector);
+        *out = Memmy_Eval_AddressListFromCollector(exec->out_arena, &collector);
         return Memmy_Status_Ok;
     }
     if (expr->kind == Memmy_AstNodeKind_DisasmScan)
@@ -228,7 +230,7 @@ Memmy_Status Memmy_Eval_ScanExpr(Memmy_EvalExec *exec, Memmy_AstNode *expr, Memm
             return Memmy_Status_InvalidArgument;
         }
 
-        Memmy_EvalScanCollector collector = {.arena = env->arena};
+        Memmy_EvalScanCollector collector = {.arena = exec->transient_arena};
         Memmy_ScanSink sink = {
             .callback = Memmy_EvalScanCollector_Push,
             .user_data = &collector,
@@ -239,13 +241,13 @@ Memmy_Status Memmy_Eval_ScanExpr(Memmy_EvalExec *exec, Memmy_AstNode *expr, Memm
             .chunk_size = 0,
             .scan_readable_regions = range_value.kind == Memmy_EvalValueKind_ProcessRange,
         };
-        status = Memmy_Eval_DisasmX64Scan(env->arena, process, &options, expr->disasm_pattern, sink, error);
+        status = Memmy_Eval_DisasmX64Scan(exec->transient_arena, process, &options, expr->disasm_pattern, sink, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
 
-        *out = Memmy_Eval_AddressListFromCollector(env->arena, &collector);
+        *out = Memmy_Eval_AddressListFromCollector(exec->out_arena, &collector);
         return Memmy_Status_Ok;
     }
     Memmy_EvalError(error, Memmy_Status_Unsupported, String8_Lit("expr"),

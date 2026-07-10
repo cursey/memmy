@@ -92,7 +92,9 @@ struct Memmy_ObjectBaseResult
     String8 type_name;
 };
 
+// Enumeration strings belong to arena; metadata pointers are valid only during callbacks. Error is optional.
 Memmy_Status Memmy_EnumerateProcesses(Arena *arena, Memmy_ProcessInfoSink sink, Memmy_Error *error);
+// On return, including failure, out is initialized to null. The process belongs to arena.
 Memmy_Status Memmy_Process_Open(Arena *arena, U32 pid, Memmy_Process **out, Memmy_Error *error);
 B32 Memmy_Process_IsOpen(Memmy_Process *process);
 void Memmy_Process_Close(Memmy_Process *process);
@@ -100,14 +102,16 @@ Memmy_Status Memmy_Process_EnumerateModules(Arena *arena, Memmy_Process *process
                                             Memmy_Error *error);
 Memmy_Status Memmy_Process_EnumerateRegions(Arena *arena, Memmy_Process *process, Memmy_RegionSink sink,
                                             Memmy_Error *error);
+// Find outputs are initialized before validation. Any returned strings belong to arena.
 Memmy_Status Memmy_Process_FindFunction(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Range *out,
                                         Memmy_Error *error);
 Memmy_Status Memmy_Process_FindObjectBase(Arena *arena, Memmy_Process *process, Memmy_Addr address,
-                                          Memmy_ObjectBaseOptions *options, Memmy_ObjectBaseResult *out,
+                                          Memmy_ObjectBaseOptions const *options, Memmy_ObjectBaseResult *out,
                                           Memmy_Error *error);
-Memmy_Status Memmy_Process_Read(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size, U64 *bytes_read,
+// Required outputs are cleared before validation. Enumeration metadata is valid only during its callback.
+Memmy_Status Memmy_Process_Read(Memmy_Process *process, Memmy_Addr address, void *buffer, U64 size, U64 *bytes_read,
                                 Memmy_Error *error);
-Memmy_Status Memmy_Process_Write(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size, U64 *bytes_written,
-                                 Memmy_Error *error);
+Memmy_Status Memmy_Process_Write(Memmy_Process *process, Memmy_Addr address, void const *buffer, U64 size,
+                                 U64 *bytes_written, Memmy_Error *error);
 
 #endif // MEMMY_PROCESS_H

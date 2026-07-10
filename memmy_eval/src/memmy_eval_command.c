@@ -5,15 +5,16 @@
 #include "base_list.h"
 #include "base_memory.h"
 
-static void Memmy_EvalResult_Push(Memmy_EvalResultSink *sink, Memmy_EvalResult result)
+static Memmy_Status Memmy_EvalResult_Push(Memmy_EvalResultSink const *sink, Memmy_EvalResult const *result)
 {
-    if (sink != 0 && sink->push != 0)
+    if (sink != 0 && sink->callback != 0)
     {
-        sink->push(sink, result);
+        return sink->callback(sink->user_data, result);
     }
+    return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_EvalProcessEmitter_Push(void *user_data, Memmy_ProcessInfo *info)
+static Memmy_Status Memmy_EvalProcessEmitter_Push(void *user_data, Memmy_ProcessInfo const *info)
 {
     Memmy_EvalProcessEmitter *emitter = (Memmy_EvalProcessEmitter *)user_data;
     if (emitter->filter.len != 0 && !String8_FuzzyMatchNoCase(info->name, emitter->filter))
@@ -21,14 +22,14 @@ static Memmy_Status Memmy_EvalProcessEmitter_Push(void *user_data, Memmy_Process
         return Memmy_Status_Ok;
     }
 
-    Memmy_EvalResult_Push(emitter->sink, (Memmy_EvalResult){
-                                             .kind = Memmy_EvalResultKind_Process,
-                                             .process = *info,
-                                         });
-    return Memmy_Status_Ok;
+    Memmy_EvalResult result = {
+        .kind = Memmy_EvalResultKind_Process,
+        .process = *info,
+    };
+    return Memmy_EvalResult_Push(emitter->sink, &result);
 }
 
-static Memmy_Status Memmy_EvalModuleEmitter_Push(void *user_data, Memmy_Module *module)
+static Memmy_Status Memmy_EvalModuleEmitter_Push(void *user_data, Memmy_Module const *module)
 {
     Memmy_EvalModuleEmitter *emitter = (Memmy_EvalModuleEmitter *)user_data;
     if (emitter->filter.len != 0 && !String8_FuzzyMatchNoCase(module->name, emitter->filter))
@@ -36,21 +37,21 @@ static Memmy_Status Memmy_EvalModuleEmitter_Push(void *user_data, Memmy_Module *
         return Memmy_Status_Ok;
     }
 
-    Memmy_EvalResult_Push(emitter->sink, (Memmy_EvalResult){
-                                             .kind = Memmy_EvalResultKind_Module,
-                                             .module = *module,
-                                         });
-    return Memmy_Status_Ok;
+    Memmy_EvalResult result = {
+        .kind = Memmy_EvalResultKind_Module,
+        .module = *module,
+    };
+    return Memmy_EvalResult_Push(emitter->sink, &result);
 }
 
-static Memmy_Status Memmy_EvalRegionEmitter_Push(void *user_data, Memmy_Region *region)
+static Memmy_Status Memmy_EvalRegionEmitter_Push(void *user_data, Memmy_Region const *region)
 {
     Memmy_EvalRegionEmitter *emitter = (Memmy_EvalRegionEmitter *)user_data;
-    Memmy_EvalResult_Push(emitter->sink, (Memmy_EvalResult){
-                                             .kind = Memmy_EvalResultKind_Region,
-                                             .region = *region,
-                                         });
-    return Memmy_Status_Ok;
+    Memmy_EvalResult result = {
+        .kind = Memmy_EvalResultKind_Region,
+        .region = *region,
+    };
+    return Memmy_EvalResult_Push(emitter->sink, &result);
 }
 
 static Memmy_EvalResultKind Memmy_EvalResultKind_ForValue(Memmy_EvalValue value)
@@ -70,7 +71,7 @@ static Memmy_EvalResultKind Memmy_EvalResultKind_ForValue(Memmy_EvalValue value)
     return Memmy_EvalResultKind_Value;
 }
 
-void Memmy_Eval_EmitValueResult(Memmy_EvalResultSink *sink, Memmy_EvalValue value)
+Memmy_Status Memmy_Eval_EmitValueResult(Memmy_EvalResultSink const *sink, Memmy_EvalValue value)
 {
     Memmy_EvalResult result = {
         .kind = Memmy_EvalResultKind_ForValue(value),
@@ -87,11 +88,11 @@ void Memmy_Eval_EmitValueResult(Memmy_EvalResultSink *sink, Memmy_EvalValue valu
         result.address = value.address;
         result.new_value = value.typed_value;
     }
-    Memmy_EvalResult_Push(sink, result);
+    return Memmy_EvalResult_Push(sink, &result);
 }
 
-Memmy_Status Memmy_Eval_Command(Memmy_EvalExec *exec, Memmy_AstStatement *statement, Memmy_EvalResultSink *sink,
-                                Memmy_Error *error)
+Memmy_Status Memmy_Eval_Command(Memmy_EvalExec *exec, Memmy_AstStatement const *statement,
+                                Memmy_EvalResultSink const *sink, Memmy_Error *error)
 {
     Memmy_EvalEnv *env = exec->env;
     if (statement->command_kind == Memmy_AstCommandKind_Procs)
@@ -104,7 +105,7 @@ Memmy_Status Memmy_Eval_Command(Memmy_EvalExec *exec, Memmy_AstStatement *statem
             .callback = Memmy_EvalProcessEmitter_Push,
             .user_data = &emitter,
         };
-        return Memmy_EnumerateProcesses(env->arena, process_sink, error);
+        return Memmy_EnumerateProcesses(exec->out_arena, process_sink, error);
     }
     if (statement->command_kind == Memmy_AstCommandKind_Mods)
     {
@@ -123,7 +124,7 @@ Memmy_Status Memmy_Eval_Command(Memmy_EvalExec *exec, Memmy_AstStatement *statem
             .callback = Memmy_EvalModuleEmitter_Push,
             .user_data = &emitter,
         };
-        return Memmy_Process_EnumerateModules(env->arena, process, module_sink, error);
+        return Memmy_Process_EnumerateModules(exec->out_arena, process, module_sink, error);
     }
     if (statement->command_kind == Memmy_AstCommandKind_Regions)
     {
@@ -139,20 +140,25 @@ Memmy_Status Memmy_Eval_Command(Memmy_EvalExec *exec, Memmy_AstStatement *statem
             .callback = Memmy_EvalRegionEmitter_Push,
             .user_data = &emitter,
         };
-        return Memmy_Process_EnumerateRegions(env->arena, process, region_sink, error);
+        return Memmy_Process_EnumerateRegions(exec->out_arena, process, region_sink, error);
     }
     if (statement->command_kind == Memmy_AstCommandKind_Vars)
     {
         HashMap_ForEach(Memmy_EvalBinding, binding, &env->bindings, hash)
         {
-            Memmy_EvalResult_Push(sink, (Memmy_EvalResult){
-                                            .kind = Memmy_EvalResultKind_Variable,
-                                            .variable =
-                                                {
-                                                    .name = binding->name,
-                                                    .value = binding->value,
-                                                },
-                                        });
+            Memmy_EvalResult result = {
+                .kind = Memmy_EvalResultKind_Variable,
+                .variable.name = String8_Copy(exec->out_arena, binding->name),
+            };
+            Memmy_Status status = Memmy_EvalEnv_Find(exec->out_arena, env, binding->name, &result.variable.value);
+            if (status == Memmy_Status_Ok)
+            {
+                status = Memmy_EvalResult_Push(sink, &result);
+            }
+            if (status != Memmy_Status_Ok)
+            {
+                return status;
+            }
         }
         return Memmy_Status_Ok;
     }
@@ -163,64 +169,63 @@ Memmy_Status Memmy_Eval_Command(Memmy_EvalExec *exec, Memmy_AstStatement *statem
         {
             return status;
         }
-        Memmy_EvalResult_Push(sink, (Memmy_EvalResult){
-                                        .kind = Memmy_EvalResultKind_Unset,
-                                        .name = statement->command_arg,
-                                    });
-        return Memmy_Status_Ok;
+        Memmy_EvalResult result = {
+            .kind = Memmy_EvalResultKind_Unset,
+            .name = String8_Copy(exec->out_arena, statement->command_arg),
+        };
+        return Memmy_EvalResult_Push(sink, &result);
     }
     if (statement->command_kind == Memmy_AstCommandKind_Clear)
     {
         Memmy_EvalEnv_Clear(env);
-        Memmy_EvalResult_Push(sink, (Memmy_EvalResult){.kind = Memmy_EvalResultKind_Clear});
-        return Memmy_Status_Ok;
+        Memmy_EvalResult result = {.kind = Memmy_EvalResultKind_Clear};
+        return Memmy_EvalResult_Push(sink, &result);
     }
     if (statement->command_kind == Memmy_AstCommandKind_Help)
     {
-        Memmy_EvalResult_Push(
-            sink, (Memmy_EvalResult){
-                      .kind = Memmy_EvalResultKind_Help,
-                      .text = String8_Lit("Core values:\n"
-                                          "  x                    constant integer/math expression\n"
-                                          "  @x                   absolute address\n"
-                                          "  [@a..@b]             explicit address range [a, b)\n"
-                                          "  [@a..+n]             sized address range [a, a+n)\n"
-                                          "  <module>             module range in selected process\n"
-                                          "  [0..]                selected process readable regions\n"
-                                          "  function address     function range containing address\n"
-                                          "  objectbase address   best-effort object base containing address\n"
-                                          "  $name                variable\n"
-                                          "  $rva = $hit - <module>  module-relative offset const\n"
-                                          "\n"
-                                          "Memory:\n"
-                                          "  range refs <ptr|rel32|any> address\n"
-                                          "  list => expr         transform each address/range item\n"
-                                          "  $                    current item inside transform RHS\n"
-                                          "  $matches => [$..+0x20]\n"
-                                          "  $fn = function $xrefs[0]\n"
-                                          "  $hits => objectbase $\n"
-                                          "  $ranges => $ + 4\n"
-                                          "  $name[N]             index address/range list\n"
-                                          "\n"
-                                          "Commands:\n"
-                                          "  /procs [filter]\n"
-                                          "  /attach <pid|name>  select process and clear variables\n"
-                                          "  /detach             clear selected process and variables\n"
-                                          "  /mods [filter]\n"
-                                          "  /regions\n"
-                                          "  /vars\n"
-                                          "  /unset $var\n"
-                                          "  /clear\n"
-                                          "  /help\n"
-                                          "  /exit\n"
-                                          "  /quit\n"),
-                  });
-        return Memmy_Status_Ok;
+        Memmy_EvalResult result = {
+            .kind = Memmy_EvalResultKind_Help,
+            .text = String8_Lit("Core values:\n"
+                                "  x                    constant integer/math expression\n"
+                                "  @x                   absolute address\n"
+                                "  [@a..@b]             explicit address range [a, b)\n"
+                                "  [@a..+n]             sized address range [a, a+n)\n"
+                                "  <module>             module range in selected process\n"
+                                "  [0..]                selected process readable regions\n"
+                                "  function address     function range containing address\n"
+                                "  objectbase address   best-effort object base containing address\n"
+                                "  $name                variable\n"
+                                "  $rva = $hit - <module>  module-relative offset const\n"
+                                "\n"
+                                "Memory:\n"
+                                "  range refs <ptr|rel32|any> address\n"
+                                "  list => expr         transform each address/range item\n"
+                                "  $                    current item inside transform RHS\n"
+                                "  $matches => [$..+0x20]\n"
+                                "  $fn = function $xrefs[0]\n"
+                                "  $hits => objectbase $\n"
+                                "  $ranges => $ + 4\n"
+                                "  $name[N]             index address/range list\n"
+                                "\n"
+                                "Commands:\n"
+                                "  /procs [filter]\n"
+                                "  /attach <pid|name>  select process and clear variables\n"
+                                "  /detach             clear selected process and variables\n"
+                                "  /mods [filter]\n"
+                                "  /regions\n"
+                                "  /vars\n"
+                                "  /unset $var\n"
+                                "  /clear\n"
+                                "  /help\n"
+                                "  /exit\n"
+                                "  /quit\n"),
+        };
+        return Memmy_EvalResult_Push(sink, &result);
     }
     if (statement->command_kind == Memmy_AstCommandKind_Exit || statement->command_kind == Memmy_AstCommandKind_Quit)
     {
-        Memmy_EvalResult_Push(sink, (Memmy_EvalResult){.kind = Memmy_EvalResultKind_Exit});
-        return Memmy_Status_Ok;
+        Memmy_EvalResult result = {.kind = Memmy_EvalResultKind_Exit};
+        return Memmy_EvalResult_Push(sink, &result);
     }
 
     Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("command"), String8_Lit("unknown command"));

@@ -314,8 +314,9 @@ Test(Test_MemmyCliReplSessionClosesProcessAfterEachStatement)
     AssertEq(test_backend.open_call_count, 1);
     AssertEq(test_backend.close_call_count, 1);
     AssertEq(test_backend.last_close_pid, 4242);
-    AssertTrue(session.env->has_default_process);
-    AssertEq(session.env->default_pid, 4242);
+    U32 attached_pid = 0;
+    AssertTrue(Memmy_EvalEnv_GetDefaultProcess(session.env, &attached_pid, 0));
+    AssertEq(attached_pid, 4242);
     AssertStrEq(Memmy_CliReplSession_Prompt(arena, &session), String8_Lit("[test-process:4242]> "));
 
     error = (Memmy_Error){0};
@@ -324,8 +325,8 @@ Test(Test_MemmyCliReplSessionClosesProcessAfterEachStatement)
     AssertStrEq(out, String8_Lit("0x0000000000001021: u8 77  0x4d\n"));
     AssertEq(test_backend.open_call_count, 2);
     AssertEq(test_backend.close_call_count, 2);
-    AssertTrue(session.env->has_default_process);
-    AssertEq(session.env->default_pid, 4242);
+    AssertTrue(Memmy_EvalEnv_GetDefaultProcess(session.env, &attached_pid, 0));
+    AssertEq(attached_pid, 4242);
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);

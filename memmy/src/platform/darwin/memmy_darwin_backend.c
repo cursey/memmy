@@ -239,7 +239,7 @@ static Memmy_Status Memmy_Darwin_Read(Memmy_Process *process, Memmy_Addr addr, v
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Darwin_Write(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size,
+static Memmy_Status Memmy_Darwin_Write(Memmy_Process *process, Memmy_Addr addr, void const *buffer, U64 size,
                                        U64 *bytes_written, Memmy_Error *error)
 {
     Memmy_DarwinProcessData *data = (Memmy_DarwinProcessData *)process->backend_data;
@@ -499,7 +499,7 @@ static Memmy_Status Memmy_Darwin_EnumerateModules(Arena *arena, Memmy_Process *p
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Darwin_ModuleSearch_Push(void *user_data, Memmy_Module *module)
+static Memmy_Status Memmy_Darwin_ModuleSearch_Push(void *user_data, Memmy_Module const *module)
 {
     Memmy_DarwinModuleSearch *search = (Memmy_DarwinModuleSearch *)user_data;
     Memmy_Addr end = 0;
@@ -931,7 +931,7 @@ static Memmy_Status Memmy_Darwin_EnumerateRegions(Arena *arena, Memmy_Process *p
 }
 
 static Memmy_Status Memmy_Darwin_FindObjectBase(Arena *arena, Memmy_Process *process, Memmy_Addr address,
-                                                Memmy_ObjectBaseOptions *options, Memmy_ObjectBaseResult *out,
+                                                Memmy_ObjectBaseOptions const *options, Memmy_ObjectBaseResult *out,
                                                 Memmy_Error *error)
 {
     Unused(arena);

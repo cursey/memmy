@@ -36,8 +36,9 @@ struct Memmy_Error
     String8 context;
 };
 
-char *Memmy_Status_Name(Memmy_Status status);
+char const *Memmy_Status_Name(Memmy_Status status);
 String8 Memmy_Status_String(Memmy_Status status);
+// Context and message strings are borrowed and must remain valid while the error is used.
 void Memmy_Error_Set(Memmy_Error *error, Memmy_Status status, String8 context, String8 message);
 
 #endif // MEMMY_STATUS_H

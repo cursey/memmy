@@ -8,7 +8,7 @@
 #define MEMMY_DEFAULT_SCAN_CHUNK_SIZE Kilobytes(64)
 
 typedef Memmy_Status Memmy_ScanSinkFn(void *user_data, Memmy_Addr address);
-typedef B32 Memmy_ScanMatchFn(void *user_data, Memmy_Addr address, U8 *bytes, U64 available);
+typedef B32 Memmy_ScanMatchFn(void *user_data, Memmy_Addr address, U8 const *bytes, U64 available);
 
 typedef struct Memmy_ScanSink Memmy_ScanSink;
 struct Memmy_ScanSink
@@ -34,15 +34,16 @@ enum
     Memmy_ReferenceScanMode_Any,
 };
 
-Memmy_Status Memmy_Process_ScanValue(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options,
+// Options are borrowed and never modified. Match bytes are valid only during the match callback.
+Memmy_Status Memmy_Process_ScanValue(Arena *arena, Memmy_Process *process, Memmy_ScanOptions const *options,
                                      Memmy_Value value, Memmy_ScanSink sink, Memmy_Error *error);
-Memmy_Status Memmy_Process_ScanPattern(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options,
+Memmy_Status Memmy_Process_ScanPattern(Arena *arena, Memmy_Process *process, Memmy_ScanOptions const *options,
                                        Memmy_Pattern pattern, Memmy_ScanSink sink, Memmy_Error *error);
-Memmy_Status Memmy_Process_ScanReferences(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options,
+Memmy_Status Memmy_Process_ScanReferences(Arena *arena, Memmy_Process *process, Memmy_ScanOptions const *options,
                                           Memmy_ReferenceScanMode mode, Memmy_Addr target, Memmy_ScanSink sink,
                                           Memmy_Error *error);
-Memmy_Status Memmy_Process_ScanCustom(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options, U64 min_size,
-                                      U64 max_size, Memmy_ScanMatchFn *match, void *user_data, Memmy_ScanSink sink,
-                                      Memmy_Error *error);
+Memmy_Status Memmy_Process_ScanCustom(Arena *arena, Memmy_Process *process, Memmy_ScanOptions const *options,
+                                      U64 min_size, U64 max_size, Memmy_ScanMatchFn *match, void *user_data,
+                                      Memmy_ScanSink sink, Memmy_Error *error);
 
 #endif // MEMMY_SCAN_H

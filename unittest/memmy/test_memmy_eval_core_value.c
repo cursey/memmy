@@ -205,6 +205,57 @@ Test(Test_MemmyEvalTypedIntegerVariablesWorkAsConstants)
     Arena_Destroy(arena);
 }
 
+static B32 Test_PointerIsInArena(Arena *arena, void const *pointer)
+{
+    U8 const *bytes = (U8 const *)pointer;
+    return bytes >= arena->base && bytes < arena->base + Arena_Pos(arena);
+}
+
+Test(Test_MemmyEvalResultsUseCallerOutputArena)
+{
+    AssertEq(Memmy_EvalResultKind_Null, 0);
+    Arena *env_arena = Arena_CreateDefault();
+    Arena *parse_arena = Arena_CreateDefault();
+    Arena *out_one = Arena_CreateDefault();
+    Arena *out_two = Arena_CreateDefault();
+    Memmy_EvalEnv *env = Memmy_EvalEnv_Create(env_arena);
+    Memmy_Addr source_addresses[] = {0x10, 0x20};
+    U8 source_bytes[] = {7, 0, 0, 0};
+    AssertEq(Memmy_EvalEnv_Set(env, String8_Lit("items"),
+                               (Memmy_EvalValue){.kind = Memmy_EvalValueKind_AddressList,
+                                                 .addresses = source_addresses,
+                                                 .address_count = ArrayCount(source_addresses)}),
+             Memmy_Status_Ok);
+    AssertEq(Memmy_EvalEnv_Set(env, String8_Lit("typed"),
+                               (Memmy_EvalValue){.kind = Memmy_EvalValueKind_TypedValue,
+                                                 .typed_value = {.type = {.kind = Memmy_TypeKind_U32},
+                                                                 .bytes = String8_Make(source_bytes, 4)}}),
+             Memmy_Status_Ok);
+
+    Memmy_AstNode *items_expr = 0;
+    Memmy_AstNode *typed_expr = 0;
+    Test_EvalParseExpr(parse_arena, "$items", &items_expr);
+    Test_EvalParseExpr(parse_arena, "$typed", &typed_expr);
+    Memmy_EvalValue items = {0};
+    Memmy_EvalValue typed = {0};
+    AssertEq((Memmy_EvalExpr)(out_one, env, items_expr, &items, 0), Memmy_Status_Ok);
+    AssertTrue(Test_PointerIsInArena(out_one, items.addresses));
+    AssertEq((Memmy_EvalExpr)(out_two, env, typed_expr, &typed, 0), Memmy_Status_Ok);
+    AssertTrue(Test_PointerIsInArena(out_two, typed.typed_value.bytes.data));
+    AssertEq(items.addresses[0], 0x10);
+    AssertEq(items.addresses[1], 0x20);
+
+    Memmy_EvalValue found = {0};
+    AssertEq((Memmy_EvalEnv_Find)(out_two, env, String8_Lit("items"), &found), Memmy_Status_Ok);
+    AssertTrue(Test_PointerIsInArena(out_two, found.addresses));
+    AssertTrue(found.addresses != items.addresses);
+
+    Arena_Destroy(out_two);
+    Arena_Destroy(out_one);
+    Arena_Destroy(parse_arena);
+    Arena_Destroy(env_arena);
+}
+
 TestSuite suite_memmy_eval_core_value = TestSuite_Make(
     "Memmy Eval Core And Value", TestCase_Make(Test_MemmyEvalCreatesEnvAndBindsArenaOwnedValues),
     TestCase_Make(Test_MemmyEvalExpressionStatementsEmitResults),
@@ -213,4 +264,5 @@ TestSuite suite_memmy_eval_core_value = TestSuite_Make(
     TestCase_Make(Test_MemmyEvalWrongKindVariableInConstExpressionFails),
     TestCase_Make(Test_MemmyEvalImmediateBindingAvoidsVariableCycles), TestCase_Make(Test_MemmyEvalOverflowFails),
     TestCase_Make(Test_MemmyEvalAddressDifferenceBoundaries),
-    TestCase_Make(Test_MemmyEvalTypedIntegerVariablesWorkAsConstants), );
+    TestCase_Make(Test_MemmyEvalTypedIntegerVariablesWorkAsConstants),
+    TestCase_Make(Test_MemmyEvalResultsUseCallerOutputArena), );

@@ -809,6 +809,8 @@ Memmy_AstStatus Memmy_Ast_ParseExpr(Arena *arena, String8 text, Memmy_AstNode **
         return Memmy_AstStatus_InvalidArgument;
     }
 
+    text = String8_Copy(arena, text);
+
     Memmy_Parser parser = {
         .arena = arena,
         .input = text,

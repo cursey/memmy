@@ -7,6 +7,11 @@
 #include "test_memmy_backend.h"
 #include "test_memmy_common.h"
 
+// Evaluator tests use their local arena for caller-owned result storage.
+#define Memmy_EvalExpr(env, expr, out, error) Memmy_EvalExpr(arena, env, expr, out, error)
+#define Memmy_EvalStatement(env, statement, sink, error) Memmy_EvalStatement(arena, env, statement, sink, error)
+#define Memmy_EvalEnv_Find(env, name, out) Memmy_EvalEnv_Find(arena, env, name, out)
+
 static void Test_EvalParseExpr(Arena *arena, char *text, Memmy_AstNode **out)
 {
     Memmy_AstDiagnostic diagnostic = {0};
@@ -43,16 +48,17 @@ struct Test_EvalResultCapture
     U64 count;
 };
 
-static void Test_EvalResultCapture_Push(Memmy_EvalResultSink *sink, Memmy_EvalResult result)
+static Memmy_Status Test_EvalResultCapture_Push(void *user_data, Memmy_EvalResult const *result)
 {
-    Test_EvalResultCapture *capture = (Test_EvalResultCapture *)sink->user_data;
-    capture->result = result;
+    Test_EvalResultCapture *capture = (Test_EvalResultCapture *)user_data;
+    capture->result = *result;
     if (capture->count < ArrayCount(capture->results))
     {
-        capture->results[capture->count] = result;
+        capture->results[capture->count] = *result;
     }
-    capture->value = result.value;
+    capture->value = result->value;
     capture->count++;
+    return Memmy_Status_Ok;
 }
 
 static void Test_EvalStatementResult(Memmy_EvalEnv *env, Arena *arena, char *text, Memmy_EvalValue *out)
@@ -61,7 +67,7 @@ static void Test_EvalStatementResult(Memmy_EvalEnv *env, Arena *arena, char *tex
     Test_EvalParseStatement(arena, text, &statement);
     Test_EvalResultCapture capture = {0};
     Memmy_EvalResultSink sink = {
-        .push = Test_EvalResultCapture_Push,
+        .callback = Test_EvalResultCapture_Push,
         .user_data = &capture,
     };
     AssertEq(Memmy_EvalStatement(env, &statement, &sink, 0), Memmy_Status_Ok);
@@ -75,7 +81,7 @@ static void Test_EvalStatementFullResult(Memmy_EvalEnv *env, Arena *arena, char 
     Test_EvalParseStatement(arena, text, &statement);
     Test_EvalResultCapture capture = {0};
     Memmy_EvalResultSink sink = {
-        .push = Test_EvalResultCapture_Push,
+        .callback = Test_EvalResultCapture_Push,
         .user_data = &capture,
     };
     AssertEq(Memmy_EvalStatement(env, &statement, &sink, 0), Memmy_Status_Ok);

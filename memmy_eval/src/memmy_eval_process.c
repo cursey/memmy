@@ -69,8 +69,8 @@ Memmy_Status Memmy_Eval_RequireProcess(Memmy_EvalExec *exec, Memmy_EvalValue *va
     return Memmy_EvalExec_OpenProcess(exec, pid, out, error);
 }
 
-static Memmy_Status Memmy_Eval_ResolveTargetProcess(Memmy_EvalExec *exec, Memmy_AstNode *target, Memmy_Process **out,
-                                                    Memmy_Error *error)
+static Memmy_Status Memmy_Eval_ResolveTargetProcess(Memmy_EvalExec *exec, Memmy_AstNode const *target,
+                                                    Memmy_Process **out, Memmy_Error *error)
 {
     Memmy_EvalEnv *env = exec->env;
     (void)target;
@@ -83,7 +83,7 @@ static Memmy_Status Memmy_Eval_ResolveTargetProcess(Memmy_EvalExec *exec, Memmy_
     return Memmy_EvalExec_OpenProcess(exec, env->default_pid, out, error);
 }
 
-static Memmy_Status Memmy_EvalModuleResolver_Push(void *user_data, Memmy_Module *module)
+static Memmy_Status Memmy_EvalModuleResolver_Push(void *user_data, Memmy_Module const *module)
 {
     Memmy_EvalModuleResolver *resolver = (Memmy_EvalModuleResolver *)user_data;
     if (!String8_EqNoCase(module->name, resolver->name))
@@ -102,7 +102,7 @@ static Memmy_Status Memmy_EvalModuleResolver_Push(void *user_data, Memmy_Module 
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Eval_ResolveModule(Memmy_EvalExec *exec, Memmy_AstNode *target, Memmy_Module *out,
+static Memmy_Status Memmy_Eval_ResolveModule(Memmy_EvalExec *exec, Memmy_AstNode const *target, Memmy_Module *out,
                                              Memmy_Process **out_process, Memmy_Error *error)
 {
     Memmy_EvalEnv *env = exec->env;
@@ -113,7 +113,7 @@ static Memmy_Status Memmy_Eval_ResolveModule(Memmy_EvalExec *exec, Memmy_AstNode
         return status;
     }
 
-    Scratch scratch = Scratch_Begin(&env->arena, 1);
+    Scratch scratch = Scratch_Begin((Arena *[]){env->arena, exec->out_arena}, 2);
     Memmy_EvalModuleResolver resolver = {
         .name = target->target_module,
         .error = error,
@@ -142,7 +142,8 @@ static Memmy_Status Memmy_Eval_ResolveModule(Memmy_EvalExec *exec, Memmy_AstNode
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_Eval_Target(Memmy_EvalExec *exec, Memmy_AstNode *target, Memmy_EvalValue *out, Memmy_Error *error)
+Memmy_Status Memmy_Eval_Target(Memmy_EvalExec *exec, Memmy_AstNode const *target, Memmy_EvalValue *out,
+                               Memmy_Error *error)
 {
     if (target->target_module.len != 0)
     {
@@ -167,7 +168,8 @@ Memmy_Status Memmy_Eval_Target(Memmy_EvalExec *exec, Memmy_AstNode *target, Memm
     return Memmy_Status_InvalidArgument;
 }
 
-Memmy_Status Memmy_Eval_ProcessExpr(Memmy_EvalExec *exec, Memmy_AstNode *expr, Memmy_EvalValue *out, Memmy_Error *error)
+Memmy_Status Memmy_Eval_ProcessExpr(Memmy_EvalExec *exec, Memmy_AstNode const *expr, Memmy_EvalValue *out,
+                                    Memmy_Error *error)
 {
     Memmy_EvalEnv *env = exec->env;
     (void)env;
@@ -210,7 +212,7 @@ Memmy_Status Memmy_Eval_ProcessExpr(Memmy_EvalExec *exec, Memmy_AstNode *expr, M
         }
 
         Memmy_Range range = {0};
-        status = Memmy_Process_FindFunction(env->arena, process, address, &range, error);
+        status = Memmy_Process_FindFunction(exec->out_arena, process, address, &range, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -242,7 +244,7 @@ Memmy_Status Memmy_Eval_ProcessExpr(Memmy_EvalExec *exec, Memmy_AstNode *expr, M
         }
 
         Memmy_ObjectBaseResult result = {0};
-        status = Memmy_Process_FindObjectBase(env->arena, process, address, 0, &result, error);
+        status = Memmy_Process_FindObjectBase(exec->out_arena, process, address, 0, &result, error);
         if (status != Memmy_Status_Ok)
         {
             return status;

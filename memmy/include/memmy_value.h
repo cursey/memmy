@@ -57,12 +57,16 @@ struct Memmy_Pattern
 typedef U32 Memmy_PatternParseFlags;
 enum
 {
+    Memmy_PatternParseFlag_None = 0,
     Memmy_PatternParseFlag_AllowWildcards = 1u << 0,
 };
 
 Memmy_Status Memmy_Type_Parse(String8 text, Memmy_Type *out, Memmy_Error *error);
+// Parsed byte storage belongs to arena. Text is borrowed only for the duration of the call.
+// Required outputs are initialized before validation; error is optional.
 Memmy_Status Memmy_Value_Parse(Arena *arena, Memmy_Type type, Memmy_PointerWidth pointer_width, String8 text,
                                Memmy_Value *out, Memmy_Error *error);
+// Pattern byte storage belongs to arena. Text is borrowed only for the duration of the call.
 Memmy_Status Memmy_Pattern_Parse(Arena *arena, String8 text, Memmy_PatternParseFlags flags, Memmy_Pattern *out,
                                  Memmy_Error *error);
 

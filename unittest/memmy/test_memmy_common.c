@@ -94,7 +94,7 @@ Memmy_ProcessInfoSink Test_ProcessInfoSink(Test_ProcessInfoList *results, Arena 
     return sink;
 }
 
-Memmy_Status Test_ProcessInfoSinkCallback(void *user_data, Memmy_ProcessInfo *info)
+Memmy_Status Test_ProcessInfoSinkCallback(void *user_data, Memmy_ProcessInfo const *info)
 {
     Test_ProcessInfoList *results = (Test_ProcessInfoList *)user_data;
     Test_ProcessInfoNode *node = Arena_PushStruct(results->arena, Test_ProcessInfoNode);
@@ -116,7 +116,7 @@ Memmy_ModuleSink Test_ModuleSink(Test_ModuleList *results, Arena *arena)
     return sink;
 }
 
-Memmy_Status Test_ModuleSinkCallback(void *user_data, Memmy_Module *module)
+Memmy_Status Test_ModuleSinkCallback(void *user_data, Memmy_Module const *module)
 {
     Test_ModuleList *results = (Test_ModuleList *)user_data;
     Test_ModuleNode *node = Arena_PushStruct(results->arena, Test_ModuleNode);
@@ -138,7 +138,7 @@ Memmy_RegionSink Test_RegionSink(Test_RegionList *results, Arena *arena)
     return sink;
 }
 
-Memmy_Status Test_RegionSinkCallback(void *user_data, Memmy_Region *region)
+Memmy_Status Test_RegionSinkCallback(void *user_data, Memmy_Region const *region)
 {
     Test_RegionList *results = (Test_RegionList *)user_data;
     Test_RegionNode *node = Arena_PushStruct(results->arena, Test_RegionNode);

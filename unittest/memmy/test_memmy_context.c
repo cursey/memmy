@@ -24,14 +24,12 @@ Test(Test_MemmyDispatchRejectsMissingContextAndBackend)
     Memmy_Error error = {0};
 
     Memmy_Context_Set(0);
-    AssertEq(Memmy_EnumerateProcesses(arena, Test_ProcessInfoSink(&list, arena), &error),
-             Memmy_Status_InvalidArgument);
+    AssertEq(Memmy_EnumerateProcesses(arena, Test_ProcessInfoSink(&list, arena), &error), Memmy_Status_InvalidArgument);
     AssertEq(error.status, Memmy_Status_InvalidArgument);
 
     Memmy_Context ctx = {0};
     Memmy_Context_Set(&ctx);
-    AssertEq(Memmy_EnumerateProcesses(arena, Test_ProcessInfoSink(&list, arena), &error),
-             Memmy_Status_InvalidArgument);
+    AssertEq(Memmy_EnumerateProcesses(arena, Test_ProcessInfoSink(&list, arena), &error), Memmy_Status_InvalidArgument);
     AssertEq(error.status, Memmy_Status_InvalidArgument);
 
     Memmy_Context_Set(0);
@@ -47,20 +45,34 @@ Test(Test_MemmyDispatchRejectsMissingCallback)
     Memmy_Error error = {0};
 
     Memmy_Context_Set(&ctx);
-    AssertEq(Memmy_EnumerateProcesses(arena, Test_ProcessInfoSink(&list, arena), &error),
-             Memmy_Status_Unsupported);
+    AssertEq(Memmy_EnumerateProcesses(arena, Test_ProcessInfoSink(&list, arena), &error), Memmy_Status_Unsupported);
     AssertEq(error.status, Memmy_Status_Unsupported);
 
     Memmy_Process process = {.backend = &backend};
     U8 buffer[4] = {0};
-    U64 bytes_read = 0;
+    U64 bytes_read = 99;
     AssertEq(Memmy_Process_Read(&process, 0, buffer, sizeof(buffer), &bytes_read, &error), Memmy_Status_Unsupported);
     AssertEq(error.status, Memmy_Status_Unsupported);
+    AssertEq(bytes_read, 0);
 
-    U64 bytes_written = 0;
+    U64 bytes_written = 99;
     AssertEq(Memmy_Process_Write(&process, 0, buffer, sizeof(buffer), &bytes_written, &error),
              Memmy_Status_Unsupported);
     AssertEq(error.status, Memmy_Status_Unsupported);
+    AssertEq(bytes_written, 0);
+
+    Memmy_Process *opened = (Memmy_Process *)1;
+    AssertEq(Memmy_Process_Open(arena, 1, &opened, &error), Memmy_Status_Unsupported);
+    AssertTrue(opened == 0);
+
+    Memmy_Range function_range = {.start = 1, .end = 2};
+    AssertEq(Memmy_Process_FindFunction(arena, &process, 1, &function_range, &error), Memmy_Status_Unsupported);
+    AssertEq(function_range.start, 0);
+    AssertEq(function_range.end, 0);
+
+    Memmy_ObjectBaseResult object_base = {.address = 1};
+    AssertEq(Memmy_Process_FindObjectBase(arena, &process, 1, 0, &object_base, &error), Memmy_Status_Unsupported);
+    AssertEq(object_base.address, 0);
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);

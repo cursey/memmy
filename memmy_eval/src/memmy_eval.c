@@ -10,11 +10,11 @@ void Memmy_EvalError(Memmy_Error *error, Memmy_Status status, String8 context, S
     Memmy_Error_Set(error, status, context, message);
 }
 
-Memmy_Status Memmy_EvalStatement(Memmy_EvalEnv *env, Memmy_AstStatement *statement, Memmy_EvalResultSink *sink,
-                                 Memmy_Error *error)
+Memmy_Status Memmy_EvalStatement(Arena *out_arena, Memmy_EvalEnv *env, Memmy_AstStatement const *statement,
+                                 Memmy_EvalResultSink const *sink, Memmy_Error *error)
 {
-    Scratch scratch = env != 0 ? Scratch_Begin(&env->arena, 1) : (Scratch){0};
-    Memmy_EvalExec exec = {.env = env, .transient_arena = scratch.arena};
+    Scratch scratch = out_arena != 0 && env != 0 ? Scratch_Begin((Arena *[]){out_arena, env->arena}, 2) : (Scratch){0};
+    Memmy_EvalExec exec = {.env = env, .out_arena = out_arena, .transient_arena = scratch.arena};
     Memmy_Status status = Memmy_EvalStatementWithContext(&exec, statement, sink, error);
     Memmy_EvalExec_Close(&exec);
     if (scratch.arena != 0)
@@ -24,10 +24,11 @@ Memmy_Status Memmy_EvalStatement(Memmy_EvalEnv *env, Memmy_AstStatement *stateme
     return status;
 }
 
-Memmy_Status Memmy_EvalExpr(Memmy_EvalEnv *env, Memmy_AstNode *expr, Memmy_EvalValue *out, Memmy_Error *error)
+Memmy_Status Memmy_EvalExpr(Arena *out_arena, Memmy_EvalEnv *env, Memmy_AstNode const *expr, Memmy_EvalValue *out,
+                            Memmy_Error *error)
 {
-    Scratch scratch = env != 0 ? Scratch_Begin(&env->arena, 1) : (Scratch){0};
-    Memmy_EvalExec exec = {.env = env, .transient_arena = scratch.arena};
+    Scratch scratch = out_arena != 0 && env != 0 ? Scratch_Begin((Arena *[]){out_arena, env->arena}, 2) : (Scratch){0};
+    Memmy_EvalExec exec = {.env = env, .out_arena = out_arena, .transient_arena = scratch.arena};
     Memmy_Status status = Memmy_EvalExprWithContext(&exec, expr, out, error);
     Memmy_EvalExec_Close(&exec);
     if (scratch.arena != 0)
@@ -37,11 +38,11 @@ Memmy_Status Memmy_EvalExpr(Memmy_EvalEnv *env, Memmy_AstNode *expr, Memmy_EvalV
     return status;
 }
 
-Memmy_Status Memmy_EvalStatementWithContext(Memmy_EvalExec *exec, Memmy_AstStatement *statement,
-                                            Memmy_EvalResultSink *sink, Memmy_Error *error)
+Memmy_Status Memmy_EvalStatementWithContext(Memmy_EvalExec *exec, Memmy_AstStatement const *statement,
+                                            Memmy_EvalResultSink const *sink, Memmy_Error *error)
 {
     Memmy_EvalEnv *env = exec != 0 ? exec->env : 0;
-    if (env == 0 || statement == 0)
+    if (env == 0 || exec->out_arena == 0 || statement == 0)
     {
         Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("eval"),
                         String8_Lit("missing eval environment or statement"));
@@ -76,12 +77,12 @@ Memmy_Status Memmy_EvalStatementWithContext(Memmy_EvalExec *exec, Memmy_AstState
 
     if (status == Memmy_Status_Ok)
     {
-        Memmy_Eval_EmitValueResult(sink, value);
+        status = Memmy_Eval_EmitValueResult(sink, value);
     }
     return status;
 }
 
-Memmy_Status Memmy_EvalExprWithContext(Memmy_EvalExec *exec, Memmy_AstNode *expr, Memmy_EvalValue *out,
+Memmy_Status Memmy_EvalExprWithContext(Memmy_EvalExec *exec, Memmy_AstNode const *expr, Memmy_EvalValue *out,
                                        Memmy_Error *error)
 {
     Memmy_EvalEnv *env = exec != 0 ? exec->env : 0;
@@ -89,7 +90,7 @@ Memmy_Status Memmy_EvalExprWithContext(Memmy_EvalExec *exec, Memmy_AstNode *expr
     {
         *out = (Memmy_EvalValue){0};
     }
-    if (env == 0 || expr == 0 || out == 0)
+    if (env == 0 || exec->out_arena == 0 || expr == 0 || out == 0)
     {
         Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("eval"),
                         String8_Lit("missing eval environment, expression, or output"));

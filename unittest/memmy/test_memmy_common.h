@@ -83,10 +83,10 @@ Memmy_ScanSink Test_ScanSink(Test_ScanResultList *results, Arena *arena);
 Memmy_Status Test_ScanSinkCallback(void *user_data, Memmy_Addr address);
 void Test_AssertScanAddresses(Test_ScanResultList *results, Memmy_Addr *addresses, U64 count);
 Memmy_ProcessInfoSink Test_ProcessInfoSink(Test_ProcessInfoList *results, Arena *arena);
-Memmy_Status Test_ProcessInfoSinkCallback(void *user_data, Memmy_ProcessInfo *info);
+Memmy_Status Test_ProcessInfoSinkCallback(void *user_data, Memmy_ProcessInfo const *info);
 Memmy_ModuleSink Test_ModuleSink(Test_ModuleList *results, Arena *arena);
-Memmy_Status Test_ModuleSinkCallback(void *user_data, Memmy_Module *module);
+Memmy_Status Test_ModuleSinkCallback(void *user_data, Memmy_Module const *module);
 Memmy_RegionSink Test_RegionSink(Test_RegionList *results, Arena *arena);
-Memmy_Status Test_RegionSinkCallback(void *user_data, Memmy_Region *region);
+Memmy_Status Test_RegionSinkCallback(void *user_data, Memmy_Region const *region);
 
 #endif // TEST_MEMMY_COMMON_H

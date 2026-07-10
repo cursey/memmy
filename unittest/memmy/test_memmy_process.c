@@ -360,7 +360,10 @@ Test(Test_MemmyProcessFindObjectBaseSuccess)
     Test_MemmyProcess_WritePointer(&test_backend, vtable + 8, code + 8);
 
     Memmy_ObjectBaseResult result = {0};
-    AssertEq(Memmy_Process_FindObjectBase(arena, process, object + 0x18, 0, &result, &error), Memmy_Status_Ok);
+    Memmy_ObjectBaseOptions options = {0};
+    Memmy_ObjectBaseOptions options_before = options;
+    AssertEq(Memmy_Process_FindObjectBase(arena, process, object + 0x18, &options, &result, &error), Memmy_Status_Ok);
+    AssertTrue(Memory_Equals(&options, &options_before, sizeof(options)));
     AssertEq(result.address, object);
     AssertEq(result.vptr_address, object);
     AssertEq(result.vtable, vtable);

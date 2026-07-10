@@ -1,6 +1,6 @@
 #include "memmy_status.h"
 
-char *Memmy_Status_Name(Memmy_Status status)
+char const *Memmy_Status_Name(Memmy_Status status)
 {
     char *result = "unknown";
     switch (status)
@@ -56,7 +56,7 @@ char *Memmy_Status_Name(Memmy_Status status)
 
 String8 Memmy_Status_String(Memmy_Status status)
 {
-    return String8_FromCStr(Memmy_Status_Name(status));
+    return String8_FromCStr((char *)Memmy_Status_Name(status));
 }
 
 void Memmy_Error_Set(Memmy_Error *error, Memmy_Status status, String8 context, String8 message)

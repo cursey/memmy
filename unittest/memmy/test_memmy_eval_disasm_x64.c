@@ -13,7 +13,7 @@ static void Test_EvalDisasm_ExprText(Memmy_EvalEnv *env, Arena *arena, char *tex
 {
     Memmy_AstNode *expr = 0;
     Test_EvalDisasm_ParseExpr(arena, text, &expr);
-    AssertEq(Memmy_EvalExpr(env, expr, out, 0), Memmy_Status_Ok);
+    AssertEq(Memmy_EvalExpr(arena, env, expr, out, 0), Memmy_Status_Ok);
 }
 
 static void Test_EvalDisasm_Setup(Arena *arena, Test_MemmyBackend *backend, Memmy_EvalEnv **out)
@@ -134,12 +134,12 @@ Test(Test_MemmyEvalDisasmX64RejectsUnknownMnemonicAndRegister)
     Memmy_Error error = {0};
 
     Test_EvalDisasm_ParseExpr(arena, "[@0x1000..+0x40] disasm x64 { nope reg }", &expr);
-    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_ParseError);
+    AssertEq(Memmy_EvalExpr(arena, env, expr, &value, &error), Memmy_Status_ParseError);
     AssertStrEq(error.context, String8_Lit("disasm"));
 
     error = (Memmy_Error){0};
     Test_EvalDisasm_ParseExpr(arena, "[@0x1000..+0x40] disasm x64 { mov maybe_reg }", &expr);
-    AssertEq(Memmy_EvalExpr(env, expr, &value, &error), Memmy_Status_ParseError);
+    AssertEq(Memmy_EvalExpr(arena, env, expr, &value, &error), Memmy_Status_ParseError);
     AssertStrEq(error.context, String8_Lit("disasm"));
 
     Memmy_Context_Set(0);

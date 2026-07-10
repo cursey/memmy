@@ -15,6 +15,7 @@ struct Memmy_CliOutputWriter
 typedef struct Memmy_CliReplSession Memmy_CliReplSession;
 struct Memmy_CliReplSession
 {
+    Arena *arena;
     Memmy_EvalEnv *env;
     B32 has_attached_process;
     Memmy_ProcessInfo attached_process;

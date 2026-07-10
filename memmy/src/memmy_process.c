@@ -65,6 +65,10 @@ Memmy_Status Memmy_EnumerateProcesses(Arena *arena, Memmy_ProcessInfoSink sink, 
 
 Memmy_Status Memmy_Process_Open(Arena *arena, U32 pid, Memmy_Process **out, Memmy_Error *error)
 {
+    if (out != 0)
+    {
+        *out = 0;
+    }
     if (arena == 0 || out == 0)
     {
         Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("backend"),
@@ -83,7 +87,6 @@ Memmy_Status Memmy_Process_Open(Arena *arena, U32 pid, Memmy_Process **out, Memm
         return memmy_Unsupported(error, "backend cannot open processes");
     }
 
-    *out = 0;
     return backend->open_process(arena, pid, out, error);
 }
 
@@ -156,6 +159,10 @@ Memmy_Status Memmy_Process_EnumerateRegions(Arena *arena, Memmy_Process *process
 Memmy_Status Memmy_Process_FindFunction(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Range *out,
                                         Memmy_Error *error)
 {
+    if (out != 0)
+    {
+        *out = (Memmy_Range){0};
+    }
     if (arena == 0 || out == 0)
     {
         Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("backend"),
@@ -174,14 +181,17 @@ Memmy_Status Memmy_Process_FindFunction(Arena *arena, Memmy_Process *process, Me
         return memmy_Unsupported(error, "backend cannot find functions");
     }
 
-    *out = (Memmy_Range){0};
     return backend->find_function(arena, process, address, out, error);
 }
 
 Memmy_Status Memmy_Process_FindObjectBase(Arena *arena, Memmy_Process *process, Memmy_Addr address,
-                                          Memmy_ObjectBaseOptions *options, Memmy_ObjectBaseResult *out,
+                                          Memmy_ObjectBaseOptions const *options, Memmy_ObjectBaseResult *out,
                                           Memmy_Error *error)
 {
+    if (out != 0)
+    {
+        *out = (Memmy_ObjectBaseResult){0};
+    }
     if (arena == 0 || out == 0)
     {
         Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("backend"),
@@ -200,27 +210,26 @@ Memmy_Status Memmy_Process_FindObjectBase(Arena *arena, Memmy_Process *process, 
         return memmy_Unsupported(error, "backend cannot find object bases");
     }
 
-    Memmy_ObjectBaseOptions defaults = {0};
-    if (options == 0)
+    Memmy_ObjectBaseOptions normalized = options != 0 ? *options : (Memmy_ObjectBaseOptions){0};
+    if (normalized.max_scan_back == 0)
     {
-        options = &defaults;
+        normalized.max_scan_back = 0x1000;
     }
-    if (options->max_scan_back == 0)
+    if (normalized.min_vtable_entries == 0)
     {
-        options->max_scan_back = 0x1000;
-    }
-    if (options->min_vtable_entries == 0)
-    {
-        options->min_vtable_entries = 2;
+        normalized.min_vtable_entries = 2;
     }
 
-    *out = (Memmy_ObjectBaseResult){0};
-    return backend->find_object_base(arena, process, address, options, out, error);
+    return backend->find_object_base(arena, process, address, &normalized, out, error);
 }
 
-Memmy_Status Memmy_Process_Read(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size, U64 *bytes_read,
+Memmy_Status Memmy_Process_Read(Memmy_Process *process, Memmy_Addr address, void *buffer, U64 size, U64 *bytes_read,
                                 Memmy_Error *error)
 {
+    if (bytes_read != 0)
+    {
+        *bytes_read = 0;
+    }
     if (buffer == 0 || bytes_read == 0)
     {
         Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("backend"),
@@ -239,12 +248,16 @@ Memmy_Status Memmy_Process_Read(Memmy_Process *process, Memmy_Addr addr, void *b
         return memmy_Unsupported(error, "backend cannot read memory");
     }
 
-    return backend->read(process, addr, buffer, size, bytes_read, error);
+    return backend->read(process, address, buffer, size, bytes_read, error);
 }
 
-Memmy_Status Memmy_Process_Write(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size, U64 *bytes_written,
-                                 Memmy_Error *error)
+Memmy_Status Memmy_Process_Write(Memmy_Process *process, Memmy_Addr address, void const *buffer, U64 size,
+                                 U64 *bytes_written, Memmy_Error *error)
 {
+    if (bytes_written != 0)
+    {
+        *bytes_written = 0;
+    }
     if (buffer == 0 || bytes_written == 0)
     {
         Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("backend"),
@@ -263,5 +276,5 @@ Memmy_Status Memmy_Process_Write(Memmy_Process *process, Memmy_Addr addr, void *
         return memmy_Unsupported(error, "backend cannot write memory");
     }
 
-    return backend->write(process, addr, buffer, size, bytes_written, error);
+    return backend->write(process, address, buffer, size, bytes_written, error);
 }

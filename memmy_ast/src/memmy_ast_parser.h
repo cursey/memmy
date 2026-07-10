@@ -3,6 +3,9 @@
 
 #include "memmy_ast.h"
 
+Memmy_AstStatus Memmy_Ast_ParseDisasmX64Pattern(Arena *arena, String8 input, String8 body, U64 body_offset,
+                                                Memmy_AstDisasmPattern *out, Memmy_AstDiagnostic *diagnostic);
+
 typedef U32 Memmy_TokenKind;
 enum
 {

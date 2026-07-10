@@ -54,7 +54,7 @@ Test(Test_MemmyEvalModuleTargetVariableStoresPlainAddress)
     AssertEq(read.constant, 0x07060504);
     AssertEq(backend.open_call_count, 2);
     AssertEq(backend.close_call_count, 2);
-    AssertTrue(env->has_default_process);
+    AssertTrue(Memmy_EvalEnv_GetDefaultProcess(env, 0, 0));
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -180,7 +180,7 @@ Test(Test_MemmyEvalAddressFromTypedValueUsesAmbientProcess)
     AssertEq(backend.open_call_count, 1);
     AssertEq(backend.close_call_count, 1);
     AssertEq(backend.read_call_count, 2);
-    AssertTrue(env->has_default_process);
+    AssertTrue(Memmy_EvalEnv_GetDefaultProcess(env, 0, 0));
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -257,7 +257,7 @@ Test(Test_MemmyEvalTransientProcessOpenBookkeepingUsesStatementScratch)
     {
         Test_EvalResultCapture capture = {0};
         Memmy_EvalResultSink sink = {
-            .push = Test_EvalResultCapture_Push,
+            .callback = Test_EvalResultCapture_Push,
             .user_data = &capture,
         };
         AssertEq(Memmy_EvalStatement(env, &statement, &sink, 0), Memmy_Status_Ok);

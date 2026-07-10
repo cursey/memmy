@@ -251,7 +251,7 @@ static Memmy_Status Memmy_Win32_Read(Memmy_Process *process, Memmy_Addr addr, vo
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Win32_Write(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size,
+static Memmy_Status Memmy_Win32_Write(Memmy_Process *process, Memmy_Addr addr, void const *buffer, U64 size,
                                       U64 *bytes_written, Memmy_Error *error)
 {
     Memmy_Win32ProcessData *data = (Memmy_Win32ProcessData *)process->backend_data;
@@ -372,7 +372,7 @@ static Memmy_Status Memmy_Win32_ReadExact(Memmy_Process *process, Memmy_Addr add
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Win32_ModuleSearch_Push(void *user_data, Memmy_Module *module)
+static Memmy_Status Memmy_Win32_ModuleSearch_Push(void *user_data, Memmy_Module const *module)
 {
     Memmy_Win32ModuleSearch *search = (Memmy_Win32ModuleSearch *)user_data;
     Memmy_Addr end = 0;
@@ -758,7 +758,7 @@ static B32 Memmy_Win32_IsPlausibleVtable(Memmy_Process *process, Memmy_Addr vtab
 }
 
 static Memmy_Status Memmy_Win32_FindObjectBase(Arena *arena, Memmy_Process *process, Memmy_Addr address,
-                                               Memmy_ObjectBaseOptions *options, Memmy_ObjectBaseResult *out,
+                                               Memmy_ObjectBaseOptions const *options, Memmy_ObjectBaseResult *out,
                                                Memmy_Error *error)
 {
     Unused(arena);

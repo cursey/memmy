@@ -75,20 +75,19 @@ static String8 Memmy_Cli_PointerWidthArchString(Memmy_PointerWidth pointer_width
 
 static Memmy_PointerWidth Memmy_CliEvalResultWriter_PointerWidth(Memmy_CliEvalResultWriter *result_writer)
 {
-    if (result_writer->env != 0 && result_writer->env->default_pointer_width != Memmy_PointerWidth_Unknown)
+    Memmy_PointerWidth pointer_width = Memmy_PointerWidth_Unknown;
+    if (Memmy_EvalEnv_GetDefaultProcess(result_writer->env, 0, &pointer_width))
     {
-        return result_writer->env->default_pointer_width;
+        return pointer_width;
     }
     return Memmy_PointerWidth_64;
 }
 
 static U32 Memmy_CliEvalResultWriter_Pid(Memmy_CliEvalResultWriter *result_writer)
 {
-    if (result_writer->env != 0 && result_writer->env->has_default_process)
-    {
-        return result_writer->env->default_pid;
-    }
-    return 0;
+    U32 pid = 0;
+    Memmy_EvalEnv_GetDefaultProcess(result_writer->env, &pid, 0);
+    return pid;
 }
 
 static String8 Memmy_Cli_DslHelp(Arena *arena)
@@ -178,7 +177,7 @@ static String8 Memmy_Cli_EvalValueKindString(Memmy_EvalValue value)
     return String8_Lit("unknown");
 }
 
-static Memmy_Status Memmy_CliProcessInfoResolver_Push(void *user_data, Memmy_ProcessInfo *info)
+static Memmy_Status Memmy_CliProcessInfoResolver_Push(void *user_data, Memmy_ProcessInfo const *info)
 {
     Memmy_CliProcessInfoResolver *resolver = (Memmy_CliProcessInfoResolver *)user_data;
     B32 matches = 0;
@@ -584,35 +583,36 @@ static Memmy_Status Memmy_CliEvalResultWriter_WriteAssignment(Memmy_CliEvalResul
     return Memmy_CliEvalResultWriter_Write(result_writer, line);
 }
 
-static void Memmy_CliEvalResultWriter_Push(Memmy_EvalResultSink *sink, Memmy_EvalResult result)
+static Memmy_Status Memmy_CliEvalResultWriter_Push(void *user_data, Memmy_EvalResult const *result)
 {
-    Memmy_CliEvalResultWriter *result_writer = (Memmy_CliEvalResultWriter *)sink->user_data;
+    Memmy_CliEvalResultWriter *result_writer = (Memmy_CliEvalResultWriter *)user_data;
     if (result_writer->status != Memmy_Status_Ok)
     {
-        return;
+        return result_writer->status;
     }
 
     Arena *arena = result_writer->arena;
     if (result_writer->suppress_value_result &&
-        (result.kind == Memmy_EvalResultKind_Value || result.kind == Memmy_EvalResultKind_Read ||
-         result.kind == Memmy_EvalResultKind_Write || result.kind == Memmy_EvalResultKind_AddressList))
+        (result->kind == Memmy_EvalResultKind_Value || result->kind == Memmy_EvalResultKind_Read ||
+         result->kind == Memmy_EvalResultKind_Write || result->kind == Memmy_EvalResultKind_AddressList))
     {
-        result_writer->status = Memmy_CliEvalResultWriter_WriteAssignment(result_writer, result.value);
-        return;
+        result_writer->status = Memmy_CliEvalResultWriter_WriteAssignment(result_writer, result->value);
+        return result_writer->status;
     }
 
-    if (result.kind == Memmy_EvalResultKind_Value)
+    Memmy_EvalResult value = *result;
+    if (value.kind == Memmy_EvalResultKind_Value)
     {
-        result_writer->status = Memmy_CliEvalResultWriter_WriteValue(result_writer, result.value);
+        result_writer->status = Memmy_CliEvalResultWriter_WriteValue(result_writer, value.value);
     }
-    else if (result.kind == Memmy_EvalResultKind_Read)
+    else if (value.kind == Memmy_EvalResultKind_Read)
     {
         Memmy_CliPeekOutput peek = {
             .pointer_width = Memmy_CliEvalResultWriter_PointerWidth(result_writer),
-            .address = result.address,
-            .type = result.new_value.type,
-            .type_text = Memmy_Cli_TypeString(result.new_value.type),
-            .bytes = result.new_value.bytes,
+            .address = value.address,
+            .type = value.new_value.type,
+            .type_text = Memmy_Cli_TypeString(value.new_value.type),
+            .bytes = value.new_value.bytes,
         };
         String8 output = {0};
         result_writer->status = Memmy_Cli_FormatPeekOutput(arena, &peek, result_writer->jsonl, &output, 0);
@@ -621,16 +621,16 @@ static void Memmy_CliEvalResultWriter_Push(Memmy_EvalResultSink *sink, Memmy_Eva
             result_writer->status = Memmy_CliEvalResultWriter_Write(result_writer, output);
         }
     }
-    else if (result.kind == Memmy_EvalResultKind_Write)
+    else if (value.kind == Memmy_EvalResultKind_Write)
     {
         Memmy_CliPokeOutput poke = {
             .pid = Memmy_CliEvalResultWriter_Pid(result_writer),
             .pointer_width = Memmy_CliEvalResultWriter_PointerWidth(result_writer),
-            .address = result.address,
-            .type = result.new_value.type,
-            .type_text = Memmy_Cli_TypeString(result.new_value.type),
-            .old_bytes = result.old_value.bytes,
-            .new_bytes = result.new_value.bytes,
+            .address = value.address,
+            .type = value.new_value.type,
+            .type_text = Memmy_Cli_TypeString(value.new_value.type),
+            .old_bytes = value.old_value.bytes,
+            .new_bytes = value.new_value.bytes,
             .dry_run = 0,
         };
         String8 output = {0};
@@ -640,50 +640,50 @@ static void Memmy_CliEvalResultWriter_Push(Memmy_EvalResultSink *sink, Memmy_Eva
             result_writer->status = Memmy_CliEvalResultWriter_Write(result_writer, output);
         }
     }
-    else if (result.kind == Memmy_EvalResultKind_AddressList)
+    else if (value.kind == Memmy_EvalResultKind_AddressList)
     {
-        result_writer->status = Memmy_CliEvalResultWriter_WriteAddressList(result_writer, result.value);
+        result_writer->status = Memmy_CliEvalResultWriter_WriteAddressList(result_writer, value.value);
     }
-    else if (result.kind == Memmy_EvalResultKind_Process)
+    else if (value.kind == Memmy_EvalResultKind_Process)
     {
-        result_writer->status = Memmy_CliEvalResultWriter_WriteProcess(result_writer, &result.process);
+        result_writer->status = Memmy_CliEvalResultWriter_WriteProcess(result_writer, &value.process);
     }
-    else if (result.kind == Memmy_EvalResultKind_Module)
+    else if (value.kind == Memmy_EvalResultKind_Module)
     {
-        result_writer->status = Memmy_CliEvalResultWriter_WriteModule(result_writer, &result.module);
+        result_writer->status = Memmy_CliEvalResultWriter_WriteModule(result_writer, &value.module);
     }
-    else if (result.kind == Memmy_EvalResultKind_Region)
+    else if (value.kind == Memmy_EvalResultKind_Region)
     {
-        result_writer->status = Memmy_CliEvalResultWriter_WriteRegion(result_writer, &result.region);
+        result_writer->status = Memmy_CliEvalResultWriter_WriteRegion(result_writer, &value.region);
     }
-    else if (result.kind == Memmy_EvalResultKind_Variable)
+    else if (value.kind == Memmy_EvalResultKind_Variable)
     {
-        String8 kind = Memmy_Cli_EvalValueKindString(result.variable.value);
+        String8 kind = Memmy_Cli_EvalValueKindString(value.variable.value);
         String8 line = {0};
         if (result_writer->jsonl)
         {
-            String8 name = Memmy_Cli_FormatJsonString(arena, result.variable.name);
+            String8 name = Memmy_Cli_FormatJsonString(arena, value.variable.name);
             line = String8_PushF(arena, "{\"type\":\"variable\",\"name\":%.*s,\"kind\":\"%.*s\"}\n", (int)name.len,
                                  (char *)name.data, (int)kind.len, (char *)kind.data);
         }
         else
         {
-            line = String8_PushF(arena, "%.*s %.*s\n", (int)result.variable.name.len, (char *)result.variable.name.data,
+            line = String8_PushF(arena, "%.*s %.*s\n", (int)value.variable.name.len, (char *)value.variable.name.data,
                                  (int)kind.len, (char *)kind.data);
         }
         result_writer->status = Memmy_CliEvalResultWriter_Write(result_writer, line);
     }
-    else if (result.kind == Memmy_EvalResultKind_Unset)
+    else if (value.kind == Memmy_EvalResultKind_Unset)
     {
         if (result_writer->jsonl)
         {
-            String8 name = Memmy_Cli_FormatJsonString(arena, result.name);
+            String8 name = Memmy_Cli_FormatJsonString(arena, value.name);
             String8 line =
                 String8_PushF(arena, "{\"type\":\"unset\",\"name\":%.*s}\n", (int)name.len, (char *)name.data);
             result_writer->status = Memmy_CliEvalResultWriter_Write(result_writer, line);
         }
     }
-    else if (result.kind == Memmy_EvalResultKind_Clear)
+    else if (value.kind == Memmy_EvalResultKind_Clear)
     {
         if (result_writer->jsonl)
         {
@@ -691,7 +691,7 @@ static void Memmy_CliEvalResultWriter_Push(Memmy_EvalResultSink *sink, Memmy_Eva
                 Memmy_CliEvalResultWriter_Write(result_writer, String8_Lit("{\"type\":\"clear\"}\n"));
         }
     }
-    else if (result.kind == Memmy_EvalResultKind_Help)
+    else if (value.kind == Memmy_EvalResultKind_Help)
     {
         String8 help = Memmy_Cli_DslHelp(arena);
         if (result_writer->jsonl)
@@ -706,10 +706,11 @@ static void Memmy_CliEvalResultWriter_Push(Memmy_EvalResultSink *sink, Memmy_Eva
             result_writer->status = Memmy_CliEvalResultWriter_Write(result_writer, help);
         }
     }
-    else if (result.kind == Memmy_EvalResultKind_Exit)
+    else if (value.kind == Memmy_EvalResultKind_Exit)
     {
         result_writer->saw_exit = 1;
     }
+    return result_writer->status;
 }
 
 Memmy_Status Memmy_Cli_RunExprToWriter(Arena *arena, Memmy_CliOptions *options, Memmy_CliOutputWriter writer,
@@ -768,9 +769,10 @@ Memmy_Status Memmy_Cli_RunStatementToWriterWithEnv(Arena *arena, Memmy_EvalEnv *
         return Memmy_Status_InvalidArgument;
     }
 
-    B32 previous_has_default_process = env->has_default_process;
-    U32 previous_default_pid = env->default_pid;
-    Memmy_PointerWidth previous_default_pointer_width = env->default_pointer_width;
+    U32 previous_default_pid = 0;
+    Memmy_PointerWidth previous_default_pointer_width = Memmy_PointerWidth_Unknown;
+    B32 previous_has_default_process =
+        Memmy_EvalEnv_GetDefaultProcess(env, &previous_default_pid, &previous_default_pointer_width);
 
     Memmy_Status status = Memmy_Cli_SetOptionsProcess(arena, options, env, 0, error);
     if (status != Memmy_Status_Ok)
@@ -788,10 +790,10 @@ Memmy_Status Memmy_Cli_RunStatementToWriterWithEnv(Arena *arena, Memmy_EvalEnv *
         .assignment_name = statement.assignment_name,
     };
     Memmy_EvalResultSink sink = {
-        .push = Memmy_CliEvalResultWriter_Push,
+        .callback = Memmy_CliEvalResultWriter_Push,
         .user_data = &result_writer,
     };
-    status = Memmy_EvalStatement(env, &statement, &sink, error);
+    status = Memmy_EvalStatement(arena, env, &statement, &sink, error);
     if (out_exit != 0)
     {
         *out_exit = result_writer.saw_exit;

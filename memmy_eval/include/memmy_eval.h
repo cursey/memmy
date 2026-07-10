@@ -1,11 +1,8 @@
 #ifndef MEMMY_EVAL_H
 #define MEMMY_EVAL_H
 
-#include "base_hashmap.h"
 #include "memmy.h"
 #include "memmy_ast.h"
-
-typedef struct Memmy_EvalBinding Memmy_EvalBinding;
 
 typedef U32 Memmy_EvalValueKind;
 enum
@@ -21,14 +18,6 @@ enum
 };
 
 typedef struct Memmy_EvalEnv Memmy_EvalEnv;
-struct Memmy_EvalEnv
-{
-    Arena *arena;
-    HashMap bindings; // Memmy_EvalBinding
-    B32 has_default_process;
-    U32 default_pid;
-    Memmy_PointerWidth default_pointer_width;
-};
 
 typedef struct Memmy_EvalValue Memmy_EvalValue;
 struct Memmy_EvalValue
@@ -48,6 +37,7 @@ struct Memmy_EvalValue
 typedef U32 Memmy_EvalResultKind;
 enum
 {
+    Memmy_EvalResultKind_Null,
     Memmy_EvalResultKind_Value,
     Memmy_EvalResultKind_Read,
     Memmy_EvalResultKind_Write,
@@ -85,21 +75,28 @@ struct Memmy_EvalResult
     String8 text;
 };
 
+typedef Memmy_Status Memmy_EvalResultSinkFn(void *user_data, Memmy_EvalResult const *result);
 typedef struct Memmy_EvalResultSink Memmy_EvalResultSink;
 struct Memmy_EvalResultSink
 {
-    void (*push)(Memmy_EvalResultSink *sink, Memmy_EvalResult result);
+    Memmy_EvalResultSinkFn *callback;
     void *user_data;
 };
 
+// The environment and all assigned bindings belong to arena. Values passed to Set are deep-copied.
 Memmy_EvalEnv *Memmy_EvalEnv_Create(Arena *arena);
 void Memmy_EvalEnv_SetDefaultProcess(Memmy_EvalEnv *env, U32 pid, Memmy_PointerWidth pointer_width);
 void Memmy_EvalEnv_ClearDefaultProcess(Memmy_EvalEnv *env);
-Memmy_Status Memmy_EvalStatement(Memmy_EvalEnv *env, Memmy_AstStatement *statement, Memmy_EvalResultSink *sink,
-                                 Memmy_Error *error);
-Memmy_Status Memmy_EvalExpr(Memmy_EvalEnv *env, Memmy_AstNode *expr, Memmy_EvalValue *out, Memmy_Error *error);
+B32 Memmy_EvalEnv_GetDefaultProcess(Memmy_EvalEnv const *env, U32 *out_pid, Memmy_PointerWidth *out_pointer_width);
+// Evaluation output data belongs to out_arena. AST inputs are borrowed and not modified.
+// Sink result pointers and enumeration metadata are valid only for the callback duration.
+Memmy_Status Memmy_EvalStatement(Arena *out_arena, Memmy_EvalEnv *env, Memmy_AstStatement const *statement,
+                                 Memmy_EvalResultSink const *sink, Memmy_Error *error);
+Memmy_Status Memmy_EvalExpr(Arena *out_arena, Memmy_EvalEnv *env, Memmy_AstNode const *expr, Memmy_EvalValue *out,
+                            Memmy_Error *error);
 Memmy_Status Memmy_EvalEnv_Set(Memmy_EvalEnv *env, String8 name, Memmy_EvalValue value);
-Memmy_Status Memmy_EvalEnv_Find(Memmy_EvalEnv *env, String8 name, Memmy_EvalValue *out);
+// Find deep-copies the binding value into out_arena and clears out on failure.
+Memmy_Status Memmy_EvalEnv_Find(Arena *out_arena, Memmy_EvalEnv const *env, String8 name, Memmy_EvalValue *out);
 Memmy_Status Memmy_EvalEnv_Unset(Memmy_EvalEnv *env, String8 name);
 void Memmy_EvalEnv_Clear(Memmy_EvalEnv *env);
 

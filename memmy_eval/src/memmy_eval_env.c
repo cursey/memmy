@@ -12,10 +12,10 @@ static B32 Memmy_EvalBinding_Eq(void *link, void *ctx)
     return String8_Eq(binding->name, *name);
 }
 
-static Memmy_EvalBinding *Memmy_EvalEnv_FindBinding(Memmy_EvalEnv *env, String8 name)
+static Memmy_EvalBinding *Memmy_EvalEnv_FindBinding(Memmy_EvalEnv const *env, String8 name)
 {
     U64 hash = Hash_Fnv1a(name.data, name.len);
-    HashLink *link = HashMap_Find(&env->bindings, hash, Memmy_EvalBinding_Eq, &name);
+    HashLink *link = HashMap_Find((HashMap *)&env->bindings, hash, Memmy_EvalBinding_Eq, &name);
     return link != 0 ? ContainerOf(link, Memmy_EvalBinding, hash) : 0;
 }
 
@@ -74,6 +74,31 @@ void Memmy_EvalEnv_ClearDefaultProcess(Memmy_EvalEnv *env)
     }
 }
 
+B32 Memmy_EvalEnv_GetDefaultProcess(Memmy_EvalEnv const *env, U32 *out_pid, Memmy_PointerWidth *out_pointer_width)
+{
+    if (out_pid != 0)
+    {
+        *out_pid = 0;
+    }
+    if (out_pointer_width != 0)
+    {
+        *out_pointer_width = Memmy_PointerWidth_Unknown;
+    }
+    if (env == 0 || !env->has_default_process)
+    {
+        return 0;
+    }
+    if (out_pid != 0)
+    {
+        *out_pid = env->default_pid;
+    }
+    if (out_pointer_width != 0)
+    {
+        *out_pointer_width = env->default_pointer_width;
+    }
+    return 1;
+}
+
 Memmy_Status Memmy_EvalEnv_Set(Memmy_EvalEnv *env, String8 name, Memmy_EvalValue value)
 {
     if (env == 0 || name.len == 0)
@@ -93,13 +118,13 @@ Memmy_Status Memmy_EvalEnv_Set(Memmy_EvalEnv *env, String8 name, Memmy_EvalValue
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_EvalEnv_Find(Memmy_EvalEnv *env, String8 name, Memmy_EvalValue *out)
+Memmy_Status Memmy_EvalEnv_Find(Arena *out_arena, Memmy_EvalEnv const *env, String8 name, Memmy_EvalValue *out)
 {
     if (out != 0)
     {
         *out = (Memmy_EvalValue){0};
     }
-    if (env == 0 || out == 0)
+    if (out_arena == 0 || env == 0 || out == 0)
     {
         return Memmy_Status_InvalidArgument;
     }
@@ -110,7 +135,7 @@ Memmy_Status Memmy_EvalEnv_Find(Memmy_EvalEnv *env, String8 name, Memmy_EvalValu
         return Memmy_Status_NotFound;
     }
 
-    *out = binding->value;
+    *out = Memmy_EvalValue_Copy(out_arena, binding->value);
     return Memmy_Status_Ok;
 }
 

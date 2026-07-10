@@ -42,8 +42,8 @@ static void Memmy_CliReplSession_SetAttachedProcess(Memmy_CliReplSession *sessio
     {
         session->has_attached_process = 1;
         session->attached_process = info;
-        session->attached_process.name = String8_Copy(session->env->arena, info.name);
-        session->attached_process.path = String8_Copy(session->env->arena, info.path);
+        session->attached_process.name = String8_Copy(session->arena, info.name);
+        session->attached_process.path = String8_Copy(session->arena, info.path);
         Memmy_EvalEnv_SetDefaultProcess(session->env, info.pid, info.pointer_width);
         Memmy_EvalEnv_Clear(session->env);
     }
@@ -103,7 +103,7 @@ static B32 Memmy_CliRepl_IsDecimalDigits(String8 text)
     return 1;
 }
 
-static Memmy_Status Memmy_CliAttachResolver_Push(void *user_data, Memmy_ProcessInfo *info)
+static Memmy_Status Memmy_CliAttachResolver_Push(void *user_data, Memmy_ProcessInfo const *info)
 {
     Memmy_CliAttachResolver *resolver = (Memmy_CliAttachResolver *)user_data;
     B32 matches = resolver->fuzzy ? String8_FuzzyMatchNoCase(info->name, resolver->name)
@@ -271,6 +271,7 @@ Memmy_Status Memmy_Cli_RunReplLine(Arena *arena, String8 line, String8 *out, Mem
 Memmy_CliReplSession Memmy_CliReplSession_Begin(Arena *arena)
 {
     return (Memmy_CliReplSession){
+        .arena = arena,
         .env = Memmy_EvalEnv_Create(arena),
     };
 }

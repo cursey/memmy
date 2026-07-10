@@ -78,7 +78,7 @@ static B32 Memmy_EvalDisasmX64_OperandMatches(Memmy_EvalDisasmX64Operand *patter
     return 0;
 }
 
-static B32 Memmy_EvalDisasmX64_MatchesAt(void *user_data, Memmy_Addr address, U8 *bytes, U64 available)
+static B32 Memmy_EvalDisasmX64_MatchesAt(void *user_data, Memmy_Addr address, U8 const *bytes, U64 available)
 {
     Unused(address);
 
@@ -174,7 +174,7 @@ static Memmy_Status Memmy_EvalDisasmX64_ResolvePattern(Arena *arena, Memmy_AstDi
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_Eval_DisasmX64Scan(Arena *arena, Memmy_Process *process, Memmy_ScanOptions *options,
+Memmy_Status Memmy_Eval_DisasmX64Scan(Arena *arena, Memmy_Process *process, Memmy_ScanOptions const *options,
                                       Memmy_AstDisasmPattern pattern, Memmy_ScanSink sink, Memmy_Error *error)
 {
     if (pattern.instruction_count == 0)
