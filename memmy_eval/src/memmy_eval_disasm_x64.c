@@ -1,4 +1,4 @@
-#include "memmy_eval.h"
+#include "memmy_eval_internal.h"
 
 #include "Zydis.h"
 
