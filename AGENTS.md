@@ -18,10 +18,15 @@ This repository is a C11 memory introspection toolkit.
 ### Naming
 
 - **Types**: `PascalCase`.
-- **Memmy public types**: prefixed with `Memmy_`, e.g. `Memmy_Process`, `Memmy_Module`, `Memmy_AstNode`.
+- **Library roots**: core and platform-backend symbols use `Memmy_`, AST symbols use `MemmyAst_`, evaluator symbols use
+  `MemmyEval_`, and CLI/executable symbols use `MemmyCli_`.
+- **First-party types**: use an atomic PascalCase type name after the library root, e.g. `Memmy_Process`,
+  `MemmyAst_Node`, `MemmyEval_ResultSink`, and `MemmyCli_OutputWriter`. Do not split a compound type name with
+  another underscore.
 - **Base types**: no system prefix, e.g. `Arena`, `Scratch`, `String8`, `List`, `HashMap`, `AvlTree`, `BitSet`.
 - **Platform-specific types**: prefixed with the platform/system, e.g. `Win32_Process`.
-- **Enums**: anonymous enum body with `typedef U32 TypeName` before the enum. Constants are `PascalCase` and prefixed with the enum type:
+- **Enums**: anonymous enum body with `typedef U32 TypeName` before the enum. Constants are `PascalCase` and prefixed
+  with the complete enum type:
   ```c
   typedef U32 Memmy_ProcessAccess;
   enum
@@ -31,10 +36,17 @@ This repository is a C11 memory introspection toolkit.
   };
   ```
 - **Functions**: `PascalCase`.
-  - Memmy dominant type: `Memmy_Type_Action`, e.g. `Memmy_Process_Open`, `Memmy_Ast_ParseExpr`.
-  - Memmy no dominant type: `Memmy_Action`, e.g. `Memmy_ListProcesses`.
+  - Put the dominant type or semantic thing immediately after the library root, followed by its action and any
+    description, e.g. `Memmy_Process_Open`, `Memmy_Process_Enumerate`, `MemmyAst_Expr_Parse`,
+    `MemmyEval_Expr_Eval`, and `MemmyCli_Address_Format`.
+  - Use the primary semantic object when there is no dominant type, such as `Expr`, `Statement`, `Address`, `Argv`,
+    or `Process`; do not introduce generic roots such as `Utility` or `App`.
+  - Keep implementation boundaries in the thing: platform helpers use `Memmy_Win32Backend_...` or
+    `Memmy_DarwinBackend_...`, and command-executable helpers use `MemmyCli_Main_...`.
   - Base dominant type: `Type_Action`, e.g. `Arena_Push`, `Scratch_Begin`, `String8_Eq`.
   - Base no dominant type: plain `PascalCase`, e.g. `Sort`.
+  - Preserve established base vocabulary and atomic compound base types such as `String8List_Join`; standalone
+    checked-arithmetic and sort APIs are also exceptions to first-party library-root rules.
 - **Variables and fields**: `snake_case` with no prefix.
 - **Constant macros**: `UPPER_CASE`, e.g. `U32_MAX`, `MEMMY_DEFAULT_SCAN_CHUNK_SIZE`.
 - **Parameterized macros**: follow function naming, e.g. `ArrayCount`, `Arena_PushStruct`, `Arena_PushArray`.

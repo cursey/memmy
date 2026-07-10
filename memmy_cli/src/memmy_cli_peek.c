@@ -3,7 +3,7 @@
 #include "base_math.h"
 #include "base_memory.h"
 
-static U64 Memmy_Cli_ReadLE(String8 bytes)
+static U64 MemmyCli_Integer_ReadLE(String8 bytes)
 {
     U64 result = 0;
     U64 count = Min(bytes.len, 8);
@@ -14,9 +14,9 @@ static U64 Memmy_Cli_ReadLE(String8 bytes)
     return result;
 }
 
-static I64 Memmy_Cli_ReadSLE(String8 bytes)
+static I64 MemmyCli_Integer_ReadSLE(String8 bytes)
 {
-    U64 unsigned_value = Memmy_Cli_ReadLE(bytes);
+    U64 unsigned_value = MemmyCli_Integer_ReadLE(bytes);
     if (bytes.len > 0 && bytes.len < 8 && (bytes.data[bytes.len - 1] & 0x80))
     {
         unsigned_value |= U64_MAX << (bytes.len * 8);
@@ -24,7 +24,7 @@ static I64 Memmy_Cli_ReadSLE(String8 bytes)
     return (I64)unsigned_value;
 }
 
-static Memmy_Status Memmy_Cli_ValidateUtf8(String8 text, Memmy_Error *error)
+static Memmy_Status MemmyCli_Utf8_Validate(String8 text, Memmy_Error *error)
 {
     U64 i = 0;
     while (i < text.len)
@@ -88,7 +88,7 @@ static Memmy_Status Memmy_Cli_ValidateUtf8(String8 text, Memmy_Error *error)
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Cli_ValidateWStr(String8 bytes, Memmy_Error *error)
+static Memmy_Status MemmyCli_WString_Validate(String8 bytes, Memmy_Error *error)
 {
     if ((bytes.len & 1) != 0)
     {
@@ -127,7 +127,7 @@ static Memmy_Status Memmy_Cli_ValidateWStr(String8 bytes, Memmy_Error *error)
     return Memmy_Status_Ok;
 }
 
-static String8 Memmy_Cli_DecodeWStr(Arena *arena, String8 bytes)
+static String8 MemmyCli_WString_Decode(Arena *arena, String8 bytes)
 {
     U8 *out = Arena_PushArrayNoZero(arena, U8, bytes.len * 2 + 1);
     U64 at = 0;
@@ -168,7 +168,7 @@ static String8 Memmy_Cli_DecodeWStr(Arena *arena, String8 bytes)
     return String8_Make(out, at);
 }
 
-static String8 Memmy_Cli_EscapeString(Arena *arena, String8 text)
+static String8 MemmyCli_String_Escape(Arena *arena, String8 text)
 {
     String8List parts = {0};
     String8List_Push(arena, &parts, String8_Lit("\""));
@@ -211,27 +211,27 @@ static String8 Memmy_Cli_EscapeString(Arena *arena, String8 text)
     return String8List_Join(arena, &parts, (String8){0});
 }
 
-static void Memmy_Cli_PushHexBytes(Arena *arena, String8List *lines, String8 bytes)
+static void MemmyCli_HexBytes_Push(Arena *arena, String8List *lines, String8 bytes)
 {
     for (U64 i = 0; i < bytes.len; i++)
     {
-        Memmy_Cli_PushLine(arena, lines, "%s%02x", i == 0 ? "" : " ", bytes.data[i]);
+        MemmyCli_Line_Push(arena, lines, "%s%02x", i == 0 ? "" : " ", bytes.data[i]);
     }
 }
 
-static String8 Memmy_Cli_FormatJsonHexBytes(Arena *arena, String8 bytes)
+static String8 MemmyCli_JsonHexBytes_Format(Arena *arena, String8 bytes)
 {
     String8List parts = {0};
     String8List_Push(arena, &parts, String8_Lit("\"0x"));
     for (U64 i = 0; i < bytes.len; i++)
     {
-        Memmy_Cli_PushLine(arena, &parts, "%02x", bytes.data[i]);
+        MemmyCli_Line_Push(arena, &parts, "%02x", bytes.data[i]);
     }
     String8List_Push(arena, &parts, String8_Lit("\""));
     return String8List_Join(arena, &parts, (String8){0});
 }
 
-static Memmy_Status Memmy_Cli_FormatPeekValue(Arena *arena, Memmy_CliValueFormat *format, String8 bytes,
+static Memmy_Status MemmyCli_PeekValue_Format(Arena *arena, MemmyCli_ValueFormat *format, String8 bytes,
                                               String8List *lines, Memmy_Error *error)
 {
     Memmy_Type type = format->type;
@@ -242,8 +242,8 @@ static Memmy_Status Memmy_Cli_FormatPeekValue(Arena *arena, Memmy_CliValueFormat
     case Memmy_TypeKind_U32:
     case Memmy_TypeKind_U64:
     case Memmy_TypeKind_Ptr: {
-        U64 value = Memmy_Cli_ReadLE(bytes);
-        Memmy_Cli_PushLine(arena, lines, "%llu  0x%0*llx", (unsigned long long)value, (int)(bytes.len * 2),
+        U64 value = MemmyCli_Integer_ReadLE(bytes);
+        MemmyCli_Line_Push(arena, lines, "%llu  0x%0*llx", (unsigned long long)value, (int)(bytes.len * 2),
                            (unsigned long long)value);
     }
     break;
@@ -251,45 +251,45 @@ static Memmy_Status Memmy_Cli_FormatPeekValue(Arena *arena, Memmy_CliValueFormat
     case Memmy_TypeKind_I16:
     case Memmy_TypeKind_I32:
     case Memmy_TypeKind_I64: {
-        I64 value = Memmy_Cli_ReadSLE(bytes);
-        U64 hex = Memmy_Cli_ReadLE(bytes);
-        Memmy_Cli_PushLine(arena, lines, "%lld  0x%0*llx", (long long)value, (int)(bytes.len * 2),
+        I64 value = MemmyCli_Integer_ReadSLE(bytes);
+        U64 hex = MemmyCli_Integer_ReadLE(bytes);
+        MemmyCli_Line_Push(arena, lines, "%lld  0x%0*llx", (long long)value, (int)(bytes.len * 2),
                            (unsigned long long)hex);
     }
     break;
     case Memmy_TypeKind_F32: {
         F32 value = 0;
         Memory_Copy(&value, bytes.data, sizeof(value));
-        Memmy_Cli_PushLine(arena, lines, "%g", (double)value);
+        MemmyCli_Line_Push(arena, lines, "%g", (double)value);
     }
     break;
     case Memmy_TypeKind_F64: {
         F64 value = 0;
         Memory_Copy(&value, bytes.data, sizeof(value));
-        Memmy_Cli_PushLine(arena, lines, "%g", value);
+        MemmyCli_Line_Push(arena, lines, "%g", value);
     }
     break;
     case Memmy_TypeKind_Bytes:
-        Memmy_Cli_PushHexBytes(arena, lines, bytes);
+        MemmyCli_HexBytes_Push(arena, lines, bytes);
         break;
     case Memmy_TypeKind_Str: {
-        Memmy_Status status = Memmy_Cli_ValidateUtf8(bytes, error);
+        Memmy_Status status = MemmyCli_Utf8_Validate(bytes, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
-        String8 escaped = Memmy_Cli_EscapeString(arena, bytes);
+        String8 escaped = MemmyCli_String_Escape(arena, bytes);
         String8List_Push(arena, lines, escaped);
     }
     break;
     case Memmy_TypeKind_WStr: {
-        Memmy_Status status = Memmy_Cli_ValidateWStr(bytes, error);
+        Memmy_Status status = MemmyCli_WString_Validate(bytes, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
-        String8 text = Memmy_Cli_DecodeWStr(arena, bytes);
-        String8 escaped = Memmy_Cli_EscapeString(arena, text);
+        String8 text = MemmyCli_WString_Decode(arena, bytes);
+        String8 escaped = MemmyCli_String_Escape(arena, text);
         String8List_Push(arena, lines, escaped);
     }
     break;
@@ -297,7 +297,7 @@ static Memmy_Status Memmy_Cli_FormatPeekValue(Arena *arena, Memmy_CliValueFormat
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Cli_FormatJsonValueFields(Arena *arena, Memmy_CliValueFormat *format, String8 bytes,
+static Memmy_Status MemmyCli_JsonValueFields_Format(Arena *arena, MemmyCli_ValueFormat *format, String8 bytes,
                                                     String8 *out, Memmy_Error *error)
 {
     Memmy_Type type = format->type;
@@ -308,7 +308,7 @@ static Memmy_Status Memmy_Cli_FormatJsonValueFields(Arena *arena, Memmy_CliValue
     case Memmy_TypeKind_U32:
     case Memmy_TypeKind_U64:
     case Memmy_TypeKind_Ptr: {
-        U64 value = Memmy_Cli_ReadLE(bytes);
+        U64 value = MemmyCli_Integer_ReadLE(bytes);
         *out = String8_PushF(arena, "\"value\":%llu,\"hex\":\"0x%0*llx\"", (unsigned long long)value,
                              (int)(bytes.len * 2), (unsigned long long)value);
     }
@@ -317,8 +317,8 @@ static Memmy_Status Memmy_Cli_FormatJsonValueFields(Arena *arena, Memmy_CliValue
     case Memmy_TypeKind_I16:
     case Memmy_TypeKind_I32:
     case Memmy_TypeKind_I64: {
-        I64 value = Memmy_Cli_ReadSLE(bytes);
-        U64 hex = Memmy_Cli_ReadLE(bytes);
+        I64 value = MemmyCli_Integer_ReadSLE(bytes);
+        U64 hex = MemmyCli_Integer_ReadLE(bytes);
         *out = String8_PushF(arena, "\"value\":%lld,\"hex\":\"0x%0*llx\"", (long long)value, (int)(bytes.len * 2),
                              (unsigned long long)hex);
     }
@@ -326,7 +326,7 @@ static Memmy_Status Memmy_Cli_FormatJsonValueFields(Arena *arena, Memmy_CliValue
     case Memmy_TypeKind_F32: {
         F32 value = 0;
         Memory_Copy(&value, bytes.data, sizeof(value));
-        String8 hex = Memmy_Cli_FormatJsonHexBytes(arena, bytes);
+        String8 hex = MemmyCli_JsonHexBytes_Format(arena, bytes);
         if (F32_IsFinite(value))
         {
             *out = String8_PushF(arena, "\"value\":%g,\"hex\":%.*s", (double)value, (int)hex.len, (char *)hex.data);
@@ -340,7 +340,7 @@ static Memmy_Status Memmy_Cli_FormatJsonValueFields(Arena *arena, Memmy_CliValue
     case Memmy_TypeKind_F64: {
         F64 value = 0;
         Memory_Copy(&value, bytes.data, sizeof(value));
-        String8 hex = Memmy_Cli_FormatJsonHexBytes(arena, bytes);
+        String8 hex = MemmyCli_JsonHexBytes_Format(arena, bytes);
         if (F64_IsFinite(value))
         {
             *out = String8_PushF(arena, "\"value\":%g,\"hex\":%.*s", value, (int)hex.len, (char *)hex.data);
@@ -352,34 +352,34 @@ static Memmy_Status Memmy_Cli_FormatJsonValueFields(Arena *arena, Memmy_CliValue
     }
     break;
     case Memmy_TypeKind_Bytes: {
-        String8 hex_bytes = Memmy_Cli_FormatHexBytes(arena, bytes);
-        String8 value = Memmy_Cli_FormatJsonString(arena, hex_bytes);
-        String8 hex = Memmy_Cli_FormatJsonHexBytes(arena, bytes);
+        String8 hex_bytes = MemmyCli_HexBytes_Format(arena, bytes);
+        String8 value = MemmyCli_JsonString_Format(arena, hex_bytes);
+        String8 hex = MemmyCli_JsonHexBytes_Format(arena, bytes);
         *out = String8_PushF(arena, "\"value\":%.*s,\"hex\":%.*s", (int)value.len, (char *)value.data, (int)hex.len,
                              (char *)hex.data);
     }
     break;
     case Memmy_TypeKind_Str: {
-        Memmy_Status status = Memmy_Cli_ValidateUtf8(bytes, error);
+        Memmy_Status status = MemmyCli_Utf8_Validate(bytes, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
-        String8 value = Memmy_Cli_FormatJsonString(arena, bytes);
-        String8 hex = Memmy_Cli_FormatJsonHexBytes(arena, bytes);
+        String8 value = MemmyCli_JsonString_Format(arena, bytes);
+        String8 hex = MemmyCli_JsonHexBytes_Format(arena, bytes);
         *out = String8_PushF(arena, "\"value\":%.*s,\"hex\":%.*s", (int)value.len, (char *)value.data, (int)hex.len,
                              (char *)hex.data);
     }
     break;
     case Memmy_TypeKind_WStr: {
-        Memmy_Status status = Memmy_Cli_ValidateWStr(bytes, error);
+        Memmy_Status status = MemmyCli_WString_Validate(bytes, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
-        String8 text = Memmy_Cli_DecodeWStr(arena, bytes);
-        String8 value = Memmy_Cli_FormatJsonString(arena, text);
-        String8 hex = Memmy_Cli_FormatJsonHexBytes(arena, bytes);
+        String8 text = MemmyCli_WString_Decode(arena, bytes);
+        String8 value = MemmyCli_JsonString_Format(arena, text);
+        String8 hex = MemmyCli_JsonHexBytes_Format(arena, bytes);
         *out = String8_PushF(arena, "\"value\":%.*s,\"hex\":%.*s", (int)value.len, (char *)value.data, (int)hex.len,
                              (char *)hex.data);
     }
@@ -388,7 +388,7 @@ static Memmy_Status Memmy_Cli_FormatJsonValueFields(Arena *arena, Memmy_CliValue
     return Memmy_Status_Ok;
 }
 
-String8 Memmy_Cli_TypeString(Memmy_Type type)
+String8 MemmyCli_Type_String(Memmy_Type type)
 {
     switch (type.kind)
     {
@@ -424,23 +424,23 @@ String8 Memmy_Cli_TypeString(Memmy_Type type)
     return String8_Lit("?");
 }
 
-Memmy_Status Memmy_Cli_FormatPeekOutput(Arena *arena, Memmy_CliPeekOutput *peek, B32 jsonl, String8 *out,
+Memmy_Status MemmyCli_PeekOutput_Format(Arena *arena, MemmyCli_PeekOutput *peek, B32 jsonl, String8 *out,
                                         Memmy_Error *error)
 {
-    Memmy_CliValueFormat format = {
+    MemmyCli_ValueFormat format = {
         .type = peek->type,
-        .type_text = peek->type_text.len != 0 ? peek->type_text : Memmy_Cli_TypeString(peek->type),
+        .type_text = peek->type_text.len != 0 ? peek->type_text : MemmyCli_Type_String(peek->type),
     };
-    String8 address = Memmy_Cli_FormatAddress(arena, peek->pointer_width, peek->address);
+    String8 address = MemmyCli_Address_Format(arena, peek->pointer_width, peek->address);
     if (jsonl)
     {
         String8 value_fields = {0};
-        Memmy_Status status = Memmy_Cli_FormatJsonValueFields(arena, &format, peek->bytes, &value_fields, error);
+        Memmy_Status status = MemmyCli_JsonValueFields_Format(arena, &format, peek->bytes, &value_fields, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
-        String8 type_json = Memmy_Cli_FormatJsonString(arena, format.type_text);
+        String8 type_json = MemmyCli_JsonString_Format(arena, format.type_text);
         *out = String8_PushF(arena, "{\"type\":\"peek\",\"address\":\"%.*s\",\"value_type\":%.*s,%.*s}\n",
                              (int)address.len, (char *)address.data, (int)type_json.len, (char *)type_json.data,
                              (int)value_fields.len, (char *)value_fields.data);
@@ -448,9 +448,9 @@ Memmy_Status Memmy_Cli_FormatPeekOutput(Arena *arena, Memmy_CliPeekOutput *peek,
     else
     {
         String8List lines = {0};
-        Memmy_Cli_PushLine(arena, &lines, "%.*s: %.*s ", (int)address.len, (char *)address.data,
+        MemmyCli_Line_Push(arena, &lines, "%.*s: %.*s ", (int)address.len, (char *)address.data,
                            (int)format.type_text.len, (char *)format.type_text.data);
-        Memmy_Status status = Memmy_Cli_FormatPeekValue(arena, &format, peek->bytes, &lines, error);
+        Memmy_Status status = MemmyCli_PeekValue_Format(arena, &format, peek->bytes, &lines, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -461,11 +461,11 @@ Memmy_Status Memmy_Cli_FormatPeekOutput(Arena *arena, Memmy_CliPeekOutput *peek,
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_Cli_FormatValue(Arena *arena, Memmy_CliValueFormat *format, String8 bytes, String8 *out,
+Memmy_Status MemmyCli_Value_Format(Arena *arena, MemmyCli_ValueFormat *format, String8 bytes, String8 *out,
                                    Memmy_Error *error)
 {
     String8List parts = {0};
-    Memmy_Status status = Memmy_Cli_FormatPeekValue(arena, format, bytes, &parts, error);
+    Memmy_Status status = MemmyCli_PeekValue_Format(arena, format, bytes, &parts, error);
     if (status != Memmy_Status_Ok)
     {
         return status;

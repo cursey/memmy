@@ -4,7 +4,7 @@
 #include "memmy.h"
 #include "memmy_cli.h"
 
-static void Memmy_Main_WriteError(Arena *arena, Memmy_Status status, Memmy_Error *error)
+static void MemmyCli_Main_WriteError(Arena *arena, Memmy_Status status, Memmy_Error *error)
 {
     String8 message = String8_PushF(arena, "memmy: %s", Memmy_Status_Name(status));
     Os_WriteStderr(message);
@@ -16,18 +16,18 @@ static void Memmy_Main_WriteError(Arena *arena, Memmy_Status status, Memmy_Error
     Os_WriteStderr(String8_Lit("\n"));
 }
 
-static Memmy_Status Memmy_Main_WriteStdout(void *user_data, String8 text)
+static Memmy_Status MemmyCli_Main_WriteStdout(void *user_data, String8 text)
 {
     Unused(user_data);
     Os_WriteStdout(text);
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Main_RunRepl(Arena *arena)
+static Memmy_Status MemmyCli_Main_RunRepl(Arena *arena)
 {
     char line[4096];
     Memmy_Status result = Memmy_Status_Ok;
-    Memmy_CliReplSession session = Memmy_CliReplSession_Begin(arena);
+    MemmyCli_ReplSession session = MemmyCli_ReplSession_Begin(arena);
     B32 separate_next_prompt = 0;
     for (;;)
     {
@@ -36,7 +36,7 @@ static Memmy_Status Memmy_Main_RunRepl(Arena *arena)
             Os_WriteStdout(String8_Lit("\n"));
             separate_next_prompt = 0;
         }
-        String8 prompt = Memmy_CliReplSession_Prompt(arena, &session);
+        String8 prompt = MemmyCli_ReplSession_Prompt(arena, &session);
         Os_WriteStdout(prompt);
         fflush(stdout);
         if (fgets(line, sizeof(line), stdin) == 0)
@@ -48,7 +48,7 @@ static Memmy_Status Memmy_Main_RunRepl(Arena *arena)
         String8 output = {0};
         B32 should_exit = 0;
         Memmy_Status status =
-            Memmy_Cli_RunReplSessionLine(arena, &session, String8_FromCStr(line), &output, &should_exit, &error);
+            MemmyCli_ReplSession_RunLine(arena, &session, String8_FromCStr(line), &output, &should_exit, &error);
         if (output.len > 0)
         {
             Os_WriteStdout(output);
@@ -56,7 +56,7 @@ static Memmy_Status Memmy_Main_RunRepl(Arena *arena)
         }
         if (status != Memmy_Status_Ok)
         {
-            Memmy_Main_WriteError(arena, status, &error);
+            MemmyCli_Main_WriteError(arena, status, &error);
             separate_next_prompt = 1;
         }
         if (result == Memmy_Status_Ok && status != Memmy_Status_Ok)
@@ -88,45 +88,45 @@ int main(int argc, char **argv)
     {
         if (status != Memmy_Status_Ok)
         {
-            Memmy_Main_WriteError(arena, status, &error);
+            MemmyCli_Main_WriteError(arena, status, &error);
         }
         else
         {
-            status = Memmy_Main_RunRepl(arena);
+            status = MemmyCli_Main_RunRepl(arena);
         }
         Memmy_Context_Set(0);
         Arena_Destroy(arena);
-        return Memmy_Cli_ExitCodeFromStatus(status);
+        return MemmyCli_ExitCode_FromStatus(status);
     }
 
     String8 output = {0};
-    B32 jsonl = Memmy_Cli_ArgvHasJsonl(argc, argv);
-    Memmy_CliOutputWriter stdout_writer = {
-        .write = Memmy_Main_WriteStdout,
+    B32 jsonl = MemmyCli_Argv_HasJsonl(argc, argv);
+    MemmyCli_OutputWriter stdout_writer = {
+        .write = MemmyCli_Main_WriteStdout,
     };
-    if (Memmy_Cli_ArgvHasHelp(argc, argv) || Memmy_Cli_ArgvHasVersion(argc, argv))
+    if (MemmyCli_Argv_HasHelp(argc, argv) || MemmyCli_Argv_HasVersion(argc, argv))
     {
-        status = Memmy_Cli_RunToWriter(arena, argc, argv, stdout_writer, &error);
+        status = MemmyCli_Argv_RunToWriter(arena, argc, argv, stdout_writer, &error);
     }
     else if (!stdin_is_terminal)
     {
         String8 input = Os_ReadStdin(arena);
         if (input.len > 0)
         {
-            status = Memmy_Cli_RunInputString(arena, argc, argv, input, &output, &error);
+            status = MemmyCli_Input_RunString(arena, argc, argv, input, &output, &error);
         }
         else
         {
-            status = Memmy_Cli_RunToWriter(arena, argc, argv, stdout_writer, &error);
+            status = MemmyCli_Argv_RunToWriter(arena, argc, argv, stdout_writer, &error);
         }
     }
     else
     {
-        status = Memmy_Cli_RunToWriter(arena, argc, argv, stdout_writer, &error);
+        status = MemmyCli_Argv_RunToWriter(arena, argc, argv, stdout_writer, &error);
     }
     if (status != Memmy_Status_Ok && jsonl)
     {
-        output = Memmy_Cli_FormatJsonlError(arena, &error);
+        output = MemmyCli_JsonlError_Format(arena, &error);
     }
     if (output.len > 0)
     {
@@ -135,10 +135,10 @@ int main(int argc, char **argv)
 
     if (status != Memmy_Status_Ok && !jsonl)
     {
-        Memmy_Main_WriteError(arena, status, &error);
+        MemmyCli_Main_WriteError(arena, status, &error);
     }
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
-    return Memmy_Cli_ExitCodeFromStatus(status);
+    return MemmyCli_ExitCode_FromStatus(status);
 }

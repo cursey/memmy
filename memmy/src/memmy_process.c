@@ -40,7 +40,7 @@ static Memmy_Status memmy_Unsupported(Memmy_Error *error, char *message)
     return Memmy_Status_Unsupported;
 }
 
-Memmy_Status Memmy_EnumerateProcesses(Arena *arena, Memmy_ProcessInfoSink sink, Memmy_Error *error)
+Memmy_Status Memmy_Process_Enumerate(Arena *arena, Memmy_ProcessInfoSink sink, Memmy_Error *error)
 {
     if (arena == 0 || sink.callback == 0)
     {

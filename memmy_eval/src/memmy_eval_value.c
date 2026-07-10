@@ -5,9 +5,9 @@
 #include "base_list.h"
 #include "base_memory.h"
 
-B32 Memmy_EvalValue_IsIntegerTyped(Memmy_EvalValue *value)
+B32 MemmyEval_Value_IsIntegerTyped(MemmyEval_Value *value)
 {
-    if (value->kind != Memmy_EvalValueKind_TypedValue)
+    if (value->kind != MemmyEval_ValueKind_TypedValue)
     {
         return 0;
     }
@@ -18,56 +18,57 @@ B32 Memmy_EvalValue_IsIntegerTyped(Memmy_EvalValue *value)
            kind == Memmy_TypeKind_U64 || kind == Memmy_TypeKind_I64 || kind == Memmy_TypeKind_Ptr;
 }
 
-Memmy_Status Memmy_EvalValue_AsConst(Memmy_EvalValue *value, I64 *out, Memmy_Error *error)
+Memmy_Status MemmyEval_Value_AsConst(MemmyEval_Value *value, I64 *out, Memmy_Error *error)
 {
-    if (value->kind == Memmy_EvalValueKind_Const)
+    if (value->kind == MemmyEval_ValueKind_Const)
     {
         *out = value->constant;
         return Memmy_Status_Ok;
     }
-    if (Memmy_EvalValue_IsIntegerTyped(value))
+    if (MemmyEval_Value_IsIntegerTyped(value))
     {
         *out = value->constant;
         return Memmy_Status_Ok;
     }
 
-    Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("expr"),
-                    String8_Lit("expected constant integer value"));
+    MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("expr"),
+                        String8_Lit("expected constant integer value"));
     return Memmy_Status_InvalidArgument;
 }
 
-Memmy_Status Memmy_EvalValue_AsAddress(Memmy_EvalValue *value, Memmy_Addr *out, Memmy_Error *error)
+Memmy_Status MemmyEval_Value_AsAddress(MemmyEval_Value *value, Memmy_Addr *out, Memmy_Error *error)
 {
-    if (value->kind == Memmy_EvalValueKind_Address)
+    if (value->kind == MemmyEval_ValueKind_Address)
     {
         *out = value->address;
         return Memmy_Status_Ok;
     }
-    if (value->kind == Memmy_EvalValueKind_Range)
+    if (value->kind == MemmyEval_ValueKind_Range)
     {
         *out = value->range.start;
         return Memmy_Status_Ok;
     }
 
-    Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("address"), String8_Lit("expected address value"));
+    MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("address"),
+                        String8_Lit("expected address value"));
     return Memmy_Status_InvalidArgument;
 }
 
-static void Memmy_EvalAddressList_Push(Arena *arena, List *list, Memmy_Addr address)
+static void MemmyEval_AddressList_Push(Arena *arena, List *list, Memmy_Addr address)
 {
-    Memmy_EvalAddressNode *node = Arena_PushStruct(arena, Memmy_EvalAddressNode);
+    MemmyEval_AddressNode *node = Arena_PushStruct(arena, MemmyEval_AddressNode);
     node->address = address;
     List_PushBack(list, &node->link);
 }
 
-static void Memmy_EvalRangeList_Push(Arena *arena, List *list, Memmy_Range range)
+static void MemmyEval_RangeList_Push(Arena *arena, List *list, Memmy_Range range)
 {
-    Memmy_EvalRangeNode *node = Arena_PushStruct(arena, Memmy_EvalRangeNode);
+    MemmyEval_RangeNode *node = Arena_PushStruct(arena, MemmyEval_RangeNode);
     node->range = range;
     List_PushBack(list, &node->link);
 }
 
-static Memmy_EvalValue Memmy_Eval_AddressListFromList(Arena *arena, List *list)
+static MemmyEval_Value MemmyEval_AddressList_FromList(Arena *arena, List *list)
 {
     Memmy_Addr *addresses = 0;
     if (list->count != 0)
@@ -75,18 +76,18 @@ static Memmy_EvalValue Memmy_Eval_AddressListFromList(Arena *arena, List *list)
         addresses = Arena_PushArrayNoZero(arena, Memmy_Addr, list->count);
     }
     U64 index = 0;
-    List_ForEach(Memmy_EvalAddressNode, node, list, link)
+    List_ForEach(MemmyEval_AddressNode, node, list, link)
     {
         addresses[index++] = node->address;
     }
-    return (Memmy_EvalValue){
-        .kind = Memmy_EvalValueKind_AddressList,
+    return (MemmyEval_Value){
+        .kind = MemmyEval_ValueKind_AddressList,
         .addresses = addresses,
         .address_count = list->count,
     };
 }
 
-static Memmy_EvalValue Memmy_Eval_RangeListFromList(Arena *arena, List *list)
+static MemmyEval_Value MemmyEval_RangeList_FromList(Arena *arena, List *list)
 {
     Memmy_Range *ranges = 0;
     if (list->count != 0)
@@ -94,68 +95,70 @@ static Memmy_EvalValue Memmy_Eval_RangeListFromList(Arena *arena, List *list)
         ranges = Arena_PushArrayNoZero(arena, Memmy_Range, list->count);
     }
     U64 index = 0;
-    List_ForEach(Memmy_EvalRangeNode, node, list, link)
+    List_ForEach(MemmyEval_RangeNode, node, list, link)
     {
         ranges[index++] = node->range;
     }
-    return (Memmy_EvalValue){
-        .kind = Memmy_EvalValueKind_RangeList,
+    return (MemmyEval_Value){
+        .kind = MemmyEval_ValueKind_RangeList,
         .ranges = ranges,
         .range_count = list->count,
     };
 }
 
-static Memmy_Status Memmy_EvalTransform_ListKindForValue(Memmy_EvalValue value, Memmy_EvalValueKind *out_kind,
+static Memmy_Status MemmyEval_Transform_ListKindForValue(MemmyEval_Value value, MemmyEval_ValueKind *out_kind,
                                                          Memmy_Error *error)
 {
-    if (value.kind == Memmy_EvalValueKind_Address || value.kind == Memmy_EvalValueKind_AddressList)
+    if (value.kind == MemmyEval_ValueKind_Address || value.kind == MemmyEval_ValueKind_AddressList)
     {
-        *out_kind = Memmy_EvalValueKind_AddressList;
+        *out_kind = MemmyEval_ValueKind_AddressList;
         return Memmy_Status_Ok;
     }
-    if (value.kind == Memmy_EvalValueKind_Range || value.kind == Memmy_EvalValueKind_RangeList)
+    if (value.kind == MemmyEval_ValueKind_Range || value.kind == MemmyEval_ValueKind_RangeList)
     {
-        *out_kind = Memmy_EvalValueKind_RangeList;
+        *out_kind = MemmyEval_ValueKind_RangeList;
         return Memmy_Status_Ok;
     }
 
-    Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("transform"),
-                    String8_Lit("transform expression must produce address or range values"));
+    MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("transform"),
+                        String8_Lit("transform expression must produce address or range values"));
     return Memmy_Status_InvalidArgument;
 }
 
-static Memmy_Status Memmy_Eval_AddConst(I64 a, I64 b, I64 *out, Memmy_Error *error)
+static Memmy_Status MemmyEval_Const_Add(I64 a, I64 b, I64 *out, Memmy_Error *error)
 {
     if (!AddI64Checked(a, b, out))
     {
-        Memmy_EvalError(error, Memmy_Status_Overflow, String8_Lit("expr"), String8_Lit("constant arithmetic overflow"));
+        MemmyEval_Error_Set(error, Memmy_Status_Overflow, String8_Lit("expr"),
+                            String8_Lit("constant arithmetic overflow"));
         return Memmy_Status_Overflow;
     }
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Eval_SubConst(I64 a, I64 b, I64 *out, Memmy_Error *error)
+static Memmy_Status MemmyEval_Const_Subtract(I64 a, I64 b, I64 *out, Memmy_Error *error)
 {
     if (!SubI64Checked(a, b, out))
     {
-        Memmy_EvalError(error, Memmy_Status_Overflow, String8_Lit("expr"), String8_Lit("constant arithmetic overflow"));
+        MemmyEval_Error_Set(error, Memmy_Status_Overflow, String8_Lit("expr"),
+                            String8_Lit("constant arithmetic overflow"));
         return Memmy_Status_Overflow;
     }
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_Eval_AddressAddConst(Memmy_Addr address, I64 constant, Memmy_Addr *out, Memmy_Error *error)
+Memmy_Status MemmyEval_Address_AddConst(Memmy_Addr address, I64 constant, Memmy_Addr *out, Memmy_Error *error)
 {
     if (!AddI64ToU64Checked(address, constant, out))
     {
-        Memmy_EvalError(error, Memmy_Status_Overflow, String8_Lit("address"),
-                        String8_Lit("address arithmetic overflow"));
+        MemmyEval_Error_Set(error, Memmy_Status_Overflow, String8_Lit("address"),
+                            String8_Lit("address arithmetic overflow"));
         return Memmy_Status_Overflow;
     }
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Eval_AddressSubConst(Memmy_Addr address, I64 constant, Memmy_Addr *out, Memmy_Error *error)
+static Memmy_Status MemmyEval_Address_SubConst(Memmy_Addr address, I64 constant, Memmy_Addr *out, Memmy_Error *error)
 {
     B32 ok = 0;
     if (constant >= 0)
@@ -170,27 +173,27 @@ static Memmy_Status Memmy_Eval_AddressSubConst(Memmy_Addr address, I64 constant,
 
     if (!ok)
     {
-        Memmy_EvalError(error, Memmy_Status_Overflow, String8_Lit("address"),
-                        String8_Lit("address arithmetic overflow"));
+        MemmyEval_Error_Set(error, Memmy_Status_Overflow, String8_Lit("address"),
+                            String8_Lit("address arithmetic overflow"));
         return Memmy_Status_Overflow;
     }
     return Memmy_Status_Ok;
 }
 
-static B32 Memmy_EvalValue_IsAddressLike(Memmy_EvalValue value)
+static B32 MemmyEval_Value_IsAddressLike(MemmyEval_Value value)
 {
-    return value.kind == Memmy_EvalValueKind_Address || value.kind == Memmy_EvalValueKind_Range;
+    return value.kind == MemmyEval_ValueKind_Address || value.kind == MemmyEval_ValueKind_Range;
 }
 
-static Memmy_Status Memmy_Eval_AddressDiff(Memmy_Addr lhs, Memmy_Addr rhs, I64 *out, Memmy_Error *error)
+static Memmy_Status MemmyEval_Address_Diff(Memmy_Addr lhs, Memmy_Addr rhs, I64 *out, Memmy_Error *error)
 {
     if (lhs >= rhs)
     {
         U64 magnitude = lhs - rhs;
         if (magnitude > (U64)I64_MAX)
         {
-            Memmy_EvalError(error, Memmy_Status_Overflow, String8_Lit("address"),
-                            String8_Lit("address difference overflow"));
+            MemmyEval_Error_Set(error, Memmy_Status_Overflow, String8_Lit("address"),
+                                String8_Lit("address difference overflow"));
             return Memmy_Status_Overflow;
         }
         *out = (I64)magnitude;
@@ -201,76 +204,76 @@ static Memmy_Status Memmy_Eval_AddressDiff(Memmy_Addr lhs, Memmy_Addr rhs, I64 *
     U64 limit = (U64)I64_MAX + 1ull;
     if (magnitude > limit)
     {
-        Memmy_EvalError(error, Memmy_Status_Overflow, String8_Lit("address"),
-                        String8_Lit("address difference overflow"));
+        MemmyEval_Error_Set(error, Memmy_Status_Overflow, String8_Lit("address"),
+                            String8_Lit("address difference overflow"));
         return Memmy_Status_Overflow;
     }
     *out = magnitude == limit ? I64_MIN : -(I64)magnitude;
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_Eval_ApplyBinary(Memmy_AstConstOp op, Memmy_EvalValue lhs, Memmy_EvalValue rhs, Memmy_EvalValue *out,
-                                    Memmy_Error *error)
+Memmy_Status MemmyEval_Value_ApplyBinary(MemmyAst_ConstOp op, MemmyEval_Value lhs, MemmyEval_Value rhs,
+                                         MemmyEval_Value *out, Memmy_Error *error)
 {
-    if (op == Memmy_AstConstOp_Add || op == Memmy_AstConstOp_Sub)
+    if (op == MemmyAst_ConstOp_Add || op == MemmyAst_ConstOp_Sub)
     {
-        B32 lhs_address = Memmy_EvalValue_IsAddressLike(lhs);
-        B32 rhs_address = Memmy_EvalValue_IsAddressLike(rhs);
+        B32 lhs_address = MemmyEval_Value_IsAddressLike(lhs);
+        B32 rhs_address = MemmyEval_Value_IsAddressLike(rhs);
         if (lhs_address && rhs_address)
         {
-            if (op == Memmy_AstConstOp_Add)
+            if (op == MemmyAst_ConstOp_Add)
             {
-                Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("expr"),
-                                String8_Lit("cannot add two addresses"));
+                MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("expr"),
+                                    String8_Lit("cannot add two addresses"));
                 return Memmy_Status_InvalidArgument;
             }
 
             Memmy_Addr lhs_addr = 0;
             Memmy_Addr rhs_addr = 0;
-            Memmy_Status status = Memmy_EvalValue_AsAddress(&lhs, &lhs_addr, error);
+            Memmy_Status status = MemmyEval_Value_AsAddress(&lhs, &lhs_addr, error);
             if (status != Memmy_Status_Ok)
             {
                 return status;
             }
-            status = Memmy_EvalValue_AsAddress(&rhs, &rhs_addr, error);
+            status = MemmyEval_Value_AsAddress(&rhs, &rhs_addr, error);
             if (status != Memmy_Status_Ok)
             {
                 return status;
             }
 
             I64 diff = 0;
-            status = Memmy_Eval_AddressDiff(lhs_addr, rhs_addr, &diff, error);
+            status = MemmyEval_Address_Diff(lhs_addr, rhs_addr, &diff, error);
             if (status != Memmy_Status_Ok)
             {
                 return status;
             }
-            *out = (Memmy_EvalValue){.kind = Memmy_EvalValueKind_Const, .constant = diff};
+            *out = (MemmyEval_Value){.kind = MemmyEval_ValueKind_Const, .constant = diff};
             return Memmy_Status_Ok;
         }
 
         if (lhs_address)
         {
             I64 constant = 0;
-            Memmy_Status status = Memmy_EvalValue_AsConst(&rhs, &constant, error);
+            Memmy_Status status = MemmyEval_Value_AsConst(&rhs, &constant, error);
             if (status != Memmy_Status_Ok)
             {
                 return status;
             }
 
             Memmy_Addr address = 0;
-            status = Memmy_EvalValue_AsAddress(&lhs, &address, error);
+            status = MemmyEval_Value_AsAddress(&lhs, &address, error);
             if (status != Memmy_Status_Ok)
             {
                 return status;
             }
-            status = op == Memmy_AstConstOp_Add ? Memmy_Eval_AddressAddConst(address, constant, &address, error)
-                                                : Memmy_Eval_AddressSubConst(address, constant, &address, error);
+            status = op == MemmyAst_ConstOp_Add ? MemmyEval_Address_AddConst(address, constant, &address, error)
+                                                : MemmyEval_Address_SubConst(address, constant, &address, error);
             if (status != Memmy_Status_Ok)
             {
                 return status;
             }
-            *out = (Memmy_EvalValue){
-                .kind = Memmy_EvalValueKind_Address,
+            *out = (MemmyEval_Value){
+                .kind = MemmyEval_ValueKind_Address,
                 .address = address,
             };
             return Memmy_Status_Ok;
@@ -278,33 +281,33 @@ Memmy_Status Memmy_Eval_ApplyBinary(Memmy_AstConstOp op, Memmy_EvalValue lhs, Me
 
         if (rhs_address)
         {
-            if (op == Memmy_AstConstOp_Sub)
+            if (op == MemmyAst_ConstOp_Sub)
             {
-                Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("expr"),
-                                String8_Lit("cannot subtract an address from a constant"));
+                MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("expr"),
+                                    String8_Lit("cannot subtract an address from a constant"));
                 return Memmy_Status_InvalidArgument;
             }
 
             I64 constant = 0;
-            Memmy_Status status = Memmy_EvalValue_AsConst(&lhs, &constant, error);
+            Memmy_Status status = MemmyEval_Value_AsConst(&lhs, &constant, error);
             if (status != Memmy_Status_Ok)
             {
                 return status;
             }
 
             Memmy_Addr address = 0;
-            status = Memmy_EvalValue_AsAddress(&rhs, &address, error);
+            status = MemmyEval_Value_AsAddress(&rhs, &address, error);
             if (status != Memmy_Status_Ok)
             {
                 return status;
             }
-            status = Memmy_Eval_AddressAddConst(address, constant, &address, error);
+            status = MemmyEval_Address_AddConst(address, constant, &address, error);
             if (status != Memmy_Status_Ok)
             {
                 return status;
             }
-            *out = (Memmy_EvalValue){
-                .kind = Memmy_EvalValueKind_Address,
+            *out = (MemmyEval_Value){
+                .kind = MemmyEval_ValueKind_Address,
                 .address = address,
             };
             return Memmy_Status_Ok;
@@ -313,12 +316,12 @@ Memmy_Status Memmy_Eval_ApplyBinary(Memmy_AstConstOp op, Memmy_EvalValue lhs, Me
 
     I64 a = 0;
     I64 b = 0;
-    Memmy_Status status = Memmy_EvalValue_AsConst(&lhs, &a, error);
+    Memmy_Status status = MemmyEval_Value_AsConst(&lhs, &a, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
     }
-    status = Memmy_EvalValue_AsConst(&rhs, &b, error);
+    status = MemmyEval_Value_AsConst(&rhs, &b, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
@@ -327,22 +330,23 @@ Memmy_Status Memmy_Eval_ApplyBinary(Memmy_AstConstOp op, Memmy_EvalValue lhs, Me
     I64 result = 0;
     switch (op)
     {
-    case Memmy_AstConstOp_Add:
-        status = Memmy_Eval_AddConst(a, b, &result, error);
+    case MemmyAst_ConstOp_Add:
+        status = MemmyEval_Const_Add(a, b, &result, error);
         break;
-    case Memmy_AstConstOp_Sub:
-        status = Memmy_Eval_SubConst(a, b, &result, error);
+    case MemmyAst_ConstOp_Sub:
+        status = MemmyEval_Const_Subtract(a, b, &result, error);
         break;
-    case Memmy_AstConstOp_Mul:
+    case MemmyAst_ConstOp_Mul:
         if (!MulI64Checked(a, b, &result))
         {
             status = Memmy_Status_Overflow;
         }
         break;
-    case Memmy_AstConstOp_Div:
+    case MemmyAst_ConstOp_Div:
         if (b == 0)
         {
-            Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("expr"), String8_Lit("division by zero"));
+            MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("expr"),
+                                String8_Lit("division by zero"));
             return Memmy_Status_InvalidArgument;
         }
         if (!DivI64Checked(a, b, &result))
@@ -350,10 +354,11 @@ Memmy_Status Memmy_Eval_ApplyBinary(Memmy_AstConstOp op, Memmy_EvalValue lhs, Me
             status = Memmy_Status_Overflow;
         }
         break;
-    case Memmy_AstConstOp_Mod:
+    case MemmyAst_ConstOp_Mod:
         if (b == 0)
         {
-            Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("expr"), String8_Lit("modulo by zero"));
+            MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("expr"),
+                                String8_Lit("modulo by zero"));
             return Memmy_Status_InvalidArgument;
         }
         if (!ModI64Checked(a, b, &result))
@@ -368,119 +373,120 @@ Memmy_Status Memmy_Eval_ApplyBinary(Memmy_AstConstOp op, Memmy_EvalValue lhs, Me
 
     if (status == Memmy_Status_Overflow)
     {
-        Memmy_EvalError(error, Memmy_Status_Overflow, String8_Lit("expr"), String8_Lit("constant arithmetic overflow"));
+        MemmyEval_Error_Set(error, Memmy_Status_Overflow, String8_Lit("expr"),
+                            String8_Lit("constant arithmetic overflow"));
         return status;
     }
     if (status != Memmy_Status_Ok)
     {
-        Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("expr"),
-                        String8_Lit("unsupported arithmetic expression"));
+        MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("expr"),
+                            String8_Lit("unsupported arithmetic expression"));
         return status;
     }
 
-    *out = (Memmy_EvalValue){.kind = Memmy_EvalValueKind_Const, .constant = result};
+    *out = (MemmyEval_Value){.kind = MemmyEval_ValueKind_Const, .constant = result};
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_EvalTransform_Append(Memmy_EvalExec *exec, Memmy_EvalValue value, List *addresses,
-                                               List *ranges, Memmy_EvalValueKind *out_kind, Memmy_Error *error)
+static Memmy_Status MemmyEval_Transform_Append(MemmyEval_Exec *exec, MemmyEval_Value value, List *addresses,
+                                               List *ranges, MemmyEval_ValueKind *out_kind, Memmy_Error *error)
 {
-    Memmy_EvalValueKind value_kind = Memmy_EvalValueKind_Null;
-    Memmy_Status status = Memmy_EvalTransform_ListKindForValue(value, &value_kind, error);
+    MemmyEval_ValueKind value_kind = MemmyEval_ValueKind_Null;
+    Memmy_Status status = MemmyEval_Transform_ListKindForValue(value, &value_kind, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
     }
 
-    if (*out_kind == Memmy_EvalValueKind_Null)
+    if (*out_kind == MemmyEval_ValueKind_Null)
     {
         *out_kind = value_kind;
     }
     else if (*out_kind != value_kind)
     {
-        Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("transform"),
-                        String8_Lit("transform expression produced mixed address and range values"));
+        MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("transform"),
+                            String8_Lit("transform expression produced mixed address and range values"));
         return Memmy_Status_InvalidArgument;
     }
 
     Arena *arena = exec->transient_arena;
-    if (value.kind == Memmy_EvalValueKind_Address)
+    if (value.kind == MemmyEval_ValueKind_Address)
     {
-        Memmy_EvalAddressList_Push(arena, addresses, value.address);
+        MemmyEval_AddressList_Push(arena, addresses, value.address);
     }
-    else if (value.kind == Memmy_EvalValueKind_AddressList)
+    else if (value.kind == MemmyEval_ValueKind_AddressList)
     {
         for (U64 i = 0; i < value.address_count; i++)
         {
-            Memmy_EvalAddressList_Push(arena, addresses, value.addresses[i]);
+            MemmyEval_AddressList_Push(arena, addresses, value.addresses[i]);
         }
     }
-    else if (value.kind == Memmy_EvalValueKind_Range)
+    else if (value.kind == MemmyEval_ValueKind_Range)
     {
-        Memmy_EvalRangeList_Push(arena, ranges, value.range);
+        MemmyEval_RangeList_Push(arena, ranges, value.range);
     }
-    else if (value.kind == Memmy_EvalValueKind_RangeList)
+    else if (value.kind == MemmyEval_ValueKind_RangeList)
     {
         for (U64 i = 0; i < value.range_count; i++)
         {
-            Memmy_EvalRangeList_Push(arena, ranges, value.ranges[i]);
+            MemmyEval_RangeList_Push(arena, ranges, value.ranges[i]);
         }
     }
 
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_Eval_ListTransform(Memmy_EvalExec *exec, Memmy_AstNode const *expr, Memmy_EvalValue *out,
+Memmy_Status MemmyEval_List_Transform(MemmyEval_Exec *exec, MemmyAst_Node const *expr, MemmyEval_Value *out,
                                       Memmy_Error *error)
 {
-    Memmy_EvalValue list = {0};
-    Memmy_Status status = Memmy_EvalExprWithContext(exec, expr->lhs, &list, error);
+    MemmyEval_Value list = {0};
+    Memmy_Status status = MemmyEval_Expr_EvalWithContext(exec, expr->lhs, &list, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
     }
-    if (list.kind != Memmy_EvalValueKind_AddressList && list.kind != Memmy_EvalValueKind_RangeList)
+    if (list.kind != MemmyEval_ValueKind_AddressList && list.kind != MemmyEval_ValueKind_RangeList)
     {
-        Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("transform"),
-                        String8_Lit("expected address list or range list"));
+        MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("transform"),
+                            String8_Lit("expected address list or range list"));
         return Memmy_Status_InvalidArgument;
     }
 
-    U64 count = list.kind == Memmy_EvalValueKind_AddressList ? list.address_count : list.range_count;
+    U64 count = list.kind == MemmyEval_ValueKind_AddressList ? list.address_count : list.range_count;
     if (count == 0)
     {
-        Memmy_EvalError(error, Memmy_Status_NotFound, String8_Lit("transform"),
-                        String8_Lit("transform input list is empty"));
+        MemmyEval_Error_Set(error, Memmy_Status_NotFound, String8_Lit("transform"),
+                            String8_Lit("transform input list is empty"));
         return Memmy_Status_NotFound;
     }
 
-    List addresses = {0}; // Memmy_EvalAddressNode
-    List ranges = {0};    // Memmy_EvalRangeNode
-    Memmy_EvalValueKind out_kind = Memmy_EvalValueKind_Null;
+    List addresses = {0}; // MemmyEval_AddressNode
+    List ranges = {0};    // MemmyEval_RangeNode
+    MemmyEval_ValueKind out_kind = MemmyEval_ValueKind_Null;
     B32 old_has_current_item = exec->has_current_item;
-    Memmy_EvalValue old_current_item = exec->current_item;
+    MemmyEval_Value old_current_item = exec->current_item;
 
     for (U64 i = 0; i < count; i++)
     {
         exec->has_current_item = 1;
-        if (list.kind == Memmy_EvalValueKind_AddressList)
+        if (list.kind == MemmyEval_ValueKind_AddressList)
         {
-            exec->current_item = (Memmy_EvalValue){.kind = Memmy_EvalValueKind_Address, .address = list.addresses[i]};
+            exec->current_item = (MemmyEval_Value){.kind = MemmyEval_ValueKind_Address, .address = list.addresses[i]};
         }
         else
         {
-            exec->current_item = (Memmy_EvalValue){.kind = Memmy_EvalValueKind_Range, .range = list.ranges[i]};
+            exec->current_item = (MemmyEval_Value){.kind = MemmyEval_ValueKind_Range, .range = list.ranges[i]};
         }
 
-        Memmy_EvalValue item_result = {0};
-        status = Memmy_EvalExprWithContext(exec, expr->rhs, &item_result, error);
+        MemmyEval_Value item_result = {0};
+        status = MemmyEval_Expr_EvalWithContext(exec, expr->rhs, &item_result, error);
         if (status != Memmy_Status_Ok)
         {
             exec->has_current_item = old_has_current_item;
             exec->current_item = old_current_item;
             return status;
         }
-        status = Memmy_EvalTransform_Append(exec, item_result, &addresses, &ranges, &out_kind, error);
+        status = MemmyEval_Transform_Append(exec, item_result, &addresses, &ranges, &out_kind, error);
         if (status != Memmy_Status_Ok)
         {
             exec->has_current_item = old_has_current_item;
@@ -491,163 +497,163 @@ Memmy_Status Memmy_Eval_ListTransform(Memmy_EvalExec *exec, Memmy_AstNode const 
 
     exec->has_current_item = old_has_current_item;
     exec->current_item = old_current_item;
-    if (out_kind == Memmy_EvalValueKind_RangeList)
+    if (out_kind == MemmyEval_ValueKind_RangeList)
     {
-        *out = Memmy_Eval_RangeListFromList(exec->out_arena, &ranges);
+        *out = MemmyEval_RangeList_FromList(exec->out_arena, &ranges);
     }
     else
     {
-        *out = Memmy_Eval_AddressListFromList(exec->out_arena, &addresses);
+        *out = MemmyEval_AddressList_FromList(exec->out_arena, &addresses);
     }
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_Eval_ValueExpr(Memmy_EvalExec *exec, Memmy_AstNode const *expr, Memmy_EvalValue *out,
-                                  Memmy_Error *error)
+Memmy_Status MemmyEval_Expr_EvalValue(MemmyEval_Exec *exec, MemmyAst_Node const *expr, MemmyEval_Value *out,
+                                      Memmy_Error *error)
 {
-    Memmy_EvalEnv *env = exec->env;
+    MemmyEval_Env *env = exec->env;
     (void)env;
-    if (expr->kind == Memmy_AstNodeKind_ConstArithmetic)
+    if (expr->kind == MemmyAst_NodeKind_ConstArithmetic)
     {
-        if (expr->op == Memmy_AstConstOp_None)
+        if (expr->op == MemmyAst_ConstOp_None)
         {
-            *out = (Memmy_EvalValue){.kind = Memmy_EvalValueKind_Const, .constant = expr->value};
+            *out = (MemmyEval_Value){.kind = MemmyEval_ValueKind_Const, .constant = expr->value};
             return Memmy_Status_Ok;
         }
 
-        Memmy_EvalValue lhs = {0};
-        Memmy_Status status = Memmy_EvalExprWithContext(exec, expr->lhs, &lhs, error);
+        MemmyEval_Value lhs = {0};
+        Memmy_Status status = MemmyEval_Expr_EvalWithContext(exec, expr->lhs, &lhs, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
-        if (expr->op == Memmy_AstConstOp_Pos || expr->op == Memmy_AstConstOp_Neg)
+        if (expr->op == MemmyAst_ConstOp_Pos || expr->op == MemmyAst_ConstOp_Neg)
         {
             I64 constant = 0;
-            status = Memmy_EvalValue_AsConst(&lhs, &constant, error);
+            status = MemmyEval_Value_AsConst(&lhs, &constant, error);
             if (status != Memmy_Status_Ok)
             {
                 return status;
             }
-            if (expr->op == Memmy_AstConstOp_Neg && !SubI64Checked(0, constant, &constant))
+            if (expr->op == MemmyAst_ConstOp_Neg && !SubI64Checked(0, constant, &constant))
             {
-                Memmy_EvalError(error, Memmy_Status_Overflow, String8_Lit("expr"),
-                                String8_Lit("constant arithmetic overflow"));
+                MemmyEval_Error_Set(error, Memmy_Status_Overflow, String8_Lit("expr"),
+                                    String8_Lit("constant arithmetic overflow"));
                 return Memmy_Status_Overflow;
             }
-            *out = (Memmy_EvalValue){.kind = Memmy_EvalValueKind_Const, .constant = constant};
+            *out = (MemmyEval_Value){.kind = MemmyEval_ValueKind_Const, .constant = constant};
             return Memmy_Status_Ok;
         }
 
-        Memmy_EvalValue rhs = {0};
-        status = Memmy_EvalExprWithContext(exec, expr->rhs, &rhs, error);
+        MemmyEval_Value rhs = {0};
+        status = MemmyEval_Expr_EvalWithContext(exec, expr->rhs, &rhs, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
-        return Memmy_Eval_ApplyBinary(expr->op, lhs, rhs, out, error);
+        return MemmyEval_Value_ApplyBinary(expr->op, lhs, rhs, out, error);
     }
-    if (expr->kind == Memmy_AstNodeKind_Variable)
+    if (expr->kind == MemmyAst_NodeKind_Variable)
     {
-        return Memmy_EvalEnv_Find(exec->out_arena, env, expr->name, out);
+        return MemmyEval_Env_Find(exec->out_arena, env, expr->name, out);
     }
-    if (expr->kind == Memmy_AstNodeKind_CurrentItem)
+    if (expr->kind == MemmyAst_NodeKind_CurrentItem)
     {
         if (!exec->has_current_item)
         {
-            Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("transform"),
-                            String8_Lit("current item is only available inside transforms"));
+            MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("transform"),
+                                String8_Lit("current item is only available inside transforms"));
             return Memmy_Status_InvalidArgument;
         }
         *out = exec->current_item;
         return Memmy_Status_Ok;
     }
-    if (expr->kind == Memmy_AstNodeKind_ListTransform)
+    if (expr->kind == MemmyAst_NodeKind_ListTransform)
     {
-        return Memmy_Eval_ListTransform(exec, expr, out, error);
+        return MemmyEval_List_Transform(exec, expr, out, error);
     }
-    if (expr->kind == Memmy_AstNodeKind_Address)
+    if (expr->kind == MemmyAst_NodeKind_Address)
     {
         if (expr->value_expr != 0)
         {
-            Memmy_EvalValue value = {0};
-            Memmy_Status status = Memmy_EvalExprWithContext(exec, expr->value_expr, &value, error);
+            MemmyEval_Value value = {0};
+            Memmy_Status status = MemmyEval_Expr_EvalWithContext(exec, expr->value_expr, &value, error);
             if (status != Memmy_Status_Ok)
             {
                 return status;
             }
             I64 constant = 0;
-            status = Memmy_EvalValue_AsConst(&value, &constant, error);
+            status = MemmyEval_Value_AsConst(&value, &constant, error);
             if (status != Memmy_Status_Ok)
             {
                 return status;
             }
             if (constant < 0)
             {
-                Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("address"),
-                                String8_Lit("address cannot be negative"));
+                MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("address"),
+                                    String8_Lit("address cannot be negative"));
                 return Memmy_Status_InvalidArgument;
             }
-            *out = (Memmy_EvalValue){
-                .kind = Memmy_EvalValueKind_Address,
+            *out = (MemmyEval_Value){
+                .kind = MemmyEval_ValueKind_Address,
                 .address = (Memmy_Addr)constant,
             };
             return Memmy_Status_Ok;
         }
 
-        Memmy_EvalValue base = {0};
-        Memmy_Status status = Memmy_EvalExprWithContext(exec, expr->lhs, &base, error);
+        MemmyEval_Value base = {0};
+        Memmy_Status status = MemmyEval_Expr_EvalWithContext(exec, expr->lhs, &base, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
         Memmy_Addr address = 0;
-        status = Memmy_EvalValue_AsAddress(&base, &address, error);
+        status = MemmyEval_Value_AsAddress(&base, &address, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
 
-        Memmy_EvalValue offset_value = {0};
-        status = Memmy_EvalExprWithContext(exec, expr->rhs, &offset_value, error);
+        MemmyEval_Value offset_value = {0};
+        status = MemmyEval_Expr_EvalWithContext(exec, expr->rhs, &offset_value, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
         I64 offset = 0;
-        status = Memmy_EvalValue_AsConst(&offset_value, &offset, error);
+        status = MemmyEval_Value_AsConst(&offset_value, &offset, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
-        status = Memmy_Eval_AddressAddConst(address, offset, &address, error);
+        status = MemmyEval_Address_AddConst(address, offset, &address, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
-        *out = (Memmy_EvalValue){
-            .kind = Memmy_EvalValueKind_Address,
+        *out = (MemmyEval_Value){
+            .kind = MemmyEval_ValueKind_Address,
             .address = address,
         };
         return Memmy_Status_Ok;
     }
-    if (expr->kind == Memmy_AstNodeKind_Range)
+    if (expr->kind == MemmyAst_NodeKind_Range)
     {
-        Memmy_EvalValue start_value = {0};
-        Memmy_Status status = Memmy_EvalExprWithContext(exec, expr->lhs, &start_value, error);
+        MemmyEval_Value start_value = {0};
+        Memmy_Status status = MemmyEval_Expr_EvalWithContext(exec, expr->lhs, &start_value, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
         Memmy_Addr start = 0;
-        status = Memmy_EvalValue_AsAddress(&start_value, &start, error);
+        status = MemmyEval_Value_AsAddress(&start_value, &start, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
 
-        Memmy_EvalValue rhs = {0};
-        status = Memmy_EvalExprWithContext(exec, expr->rhs, &rhs, error);
+        MemmyEval_Value rhs = {0};
+        status = MemmyEval_Expr_EvalWithContext(exec, expr->rhs, &rhs, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -657,15 +663,15 @@ Memmy_Status Memmy_Eval_ValueExpr(Memmy_EvalExec *exec, Memmy_AstNode const *exp
         if (expr->range_is_sized)
         {
             I64 size = 0;
-            status = Memmy_EvalValue_AsConst(&rhs, &size, error);
+            status = MemmyEval_Value_AsConst(&rhs, &size, error);
             if (status != Memmy_Status_Ok)
             {
                 return status;
             }
             if (size < 0)
             {
-                Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("range"),
-                                String8_Lit("range size cannot be negative"));
+                MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("range"),
+                                    String8_Lit("range size cannot be negative"));
                 return Memmy_Status_InvalidArgument;
             }
             status = Memmy_Range_FromStartLength(start, (Memmy_Size)size, &range, error);
@@ -673,7 +679,7 @@ Memmy_Status Memmy_Eval_ValueExpr(Memmy_EvalExec *exec, Memmy_AstNode const *exp
         else
         {
             Memmy_Addr end = 0;
-            status = Memmy_EvalValue_AsAddress(&rhs, &end, error);
+            status = MemmyEval_Value_AsAddress(&rhs, &end, error);
             if (status != Memmy_Status_Ok)
             {
                 return status;
@@ -685,63 +691,64 @@ Memmy_Status Memmy_Eval_ValueExpr(Memmy_EvalExec *exec, Memmy_AstNode const *exp
             return status;
         }
 
-        *out = (Memmy_EvalValue){
-            .kind = Memmy_EvalValueKind_Range,
+        *out = (MemmyEval_Value){
+            .kind = MemmyEval_ValueKind_Range,
             .range = range,
         };
         return Memmy_Status_Ok;
     }
-    if (expr->kind == Memmy_AstNodeKind_Index)
+    if (expr->kind == MemmyAst_NodeKind_Index)
     {
-        Memmy_EvalValue list = {0};
-        Memmy_Status status = Memmy_EvalExprWithContext(exec, expr->lhs, &list, error);
+        MemmyEval_Value list = {0};
+        Memmy_Status status = MemmyEval_Expr_EvalWithContext(exec, expr->lhs, &list, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
-        if (list.kind != Memmy_EvalValueKind_AddressList && list.kind != Memmy_EvalValueKind_RangeList)
+        if (list.kind != MemmyEval_ValueKind_AddressList && list.kind != MemmyEval_ValueKind_RangeList)
         {
-            Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("index"),
-                            String8_Lit("expected address list or range list"));
+            MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("index"),
+                                String8_Lit("expected address list or range list"));
             return Memmy_Status_InvalidArgument;
         }
 
-        Memmy_EvalValue index_value = {0};
-        status = Memmy_EvalExprWithContext(exec, expr->rhs, &index_value, error);
+        MemmyEval_Value index_value = {0};
+        status = MemmyEval_Expr_EvalWithContext(exec, expr->rhs, &index_value, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
         I64 index = 0;
-        status = Memmy_EvalValue_AsConst(&index_value, &index, error);
+        status = MemmyEval_Value_AsConst(&index_value, &index, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
-        U64 count = list.kind == Memmy_EvalValueKind_AddressList ? list.address_count : list.range_count;
+        U64 count = list.kind == MemmyEval_ValueKind_AddressList ? list.address_count : list.range_count;
         if (index < 0 || (U64)index >= count)
         {
-            Memmy_EvalError(error, Memmy_Status_NotFound, String8_Lit("index"), String8_Lit("list index out of range"));
+            MemmyEval_Error_Set(error, Memmy_Status_NotFound, String8_Lit("index"),
+                                String8_Lit("list index out of range"));
             return Memmy_Status_NotFound;
         }
 
-        if (list.kind == Memmy_EvalValueKind_AddressList)
+        if (list.kind == MemmyEval_ValueKind_AddressList)
         {
-            *out = (Memmy_EvalValue){
-                .kind = Memmy_EvalValueKind_Address,
+            *out = (MemmyEval_Value){
+                .kind = MemmyEval_ValueKind_Address,
                 .address = list.addresses[index],
             };
         }
         else
         {
-            *out = (Memmy_EvalValue){
-                .kind = Memmy_EvalValueKind_Range,
+            *out = (MemmyEval_Value){
+                .kind = MemmyEval_ValueKind_Range,
                 .range = list.ranges[index],
             };
         }
         return Memmy_Status_Ok;
     }
-    Memmy_EvalError(error, Memmy_Status_Unsupported, String8_Lit("expr"),
-                    String8_Lit("expression kind is not implemented yet"));
+    MemmyEval_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("expr"),
+                        String8_Lit("expression kind is not implemented yet"));
     return Memmy_Status_Unsupported;
 }

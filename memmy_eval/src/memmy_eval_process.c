@@ -5,29 +5,29 @@
 #include "base_list.h"
 #include "base_memory.h"
 
-void Memmy_EvalExec_Close(Memmy_EvalExec *exec)
+void MemmyEval_Exec_Close(MemmyEval_Exec *exec)
 {
     if (exec == 0)
     {
         return;
     }
 
-    List_ForEach(Memmy_EvalOpenProcess, node, &exec->open_processes, link)
+    List_ForEach(MemmyEval_OpenProcess, node, &exec->open_processes, link)
     {
         Memmy_Process_Close(node->process);
     }
 }
 
-Memmy_Status Memmy_EvalExec_OpenProcess(Memmy_EvalExec *exec, U32 pid, Memmy_Process **out, Memmy_Error *error)
+Memmy_Status MemmyEval_Exec_OpenProcess(MemmyEval_Exec *exec, U32 pid, Memmy_Process **out, Memmy_Error *error)
 {
     if (exec == 0 || exec->env == 0 || out == 0)
     {
-        Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("process"),
-                        String8_Lit("missing eval execution context"));
+        MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("process"),
+                            String8_Lit("missing eval execution context"));
         return Memmy_Status_InvalidArgument;
     }
 
-    List_ForEach(Memmy_EvalOpenProcess, node, &exec->open_processes, link)
+    List_ForEach(MemmyEval_OpenProcess, node, &exec->open_processes, link)
     {
         if (node->process != 0 && node->process->pid == pid)
         {
@@ -44,14 +44,14 @@ Memmy_Status Memmy_EvalExec_OpenProcess(Memmy_EvalExec *exec, U32 pid, Memmy_Pro
         return status;
     }
 
-    Memmy_EvalOpenProcess *node = Arena_PushStruct(arena, Memmy_EvalOpenProcess);
+    MemmyEval_OpenProcess *node = Arena_PushStruct(arena, MemmyEval_OpenProcess);
     node->process = process;
     List_PushBack(&exec->open_processes, &node->link);
     *out = process;
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_Eval_RequireProcess(Memmy_EvalExec *exec, Memmy_EvalValue *value, String8 context,
+Memmy_Status MemmyEval_Process_Require(MemmyEval_Exec *exec, MemmyEval_Value *value, String8 context,
                                        Memmy_Process **out, Memmy_Error *error)
 {
     (void)value;
@@ -62,30 +62,30 @@ Memmy_Status Memmy_Eval_RequireProcess(Memmy_EvalExec *exec, Memmy_EvalValue *va
     }
     else
     {
-        Memmy_EvalError(error, Memmy_Status_InvalidArgument, context, String8_Lit("missing selected process"));
+        MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, context, String8_Lit("missing selected process"));
         return Memmy_Status_InvalidArgument;
     }
 
-    return Memmy_EvalExec_OpenProcess(exec, pid, out, error);
+    return MemmyEval_Exec_OpenProcess(exec, pid, out, error);
 }
 
-static Memmy_Status Memmy_Eval_ResolveTargetProcess(Memmy_EvalExec *exec, Memmy_AstNode const *target,
+static Memmy_Status MemmyEval_TargetProcess_Resolve(MemmyEval_Exec *exec, MemmyAst_Node const *target,
                                                     Memmy_Process **out, Memmy_Error *error)
 {
-    Memmy_EvalEnv *env = exec->env;
+    MemmyEval_Env *env = exec->env;
     (void)target;
     if (!env->has_default_process)
     {
-        Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("target"),
-                        String8_Lit("missing selected process for target"));
+        MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("target"),
+                            String8_Lit("missing selected process for target"));
         return Memmy_Status_InvalidArgument;
     }
-    return Memmy_EvalExec_OpenProcess(exec, env->default_pid, out, error);
+    return MemmyEval_Exec_OpenProcess(exec, env->default_pid, out, error);
 }
 
-static Memmy_Status Memmy_EvalModuleResolver_Push(void *user_data, Memmy_Module const *module)
+static Memmy_Status MemmyEval_ModuleResolver_Push(void *user_data, Memmy_Module const *module)
 {
-    Memmy_EvalModuleResolver *resolver = (Memmy_EvalModuleResolver *)user_data;
+    MemmyEval_ModuleResolver *resolver = (MemmyEval_ModuleResolver *)user_data;
     if (!String8_EqNoCase(module->name, resolver->name))
     {
         return Memmy_Status_Ok;
@@ -94,32 +94,32 @@ static Memmy_Status Memmy_EvalModuleResolver_Push(void *user_data, Memmy_Module 
     resolver->match_count++;
     if (resolver->match_count > 1)
     {
-        Memmy_EvalError(resolver->error, Memmy_Status_Ambiguous, String8_Lit("target"),
-                        String8_Lit("module target is ambiguous"));
+        MemmyEval_Error_Set(resolver->error, Memmy_Status_Ambiguous, String8_Lit("target"),
+                            String8_Lit("module target is ambiguous"));
         return Memmy_Status_Ambiguous;
     }
     resolver->match = *module;
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Eval_ResolveModule(Memmy_EvalExec *exec, Memmy_AstNode const *target, Memmy_Module *out,
+static Memmy_Status MemmyEval_Module_Resolve(MemmyEval_Exec *exec, MemmyAst_Node const *target, Memmy_Module *out,
                                              Memmy_Process **out_process, Memmy_Error *error)
 {
-    Memmy_EvalEnv *env = exec->env;
+    MemmyEval_Env *env = exec->env;
     Memmy_Process *process = 0;
-    Memmy_Status status = Memmy_Eval_ResolveTargetProcess(exec, target, &process, error);
+    Memmy_Status status = MemmyEval_TargetProcess_Resolve(exec, target, &process, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
     }
 
     Scratch scratch = Scratch_Begin((Arena *[]){env->arena, exec->out_arena}, 2);
-    Memmy_EvalModuleResolver resolver = {
+    MemmyEval_ModuleResolver resolver = {
         .name = target->target_module,
         .error = error,
     };
     Memmy_ModuleSink sink = {
-        .callback = Memmy_EvalModuleResolver_Push,
+        .callback = MemmyEval_ModuleResolver_Push,
         .user_data = &resolver,
     };
     status = Memmy_Process_EnumerateModules(scratch.arena, process, sink, error);
@@ -130,7 +130,8 @@ static Memmy_Status Memmy_Eval_ResolveModule(Memmy_EvalExec *exec, Memmy_AstNode
     }
     if (resolver.match_count == 0)
     {
-        Memmy_EvalError(error, Memmy_Status_NotFound, String8_Lit("target"), String8_Lit("module target not found"));
+        MemmyEval_Error_Set(error, Memmy_Status_NotFound, String8_Lit("target"),
+                            String8_Lit("module target not found"));
         return Memmy_Status_NotFound;
     }
 
@@ -142,13 +143,13 @@ static Memmy_Status Memmy_Eval_ResolveModule(Memmy_EvalExec *exec, Memmy_AstNode
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_Eval_Target(Memmy_EvalExec *exec, Memmy_AstNode const *target, Memmy_EvalValue *out,
-                               Memmy_Error *error)
+Memmy_Status MemmyEval_Target_Eval(MemmyEval_Exec *exec, MemmyAst_Node const *target, MemmyEval_Value *out,
+                                   Memmy_Error *error)
 {
     if (target->target_module.len != 0)
     {
         Memmy_Module module = {0};
-        Memmy_Status status = Memmy_Eval_ResolveModule(exec, target, &module, 0, error);
+        Memmy_Status status = MemmyEval_Module_Resolve(exec, target, &module, 0, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -160,52 +161,52 @@ Memmy_Status Memmy_Eval_Target(Memmy_EvalExec *exec, Memmy_AstNode const *target
         {
             return status;
         }
-        *out = (Memmy_EvalValue){.kind = Memmy_EvalValueKind_Range, .range = range};
+        *out = (MemmyEval_Value){.kind = MemmyEval_ValueKind_Range, .range = range};
         return Memmy_Status_Ok;
     }
 
-    Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("target"), String8_Lit("empty target"));
+    MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("target"), String8_Lit("empty target"));
     return Memmy_Status_InvalidArgument;
 }
 
-Memmy_Status Memmy_Eval_ProcessExpr(Memmy_EvalExec *exec, Memmy_AstNode const *expr, Memmy_EvalValue *out,
-                                    Memmy_Error *error)
+Memmy_Status MemmyEval_Expr_EvalProcess(MemmyEval_Exec *exec, MemmyAst_Node const *expr, MemmyEval_Value *out,
+                                        Memmy_Error *error)
 {
-    Memmy_EvalEnv *env = exec->env;
+    MemmyEval_Env *env = exec->env;
     (void)env;
-    if (expr->kind == Memmy_AstNodeKind_Target)
+    if (expr->kind == MemmyAst_NodeKind_Target)
     {
-        return Memmy_Eval_Target(exec, expr, out, error);
+        return MemmyEval_Target_Eval(exec, expr, out, error);
     }
-    if (expr->kind == Memmy_AstNodeKind_ProcessRange)
+    if (expr->kind == MemmyAst_NodeKind_ProcessRange)
     {
         Memmy_Process *process = 0;
-        Memmy_Status status = Memmy_Eval_RequireProcess(exec, 0, String8_Lit("range"), &process, error);
+        Memmy_Status status = MemmyEval_Process_Require(exec, 0, String8_Lit("range"), &process, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
         (void)process;
-        *out = (Memmy_EvalValue){.kind = Memmy_EvalValueKind_ProcessRange};
+        *out = (MemmyEval_Value){.kind = MemmyEval_ValueKind_ProcessRange};
         return Memmy_Status_Ok;
     }
-    if (expr->kind == Memmy_AstNodeKind_Function)
+    if (expr->kind == MemmyAst_NodeKind_Function)
     {
-        Memmy_EvalValue value = {0};
-        Memmy_Status status = Memmy_EvalExprWithContext(exec, expr->lhs, &value, error);
+        MemmyEval_Value value = {0};
+        Memmy_Status status = MemmyEval_Expr_EvalWithContext(exec, expr->lhs, &value, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
         Memmy_Addr address = 0;
-        status = Memmy_EvalValue_AsAddress(&value, &address, error);
+        status = MemmyEval_Value_AsAddress(&value, &address, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
 
         Memmy_Process *process = 0;
-        status = Memmy_Eval_RequireProcess(exec, &value, String8_Lit("function"), &process, error);
+        status = MemmyEval_Process_Require(exec, &value, String8_Lit("function"), &process, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -218,26 +219,26 @@ Memmy_Status Memmy_Eval_ProcessExpr(Memmy_EvalExec *exec, Memmy_AstNode const *e
             return status;
         }
 
-        *out = (Memmy_EvalValue){.kind = Memmy_EvalValueKind_Range, .range = range};
+        *out = (MemmyEval_Value){.kind = MemmyEval_ValueKind_Range, .range = range};
         return Memmy_Status_Ok;
     }
-    if (expr->kind == Memmy_AstNodeKind_ObjectBase)
+    if (expr->kind == MemmyAst_NodeKind_ObjectBase)
     {
-        Memmy_EvalValue value = {0};
-        Memmy_Status status = Memmy_EvalExprWithContext(exec, expr->lhs, &value, error);
+        MemmyEval_Value value = {0};
+        Memmy_Status status = MemmyEval_Expr_EvalWithContext(exec, expr->lhs, &value, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
         Memmy_Addr address = 0;
-        status = Memmy_EvalValue_AsAddress(&value, &address, error);
+        status = MemmyEval_Value_AsAddress(&value, &address, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
 
         Memmy_Process *process = 0;
-        status = Memmy_Eval_RequireProcess(exec, &value, String8_Lit("objectbase"), &process, error);
+        status = MemmyEval_Process_Require(exec, &value, String8_Lit("objectbase"), &process, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -250,10 +251,10 @@ Memmy_Status Memmy_Eval_ProcessExpr(Memmy_EvalExec *exec, Memmy_AstNode const *e
             return status;
         }
 
-        *out = (Memmy_EvalValue){.kind = Memmy_EvalValueKind_Address, .address = result.address};
+        *out = (MemmyEval_Value){.kind = MemmyEval_ValueKind_Address, .address = result.address};
         return Memmy_Status_Ok;
     }
-    Memmy_EvalError(error, Memmy_Status_Unsupported, String8_Lit("expr"),
-                    String8_Lit("expression kind is not implemented yet"));
+    MemmyEval_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("expr"),
+                        String8_Lit("expression kind is not implemented yet"));
     return Memmy_Status_Unsupported;
 }

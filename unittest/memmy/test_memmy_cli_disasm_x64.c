@@ -37,7 +37,7 @@ Test(Test_MemmyCliDisasmX64FormatsModuleRangeScan)
     char *argv[] = {"memmy", "--pid", "1234", "--expr",
                     "<client.dll> disasm x64 { mov reg, [rip+disp32]; xor rax, rax }"};
 
-    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
+    AssertEq(MemmyCli_Argv_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("ADDRESS\n"
                                  "0x0000000000001010\n"));
 
@@ -66,7 +66,7 @@ Test(Test_MemmyCliDisasmX64FormatsWholeProcessScan)
     char *argv[] = {"memmy", "--name", "game.exe", "--expr",
                     "[0..] disasm x64 { mov reg, [rip+disp32]; xor rax, rax }"};
 
-    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
+    AssertEq(MemmyCli_Argv_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("ADDRESS\n"
                                  "0x0000000000001010\n"
                                  "0x0000000000001040\n"));

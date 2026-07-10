@@ -51,7 +51,7 @@ struct Memmy_ReferenceScanNeedle
     U64 ptr_size;
 };
 
-static U64 Memmy_ReadLe(U8 const *bytes, U64 size)
+static U64 Memmy_Integer_ReadLE(U8 const *bytes, U64 size)
 {
     U64 result = 0;
     for (U64 i = 0; i < size; i++)
@@ -67,7 +67,7 @@ static B32 Memmy_ReferenceScan_PtrMatches(Memmy_ReferenceScanNeedle *needle, U8 
     {
         return 0;
     }
-    return Memmy_ReadLe(bytes, needle->ptr_size) == needle->target;
+    return Memmy_Integer_ReadLE(bytes, needle->ptr_size) == needle->target;
 }
 
 static B32 Memmy_ReferenceScan_Rel32Matches(Memmy_ReferenceScanNeedle *needle, Memmy_Addr address, U8 const *bytes,
@@ -78,7 +78,7 @@ static B32 Memmy_ReferenceScan_Rel32Matches(Memmy_ReferenceScanNeedle *needle, M
         return 0;
     }
 
-    U32 raw = (U32)Memmy_ReadLe(bytes, 4);
+    U32 raw = (U32)Memmy_Integer_ReadLE(bytes, 4);
     I64 disp = (I64)(I32)raw;
     Memmy_Addr base = 0;
     if (!AddU64Checked(address, 4, &base))

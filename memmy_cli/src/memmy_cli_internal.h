@@ -5,8 +5,8 @@
 
 #include "memmy_eval.h"
 
-typedef struct Memmy_CliOptions Memmy_CliOptions;
-struct Memmy_CliOptions
+typedef struct MemmyCli_Options MemmyCli_Options;
+struct MemmyCli_Options
 {
     String8 input_path;
     B32 help;
@@ -20,15 +20,15 @@ struct Memmy_CliOptions
     String8 expr_text;
 };
 
-typedef struct Memmy_CliValueFormat Memmy_CliValueFormat;
-struct Memmy_CliValueFormat
+typedef struct MemmyCli_ValueFormat MemmyCli_ValueFormat;
+struct MemmyCli_ValueFormat
 {
     Memmy_Type type;
     String8 type_text;
 };
 
-typedef struct Memmy_CliPeekOutput Memmy_CliPeekOutput;
-struct Memmy_CliPeekOutput
+typedef struct MemmyCli_PeekOutput MemmyCli_PeekOutput;
+struct MemmyCli_PeekOutput
 {
     Memmy_PointerWidth pointer_width;
     Memmy_Addr address;
@@ -37,8 +37,8 @@ struct Memmy_CliPeekOutput
     String8 bytes;
 };
 
-typedef struct Memmy_CliPokeOutput Memmy_CliPokeOutput;
-struct Memmy_CliPokeOutput
+typedef struct MemmyCli_PokeOutput MemmyCli_PokeOutput;
+struct MemmyCli_PokeOutput
 {
     U32 pid;
     Memmy_PointerWidth pointer_width;
@@ -50,42 +50,42 @@ struct Memmy_CliPokeOutput
     B32 dry_run;
 };
 
-typedef struct Memmy_CliScanOutput Memmy_CliScanOutput;
-struct Memmy_CliScanOutput
+typedef struct MemmyCli_ScanOutput MemmyCli_ScanOutput;
+struct MemmyCli_ScanOutput
 {
     Arena *arena;
-    Memmy_CliOutputWriter writer;
+    MemmyCli_OutputWriter writer;
     Memmy_PointerWidth pointer_width;
     B32 jsonl;
     U64 count;
 };
 
-void Memmy_Cli_PushLine(Arena *arena, String8List *list, char *fmt, ...);
-Memmy_Status Memmy_Cli_InvalidOption(Memmy_Error *error, String8 message, String8 input);
-Memmy_Status Memmy_Cli_RunReplStringWithOptions(Arena *arena, Memmy_CliOptions *base_options, String8 input,
+void MemmyCli_Line_Push(Arena *arena, String8List *list, char *fmt, ...);
+Memmy_Status MemmyCli_Option_Invalid(Memmy_Error *error, String8 message, String8 input);
+Memmy_Status MemmyCli_Repl_RunStringWithOptions(Arena *arena, MemmyCli_Options *base_options, String8 input,
                                                 String8 *out, Memmy_Error *error);
 
-Memmy_Status Memmy_Cli_RunExprToWriter(Arena *arena, Memmy_CliOptions *options, Memmy_CliOutputWriter writer,
+Memmy_Status MemmyCli_Expr_RunToWriter(Arena *arena, MemmyCli_Options *options, MemmyCli_OutputWriter writer,
                                        Memmy_Error *error);
-Memmy_Status Memmy_Cli_RunExprToWriterWithEnv(Arena *arena, Memmy_EvalEnv *env, Memmy_CliOptions *options,
-                                              Memmy_CliOutputWriter writer, Memmy_Error *error);
-Memmy_Status Memmy_Cli_RunStatementToWriterWithEnv(Arena *arena, Memmy_EvalEnv *env, Memmy_CliOptions *options,
-                                                   String8 text, Memmy_CliOutputWriter writer, B32 *out_exit,
+Memmy_Status MemmyCli_Expr_RunToWriterWithEnv(Arena *arena, MemmyEval_Env *env, MemmyCli_Options *options,
+                                              MemmyCli_OutputWriter writer, Memmy_Error *error);
+Memmy_Status MemmyCli_Statement_RunToWriterWithEnv(Arena *arena, MemmyEval_Env *env, MemmyCli_Options *options,
+                                                   String8 text, MemmyCli_OutputWriter writer, B32 *out_exit,
                                                    Memmy_Error *error);
-Memmy_Status Memmy_Cli_ResolveProcessInfo(Arena *arena, B32 has_pid, U32 pid, B32 has_name, String8 name,
+Memmy_Status MemmyCli_ProcessInfo_Resolve(Arena *arena, B32 has_pid, U32 pid, B32 has_name, String8 name,
                                           Memmy_ProcessInfo *out, Memmy_Error *error);
-Memmy_Status Memmy_Cli_ResolvePidOrOpenTransient(Arena *arena, U32 pid, Memmy_ProcessInfo *out, Memmy_Error *error);
+Memmy_Status MemmyCli_Pid_ResolveOrOpenTransient(Arena *arena, U32 pid, Memmy_ProcessInfo *out, Memmy_Error *error);
 
-Memmy_Status Memmy_Cli_FormatValue(Arena *arena, Memmy_CliValueFormat *format, String8 bytes, String8 *out,
+Memmy_Status MemmyCli_Value_Format(Arena *arena, MemmyCli_ValueFormat *format, String8 bytes, String8 *out,
                                    Memmy_Error *error);
-String8 Memmy_Cli_TypeString(Memmy_Type type);
-Memmy_Status Memmy_Cli_FormatPeekOutput(Arena *arena, Memmy_CliPeekOutput *peek, B32 jsonl, String8 *out,
+String8 MemmyCli_Type_String(Memmy_Type type);
+Memmy_Status MemmyCli_PeekOutput_Format(Arena *arena, MemmyCli_PeekOutput *peek, B32 jsonl, String8 *out,
                                         Memmy_Error *error);
-Memmy_Status Memmy_Cli_FormatPokeOutput(Arena *arena, Memmy_CliPokeOutput *poke, B32 jsonl, String8 *out,
+Memmy_Status MemmyCli_PokeOutput_Format(Arena *arena, MemmyCli_PokeOutput *poke, B32 jsonl, String8 *out,
                                         Memmy_Error *error);
-Memmy_Status Memmy_CliScanOutput_Begin(Memmy_CliScanOutput *output, Arena *arena, Memmy_CliOutputWriter writer,
+Memmy_Status MemmyCli_ScanOutput_Begin(MemmyCli_ScanOutput *output, Arena *arena, MemmyCli_OutputWriter writer,
                                        Memmy_PointerWidth pointer_width, B32 jsonl);
-Memmy_Status Memmy_CliScanOutput_PushMatch(void *user_data, Memmy_Addr address);
-Memmy_Status Memmy_CliScanOutput_End(Memmy_CliScanOutput *output);
+Memmy_Status MemmyCli_ScanOutput_PushMatch(void *user_data, Memmy_Addr address);
+Memmy_Status MemmyCli_ScanOutput_End(MemmyCli_ScanOutput *output);
 
 #endif // MEMMY_CLI_INTERNAL_H

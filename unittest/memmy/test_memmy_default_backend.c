@@ -234,13 +234,13 @@ Test(Test_MemmyDefaultBackendCliSelfProcessSmoke)
     char *scan_argv[] = {"memmy", "--pid", pid_text, "--expr", scan_expr};
     char *function_argv[] = {"memmy", "--pid", pid_text, "--expr", function_expr};
 
-    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(peek_argv), peek_argv, &out, &error), Memmy_Status_Ok);
-    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(poke_argv), poke_argv, &out, &error), Memmy_Status_Ok);
+    AssertEq(MemmyCli_Argv_RunToString(arena, (I32)ArrayCount(peek_argv), peek_argv, &out, &error), Memmy_Status_Ok);
+    AssertEq(MemmyCli_Argv_RunToString(arena, (I32)ArrayCount(poke_argv), poke_argv, &out, &error), Memmy_Status_Ok);
     AssertEq(poke_value, 0x55667788);
-    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(pscan_argv), pscan_argv, &out, &error), Memmy_Status_Ok);
-    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(scan_argv), scan_argv, &out, &error), Memmy_Status_Ok);
+    AssertEq(MemmyCli_Argv_RunToString(arena, (I32)ArrayCount(pscan_argv), pscan_argv, &out, &error), Memmy_Status_Ok);
+    AssertEq(MemmyCli_Argv_RunToString(arena, (I32)ArrayCount(scan_argv), scan_argv, &out, &error), Memmy_Status_Ok);
 #if OS_MACOS
-    AssertEq(Memmy_Cli_RunToString(arena, (I32)ArrayCount(function_argv), function_argv, &out, &error),
+    AssertEq(MemmyCli_Argv_RunToString(arena, (I32)ArrayCount(function_argv), function_argv, &out, &error),
              Memmy_Status_Ok);
 #endif
 

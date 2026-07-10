@@ -2,7 +2,7 @@
 
 #include "base_memory.h"
 
-static B32 Memmy_IsWhitespace(U8 c)
+static B32 Memmy_Char_IsWhitespace(U8 c)
 {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r';
 }
@@ -23,7 +23,7 @@ static void Memmy_Error_SetInput(Memmy_Error *error, Memmy_Status status, String
     }
 }
 
-static U32 Memmy_HexDigitValue(U8 c)
+static U32 Memmy_HexDigit_Value(U8 c)
 {
     U32 result = U32_MAX;
     if (c >= '0' && c <= '9')
@@ -41,7 +41,7 @@ static U32 Memmy_HexDigitValue(U8 c)
     return result;
 }
 
-static void Memmy_WriteU64LE(U8 *dst, U64 value, U64 size)
+static void Memmy_U64_WriteLE(U8 *dst, U64 value, U64 size)
 {
     for (U64 i = 0; i < size; i++)
     {
@@ -49,7 +49,7 @@ static void Memmy_WriteU64LE(U8 *dst, U64 value, U64 size)
     }
 }
 
-static Memmy_Status Memmy_ParseUnsigned(String8 text, U64 max_value, U64 *out, U64 *out_error_offset)
+static Memmy_Status Memmy_Unsigned_Parse(String8 text, U64 max_value, U64 *out, U64 *out_error_offset)
 {
     if (text.len == 0 || text.data[0] == '-' || text.data[0] == '+')
     {
@@ -73,7 +73,7 @@ static Memmy_Status Memmy_ParseUnsigned(String8 text, U64 max_value, U64 *out, U
     U64 value = 0;
     for (U64 i = first_digit; i < text.len; i++)
     {
-        U32 digit = (base == 16) ? Memmy_HexDigitValue(text.data[i])
+        U32 digit = (base == 16) ? Memmy_HexDigit_Value(text.data[i])
                                  : (Char8_IsDigit(text.data[i]) ? (U32)(text.data[i] - '0') : U32_MAX);
         if (digit >= base)
         {
@@ -92,7 +92,7 @@ static Memmy_Status Memmy_ParseUnsigned(String8 text, U64 max_value, U64 *out, U
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_ParseSigned(String8 text, I64 min_value, I64 max_value, I64 *out, U64 *out_error_offset)
+static Memmy_Status Memmy_Signed_Parse(String8 text, I64 min_value, I64 max_value, I64 *out, U64 *out_error_offset)
 {
     if (text.len == 0)
     {
@@ -121,7 +121,7 @@ static Memmy_Status Memmy_ParseSigned(String8 text, I64 min_value, I64 max_value
     U64 magnitude = 0;
     String8 digits = String8_Substr(text, first_digit, text.len - first_digit);
     U64 local_offset = 0;
-    Memmy_Status status = Memmy_ParseUnsigned(digits, limit, &magnitude, &local_offset);
+    Memmy_Status status = Memmy_Unsigned_Parse(digits, limit, &magnitude, &local_offset);
     if (status != Memmy_Status_Ok)
     {
         *out_error_offset = first_digit + local_offset;
@@ -139,12 +139,12 @@ static Memmy_Status Memmy_ParseSigned(String8 text, I64 min_value, I64 max_value
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_EncodeUnsigned(Arena *arena, Memmy_Type type, String8 text, U64 max_value, U64 size,
-                                         Memmy_Value *out, Memmy_Error *error)
+static Memmy_Status Memmy_Unsigned_Encode(Arena *arena, Memmy_Type type, String8 text, U64 max_value, U64 size,
+                                          Memmy_Value *out, Memmy_Error *error)
 {
     U64 value = 0;
     U64 error_offset = 0;
-    Memmy_Status status = Memmy_ParseUnsigned(text, max_value, &value, &error_offset);
+    Memmy_Status status = Memmy_Unsigned_Parse(text, max_value, &value, &error_offset);
     if (status != Memmy_Status_Ok)
     {
         Memmy_Error_SetInput(error, status, String8_Lit("value"),
@@ -155,17 +155,17 @@ static Memmy_Status Memmy_EncodeUnsigned(Arena *arena, Memmy_Type type, String8 
     }
 
     U8 *bytes = Arena_PushArrayNoZero(arena, U8, size);
-    Memmy_WriteU64LE(bytes, value, size);
+    Memmy_U64_WriteLE(bytes, value, size);
     *out = (Memmy_Value){.type = type, .bytes = String8_Make(bytes, size)};
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_EncodeSigned(Arena *arena, Memmy_Type type, String8 text, I64 min_value, I64 max_value,
-                                       U64 size, Memmy_Value *out, Memmy_Error *error)
+static Memmy_Status Memmy_Signed_Encode(Arena *arena, Memmy_Type type, String8 text, I64 min_value, I64 max_value,
+                                        U64 size, Memmy_Value *out, Memmy_Error *error)
 {
     I64 value = 0;
     U64 error_offset = 0;
-    Memmy_Status status = Memmy_ParseSigned(text, min_value, max_value, &value, &error_offset);
+    Memmy_Status status = Memmy_Signed_Parse(text, min_value, max_value, &value, &error_offset);
     if (status != Memmy_Status_Ok)
     {
         Memmy_Error_SetInput(error, status, String8_Lit("value"),
@@ -176,13 +176,13 @@ static Memmy_Status Memmy_EncodeSigned(Arena *arena, Memmy_Type type, String8 te
     }
 
     U8 *bytes = Arena_PushArrayNoZero(arena, U8, size);
-    Memmy_WriteU64LE(bytes, (U64)value, size);
+    Memmy_U64_WriteLE(bytes, (U64)value, size);
     *out = (Memmy_Value){.type = type, .bytes = String8_Make(bytes, size)};
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_EncodeFloat(Arena *arena, Memmy_Type type, String8 text, U64 size, Memmy_Value *out,
-                                      Memmy_Error *error)
+static Memmy_Status Memmy_Float_Encode(Arena *arena, Memmy_Type type, String8 text, U64 size, Memmy_Value *out,
+                                       Memmy_Error *error)
 {
     F64 parsed = 0;
     U64 error_offset = 0;
@@ -209,7 +209,7 @@ static Memmy_Status Memmy_EncodeFloat(Arena *arena, Memmy_Type type, String8 tex
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Utf8Next(String8 text, U64 *cursor, U32 *out_codepoint, Memmy_Error *error)
+static Memmy_Status Memmy_Utf8_Next(String8 text, U64 *cursor, U32 *out_codepoint, Memmy_Error *error)
 {
     U64 i = *cursor;
     U8 first = text.data[i];
@@ -274,14 +274,15 @@ static Memmy_Status Memmy_Utf8Next(String8 text, U64 *cursor, U32 *out_codepoint
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_EncodeWStr(Arena *arena, Memmy_Type type, String8 text, Memmy_Value *out, Memmy_Error *error)
+static Memmy_Status Memmy_WString_Encode(Arena *arena, Memmy_Type type, String8 text, Memmy_Value *out,
+                                         Memmy_Error *error)
 {
     U64 unit_count = 0;
     U64 cursor = 0;
     while (cursor < text.len)
     {
         U32 cp = 0;
-        Memmy_Status status = Memmy_Utf8Next(text, &cursor, &cp, error);
+        Memmy_Status status = Memmy_Utf8_Next(text, &cursor, &cp, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -295,7 +296,7 @@ static Memmy_Status Memmy_EncodeWStr(Arena *arena, Memmy_Type type, String8 text
     while (cursor < text.len)
     {
         U32 cp = 0;
-        Memmy_Utf8Next(text, &cursor, &cp, 0);
+        Memmy_Utf8_Next(text, &cursor, &cp, 0);
         if (cp <= 0xffff)
         {
             bytes[at++] = (U8)cp;
@@ -373,7 +374,7 @@ Memmy_Status Memmy_Pattern_Parse(Arena *arena, String8 text, Memmy_PatternParseF
     U64 cursor = 0;
     while (cursor < text.len)
     {
-        while (cursor < text.len && Memmy_IsWhitespace(text.data[cursor]))
+        while (cursor < text.len && Memmy_Char_IsWhitespace(text.data[cursor]))
         {
             cursor++;
         }
@@ -382,7 +383,7 @@ Memmy_Status Memmy_Pattern_Parse(Arena *arena, String8 text, Memmy_PatternParseF
             break;
         }
         count++;
-        while (cursor < text.len && !Memmy_IsWhitespace(text.data[cursor]))
+        while (cursor < text.len && !Memmy_Char_IsWhitespace(text.data[cursor]))
         {
             cursor++;
         }
@@ -400,7 +401,7 @@ Memmy_Status Memmy_Pattern_Parse(Arena *arena, String8 text, Memmy_PatternParseF
     U64 index = 0;
     while (cursor < text.len)
     {
-        while (cursor < text.len && Memmy_IsWhitespace(text.data[cursor]))
+        while (cursor < text.len && Memmy_Char_IsWhitespace(text.data[cursor]))
         {
             cursor++;
         }
@@ -409,7 +410,7 @@ Memmy_Status Memmy_Pattern_Parse(Arena *arena, String8 text, Memmy_PatternParseF
             break;
         }
         U64 start = cursor;
-        while (cursor < text.len && !Memmy_IsWhitespace(text.data[cursor]))
+        while (cursor < text.len && !Memmy_Char_IsWhitespace(text.data[cursor]))
         {
             cursor++;
         }
@@ -433,8 +434,8 @@ Memmy_Status Memmy_Pattern_Parse(Arena *arena, String8 text, Memmy_PatternParseF
             return Memmy_Status_ParseError;
         }
 
-        U32 hi = Memmy_HexDigitValue(token.data[0]);
-        U32 lo = Memmy_HexDigitValue(token.data[1]);
+        U32 hi = Memmy_HexDigit_Value(token.data[0]);
+        U32 lo = Memmy_HexDigit_Value(token.data[1]);
         if (hi >= 16 || lo >= 16)
         {
             Memmy_Error_SetInput(error, Memmy_Status_ParseError, String8_Lit("pattern"),
@@ -465,25 +466,25 @@ Memmy_Status Memmy_Value_Parse(Arena *arena, Memmy_Type type, Memmy_PointerWidth
     switch (type.kind)
     {
     case Memmy_TypeKind_U8:
-        return Memmy_EncodeUnsigned(arena, type, text, U8_MAX, 1, out, error);
+        return Memmy_Unsigned_Encode(arena, type, text, U8_MAX, 1, out, error);
     case Memmy_TypeKind_I8:
-        return Memmy_EncodeSigned(arena, type, text, I8_MIN, I8_MAX, 1, out, error);
+        return Memmy_Signed_Encode(arena, type, text, I8_MIN, I8_MAX, 1, out, error);
     case Memmy_TypeKind_U16:
-        return Memmy_EncodeUnsigned(arena, type, text, U16_MAX, 2, out, error);
+        return Memmy_Unsigned_Encode(arena, type, text, U16_MAX, 2, out, error);
     case Memmy_TypeKind_I16:
-        return Memmy_EncodeSigned(arena, type, text, I16_MIN, I16_MAX, 2, out, error);
+        return Memmy_Signed_Encode(arena, type, text, I16_MIN, I16_MAX, 2, out, error);
     case Memmy_TypeKind_U32:
-        return Memmy_EncodeUnsigned(arena, type, text, U32_MAX, 4, out, error);
+        return Memmy_Unsigned_Encode(arena, type, text, U32_MAX, 4, out, error);
     case Memmy_TypeKind_I32:
-        return Memmy_EncodeSigned(arena, type, text, I32_MIN, I32_MAX, 4, out, error);
+        return Memmy_Signed_Encode(arena, type, text, I32_MIN, I32_MAX, 4, out, error);
     case Memmy_TypeKind_U64:
-        return Memmy_EncodeUnsigned(arena, type, text, U64_MAX, 8, out, error);
+        return Memmy_Unsigned_Encode(arena, type, text, U64_MAX, 8, out, error);
     case Memmy_TypeKind_I64:
-        return Memmy_EncodeSigned(arena, type, text, I64_MIN, I64_MAX, 8, out, error);
+        return Memmy_Signed_Encode(arena, type, text, I64_MIN, I64_MAX, 8, out, error);
     case Memmy_TypeKind_F32:
-        return Memmy_EncodeFloat(arena, type, text, 4, out, error);
+        return Memmy_Float_Encode(arena, type, text, 4, out, error);
     case Memmy_TypeKind_F64:
-        return Memmy_EncodeFloat(arena, type, text, 8, out, error);
+        return Memmy_Float_Encode(arena, type, text, 8, out, error);
     case Memmy_TypeKind_Ptr: {
         U64 size = pointer_width == Memmy_PointerWidth_32 ? 4 : pointer_width == Memmy_PointerWidth_64 ? 8 : 0;
         if (size == 0)
@@ -493,7 +494,7 @@ Memmy_Status Memmy_Value_Parse(Arena *arena, Memmy_Type type, Memmy_PointerWidth
             return Memmy_Status_InvalidArgument;
         }
         U64 max_value = size == 4 ? U32_MAX : U64_MAX;
-        return Memmy_EncodeUnsigned(arena, type, text, max_value, size, out, error);
+        return Memmy_Unsigned_Encode(arena, type, text, max_value, size, out, error);
     }
     case Memmy_TypeKind_Bytes: {
         Memmy_Pattern pattern = {0};
@@ -514,7 +515,7 @@ Memmy_Status Memmy_Value_Parse(Arena *arena, Memmy_Type type, Memmy_PointerWidth
         *out = (Memmy_Value){.type = type, .bytes = String8_Copy(arena, text)};
         return Memmy_Status_Ok;
     case Memmy_TypeKind_WStr:
-        return Memmy_EncodeWStr(arena, type, text, out, error);
+        return Memmy_WString_Encode(arena, type, text, out, error);
     }
 
     Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("value"), String8_Lit("unknown value type"));

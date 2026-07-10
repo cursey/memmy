@@ -2,37 +2,37 @@
 
 #include "Zydis.h"
 
-typedef struct Memmy_EvalDisasmX64Needle Memmy_EvalDisasmX64Needle;
-typedef struct Memmy_EvalDisasmX64Operand Memmy_EvalDisasmX64Operand;
-typedef struct Memmy_EvalDisasmX64Instruction Memmy_EvalDisasmX64Instruction;
-typedef struct Memmy_EvalDisasmX64Pattern Memmy_EvalDisasmX64Pattern;
+typedef struct MemmyEval_DisasmX64Needle MemmyEval_DisasmX64Needle;
+typedef struct MemmyEval_DisasmX64Operand MemmyEval_DisasmX64Operand;
+typedef struct MemmyEval_DisasmX64Instruction MemmyEval_DisasmX64Instruction;
+typedef struct MemmyEval_DisasmX64Pattern MemmyEval_DisasmX64Pattern;
 
-struct Memmy_EvalDisasmX64Operand
+struct MemmyEval_DisasmX64Operand
 {
-    Memmy_AstDisasmOperandKind kind;
+    MemmyAst_DisasmOperandKind kind;
     ZydisRegister reg;
 };
 
-struct Memmy_EvalDisasmX64Instruction
+struct MemmyEval_DisasmX64Instruction
 {
     ZydisMnemonic mnemonic;
-    Memmy_EvalDisasmX64Operand *operands;
+    MemmyEval_DisasmX64Operand *operands;
     U32 operand_count;
 };
 
-struct Memmy_EvalDisasmX64Pattern
+struct MemmyEval_DisasmX64Pattern
 {
-    Memmy_EvalDisasmX64Instruction *instructions;
+    MemmyEval_DisasmX64Instruction *instructions;
     U32 instruction_count;
 };
 
-struct Memmy_EvalDisasmX64Needle
+struct MemmyEval_DisasmX64Needle
 {
-    Memmy_EvalDisasmX64Pattern pattern;
+    MemmyEval_DisasmX64Pattern pattern;
     ZydisDecoder decoder;
 };
 
-static B32 Memmy_EvalDisasmX64_MnemonicFromString(String8 text, ZydisMnemonic *out)
+static B32 MemmyEval_DisasmX64_MnemonicFromString(String8 text, ZydisMnemonic *out)
 {
     for (U32 mnemonic = 0; mnemonic <= ZYDIS_MNEMONIC_MAX_VALUE; mnemonic++)
     {
@@ -46,7 +46,7 @@ static B32 Memmy_EvalDisasmX64_MnemonicFromString(String8 text, ZydisMnemonic *o
     return 0;
 }
 
-static B32 Memmy_EvalDisasmX64_RegisterFromString(String8 text, ZydisRegister *out)
+static B32 MemmyEval_DisasmX64_RegisterFromString(String8 text, ZydisRegister *out)
 {
     for (U32 reg = 0; reg <= ZYDIS_REGISTER_MAX_VALUE; reg++)
     {
@@ -60,17 +60,17 @@ static B32 Memmy_EvalDisasmX64_RegisterFromString(String8 text, ZydisRegister *o
     return 0;
 }
 
-static B32 Memmy_EvalDisasmX64_OperandMatches(Memmy_EvalDisasmX64Operand *pattern, ZydisDecodedOperand *operand)
+static B32 MemmyEval_DisasmX64_OperandMatches(MemmyEval_DisasmX64Operand *pattern, ZydisDecodedOperand *operand)
 {
-    if (pattern->kind == Memmy_AstDisasmOperandKind_RegisterAny)
+    if (pattern->kind == MemmyAst_DisasmOperandKind_RegisterAny)
     {
         return operand->type == ZYDIS_OPERAND_TYPE_REGISTER;
     }
-    if (pattern->kind == Memmy_AstDisasmOperandKind_Register)
+    if (pattern->kind == MemmyAst_DisasmOperandKind_Register)
     {
         return operand->type == ZYDIS_OPERAND_TYPE_REGISTER && operand->reg.value == pattern->reg;
     }
-    if (pattern->kind == Memmy_AstDisasmOperandKind_RipDisp32)
+    if (pattern->kind == MemmyAst_DisasmOperandKind_RipDisp32)
     {
         return operand->type == ZYDIS_OPERAND_TYPE_MEMORY && operand->mem.base == ZYDIS_REGISTER_RIP &&
                operand->mem.index == ZYDIS_REGISTER_NONE && operand->mem.disp.size == 32;
@@ -78,11 +78,11 @@ static B32 Memmy_EvalDisasmX64_OperandMatches(Memmy_EvalDisasmX64Operand *patter
     return 0;
 }
 
-static B32 Memmy_EvalDisasmX64_MatchesAt(void *user_data, Memmy_Addr address, U8 const *bytes, U64 available)
+static B32 MemmyEval_DisasmX64_MatchesAt(void *user_data, Memmy_Addr address, U8 const *bytes, U64 available)
 {
     Unused(address);
 
-    Memmy_EvalDisasmX64Needle *needle = (Memmy_EvalDisasmX64Needle *)user_data;
+    MemmyEval_DisasmX64Needle *needle = (MemmyEval_DisasmX64Needle *)user_data;
     U64 offset = 0;
     for (U32 i = 0; i < needle->pattern.instruction_count; i++)
     {
@@ -100,7 +100,7 @@ static B32 Memmy_EvalDisasmX64_MatchesAt(void *user_data, Memmy_Addr address, U8
             return 0;
         }
 
-        Memmy_EvalDisasmX64Instruction *pattern_instruction = needle->pattern.instructions + i;
+        MemmyEval_DisasmX64Instruction *pattern_instruction = needle->pattern.instructions + i;
         if (instruction.mnemonic != pattern_instruction->mnemonic)
         {
             return 0;
@@ -113,7 +113,7 @@ static B32 Memmy_EvalDisasmX64_MatchesAt(void *user_data, Memmy_Addr address, U8
         for (U32 operand_index = 0; operand_index < pattern_instruction->operand_count; operand_index++)
         {
             if (operands[operand_index].visibility != ZYDIS_OPERAND_VISIBILITY_EXPLICIT ||
-                !Memmy_EvalDisasmX64_OperandMatches(pattern_instruction->operands + operand_index,
+                !MemmyEval_DisasmX64_OperandMatches(pattern_instruction->operands + operand_index,
                                                     operands + operand_index))
             {
                 return 0;
@@ -125,32 +125,32 @@ static B32 Memmy_EvalDisasmX64_MatchesAt(void *user_data, Memmy_Addr address, U8
     return 1;
 }
 
-static Memmy_Status Memmy_EvalDisasmX64_ResolvePattern(Arena *arena, Memmy_AstDisasmPattern ast_pattern,
-                                                       Memmy_EvalDisasmX64Pattern *out, Memmy_Error *error)
+static Memmy_Status MemmyEval_DisasmX64_ResolvePattern(Arena *arena, MemmyAst_DisasmPattern ast_pattern,
+                                                       MemmyEval_DisasmX64Pattern *out, Memmy_Error *error)
 {
-    Memmy_EvalDisasmX64Instruction *instructions =
-        Arena_PushArray(arena, Memmy_EvalDisasmX64Instruction, ast_pattern.instruction_count);
+    MemmyEval_DisasmX64Instruction *instructions =
+        Arena_PushArray(arena, MemmyEval_DisasmX64Instruction, ast_pattern.instruction_count);
 
     for (U32 instruction_index = 0; instruction_index < ast_pattern.instruction_count; instruction_index++)
     {
-        Memmy_AstDisasmInstruction *ast_instruction = ast_pattern.instructions + instruction_index;
+        MemmyAst_DisasmInstruction *ast_instruction = ast_pattern.instructions + instruction_index;
         ZydisMnemonic mnemonic = ZYDIS_MNEMONIC_INVALID;
-        if (!Memmy_EvalDisasmX64_MnemonicFromString(ast_instruction->mnemonic, &mnemonic))
+        if (!MemmyEval_DisasmX64_MnemonicFromString(ast_instruction->mnemonic, &mnemonic))
         {
             Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("disasm"), String8_Lit("unknown mnemonic"));
             return Memmy_Status_ParseError;
         }
 
-        Memmy_EvalDisasmX64Operand *operands =
-            Arena_PushArray(arena, Memmy_EvalDisasmX64Operand, ast_instruction->operand_count);
+        MemmyEval_DisasmX64Operand *operands =
+            Arena_PushArray(arena, MemmyEval_DisasmX64Operand, ast_instruction->operand_count);
         for (U32 operand_index = 0; operand_index < ast_instruction->operand_count; operand_index++)
         {
-            Memmy_AstDisasmOperand *ast_operand = ast_instruction->operands + operand_index;
+            MemmyAst_DisasmOperand *ast_operand = ast_instruction->operands + operand_index;
             operands[operand_index].kind = ast_operand->kind;
-            if (ast_operand->kind == Memmy_AstDisasmOperandKind_Register)
+            if (ast_operand->kind == MemmyAst_DisasmOperandKind_Register)
             {
                 ZydisRegister reg = ZYDIS_REGISTER_NONE;
-                if (!Memmy_EvalDisasmX64_RegisterFromString(ast_operand->reg, &reg))
+                if (!MemmyEval_DisasmX64_RegisterFromString(ast_operand->reg, &reg))
                 {
                     Memmy_Error_Set(error, Memmy_Status_ParseError, String8_Lit("disasm"),
                                     String8_Lit("unknown register"));
@@ -160,22 +160,22 @@ static Memmy_Status Memmy_EvalDisasmX64_ResolvePattern(Arena *arena, Memmy_AstDi
             }
         }
 
-        instructions[instruction_index] = (Memmy_EvalDisasmX64Instruction){
+        instructions[instruction_index] = (MemmyEval_DisasmX64Instruction){
             .mnemonic = mnemonic,
             .operands = operands,
             .operand_count = ast_instruction->operand_count,
         };
     }
 
-    *out = (Memmy_EvalDisasmX64Pattern){
+    *out = (MemmyEval_DisasmX64Pattern){
         .instructions = instructions,
         .instruction_count = ast_pattern.instruction_count,
     };
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_Eval_DisasmX64Scan(Arena *arena, Memmy_Process *process, Memmy_ScanOptions const *options,
-                                      Memmy_AstDisasmPattern pattern, Memmy_ScanSink sink, Memmy_Error *error)
+Memmy_Status MemmyEval_DisasmX64_Scan(Arena *arena, Memmy_Process *process, Memmy_ScanOptions const *options,
+                                      MemmyAst_DisasmPattern pattern, Memmy_ScanSink sink, Memmy_Error *error)
 {
     if (pattern.instruction_count == 0)
     {
@@ -183,14 +183,14 @@ Memmy_Status Memmy_Eval_DisasmX64Scan(Arena *arena, Memmy_Process *process, Memm
         return Memmy_Status_InvalidArgument;
     }
 
-    Memmy_EvalDisasmX64Pattern resolved = {0};
-    Memmy_Status resolve_status = Memmy_EvalDisasmX64_ResolvePattern(arena, pattern, &resolved, error);
+    MemmyEval_DisasmX64Pattern resolved = {0};
+    Memmy_Status resolve_status = MemmyEval_DisasmX64_ResolvePattern(arena, pattern, &resolved, error);
     if (resolve_status != Memmy_Status_Ok)
     {
         return resolve_status;
     }
 
-    Memmy_EvalDisasmX64Needle needle = {
+    MemmyEval_DisasmX64Needle needle = {
         .pattern = resolved,
     };
     ZyanStatus status = ZydisDecoderInit(&needle.decoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64);
@@ -202,6 +202,6 @@ Memmy_Status Memmy_Eval_DisasmX64Scan(Arena *arena, Memmy_Process *process, Memm
     }
 
     U64 max_size = 15 * resolved.instruction_count;
-    return Memmy_Process_ScanCustom(arena, process, options, 1, max_size, Memmy_EvalDisasmX64_MatchesAt, &needle, sink,
+    return Memmy_Process_ScanCustom(arena, process, options, 1, max_size, MemmyEval_DisasmX64_MatchesAt, &needle, sink,
                                     error);
 }

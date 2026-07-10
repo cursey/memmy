@@ -1,9 +1,9 @@
 #include "memmy_cli_internal.h"
 
-Memmy_Status Memmy_CliScanOutput_Begin(Memmy_CliScanOutput *output, Arena *arena, Memmy_CliOutputWriter writer,
+Memmy_Status MemmyCli_ScanOutput_Begin(MemmyCli_ScanOutput *output, Arena *arena, MemmyCli_OutputWriter writer,
                                        Memmy_PointerWidth pointer_width, B32 jsonl)
 {
-    *output = (Memmy_CliScanOutput){
+    *output = (MemmyCli_ScanOutput){
         .arena = arena,
         .writer = writer,
         .pointer_width = pointer_width,
@@ -16,10 +16,10 @@ Memmy_Status Memmy_CliScanOutput_Begin(Memmy_CliScanOutput *output, Arena *arena
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_CliScanOutput_PushMatch(void *user_data, Memmy_Addr address)
+Memmy_Status MemmyCli_ScanOutput_PushMatch(void *user_data, Memmy_Addr address)
 {
-    Memmy_CliScanOutput *output = (Memmy_CliScanOutput *)user_data;
-    String8 address_text = Memmy_Cli_FormatAddress(output->arena, output->pointer_width, address);
+    MemmyCli_ScanOutput *output = (MemmyCli_ScanOutput *)user_data;
+    String8 address_text = MemmyCli_Address_Format(output->arena, output->pointer_width, address);
     String8 line = {0};
     if (output->jsonl)
     {
@@ -34,7 +34,7 @@ Memmy_Status Memmy_CliScanOutput_PushMatch(void *user_data, Memmy_Addr address)
     return output->writer.write(output->writer.user_data, line);
 }
 
-Memmy_Status Memmy_CliScanOutput_End(Memmy_CliScanOutput *output)
+Memmy_Status MemmyCli_ScanOutput_End(MemmyCli_ScanOutput *output)
 {
     if (output->jsonl)
     {

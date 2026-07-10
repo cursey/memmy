@@ -18,7 +18,7 @@ Test(Test_MemmyTestBackendReadWrite)
     Memmy_Context_Set(&ctx);
 
     Test_ProcessInfoList processes = {0};
-    AssertEq(Memmy_EnumerateProcesses(arena, Test_ProcessInfoSink(&processes, arena), 0), Memmy_Status_Ok);
+    AssertEq(Memmy_Process_Enumerate(arena, Test_ProcessInfoSink(&processes, arena), 0), Memmy_Status_Ok);
     AssertEq(processes.list.count, 1);
     Test_ProcessInfoNode *info = ContainerOf(processes.list.first, Test_ProcessInfoNode, link);
     AssertEq(info->info.pid, 4242);
@@ -75,8 +75,7 @@ Test(Test_MemmyProcessMissingBackendCallbacksReturnUnsupported)
     Memmy_Error error = {0};
     Test_ProcessInfoList processes = {0};
     test_backend.backend.enumerate_processes = 0;
-    AssertEq(Memmy_EnumerateProcesses(arena, Test_ProcessInfoSink(&processes, arena), &error),
-             Memmy_Status_Unsupported);
+    AssertEq(Memmy_Process_Enumerate(arena, Test_ProcessInfoSink(&processes, arena), &error), Memmy_Status_Unsupported);
 
     U8 buffer[4] = {0};
     U64 byte_count = 0;
@@ -226,7 +225,7 @@ Test(Test_MemmyProcessEnumerationPreservesCallbackOrder)
     Memmy_Context_Set(&ctx);
 
     Test_ProcessInfoList processes = {0};
-    AssertEq(Memmy_EnumerateProcesses(arena, Test_ProcessInfoSink(&processes, arena), 0), Memmy_Status_Ok);
+    AssertEq(Memmy_Process_Enumerate(arena, Test_ProcessInfoSink(&processes, arena), 0), Memmy_Status_Ok);
     Test_ProcessInfoNode *process_a = ContainerOf(processes.list.first, Test_ProcessInfoNode, link);
     Test_ProcessInfoNode *process_b = ContainerOf(processes.list.last, Test_ProcessInfoNode, link);
     AssertEq(process_a->info.pid, 111);
@@ -276,7 +275,7 @@ Test(Test_MemmyProcessEnumerationPropagatesSinkErrors)
     Test_ProcessInfoList processes = {0};
     Memmy_ProcessInfoSink process_sink = Test_ProcessInfoSink(&processes, arena);
     processes.status = Memmy_Status_AccessDenied;
-    AssertEq(Memmy_EnumerateProcesses(arena, process_sink, 0), Memmy_Status_AccessDenied);
+    AssertEq(Memmy_Process_Enumerate(arena, process_sink, 0), Memmy_Status_AccessDenied);
     AssertEq(processes.list.count, 1);
 
     Memmy_Process *process = 0;
@@ -319,7 +318,7 @@ Test(Test_MemmyTestBackendConfiguredInventory)
     Memmy_Context_Set(&ctx);
 
     Test_ProcessInfoList processes = {0};
-    AssertEq(Memmy_EnumerateProcesses(arena, Test_ProcessInfoSink(&processes, arena), 0), Memmy_Status_Ok);
+    AssertEq(Memmy_Process_Enumerate(arena, Test_ProcessInfoSink(&processes, arena), 0), Memmy_Status_Ok);
     AssertEq(processes.list.count, 2);
 
     Memmy_Process *process = 0;

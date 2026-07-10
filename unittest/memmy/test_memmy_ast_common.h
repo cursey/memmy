@@ -4,25 +4,25 @@
 #include "memmy_ast.h"
 #include "test_framework.h"
 
-static void Test_ParseAstExpr(Arena *arena, char *text, Memmy_AstNode **out)
+static void Test_ParseAstExpr(Arena *arena, char *text, MemmyAst_Node **out)
 {
-    Memmy_AstDiagnostic diagnostic = {0};
-    AssertEq(Memmy_Ast_ParseExpr(arena, String8_FromCStr(text), out, &diagnostic), Memmy_AstStatus_Ok);
+    MemmyAst_Diagnostic diagnostic = {0};
+    AssertEq(MemmyAst_Expr_Parse(arena, String8_FromCStr(text), out, &diagnostic), MemmyAst_Status_Ok);
     AssertTrue(*out != 0);
 }
 
-static void Test_ParseAstStatement(Arena *arena, char *text, Memmy_AstStatement *out)
+static void Test_ParseAstStatement(Arena *arena, char *text, MemmyAst_Statement *out)
 {
-    Memmy_AstDiagnostic diagnostic = {0};
-    AssertEq(Memmy_Ast_ParseStatement(arena, String8_FromCStr(text), out, &diagnostic), Memmy_AstStatus_Ok);
+    MemmyAst_Diagnostic diagnostic = {0};
+    AssertEq(MemmyAst_Statement_Parse(arena, String8_FromCStr(text), out, &diagnostic), MemmyAst_Status_Ok);
 }
 
 static void Test_RejectAstExpr(char *text)
 {
     Arena *arena = Arena_CreateDefault();
-    Memmy_AstNode *expr = 0;
-    Memmy_AstDiagnostic diagnostic = {0};
-    AssertEq(Memmy_Ast_ParseExpr(arena, String8_FromCStr(text), &expr, &diagnostic), Memmy_AstStatus_ParseError);
+    MemmyAst_Node *expr = 0;
+    MemmyAst_Diagnostic diagnostic = {0};
+    AssertEq(MemmyAst_Expr_Parse(arena, String8_FromCStr(text), &expr, &diagnostic), MemmyAst_Status_ParseError);
     AssertTrue(expr == 0);
     AssertStrEq(diagnostic.context, String8_Lit("ast"));
     Arena_Destroy(arena);

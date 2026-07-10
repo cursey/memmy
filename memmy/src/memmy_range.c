@@ -18,7 +18,7 @@ static void Memmy_Error_SetInput(Memmy_Error *error, Memmy_Status status, String
     }
 }
 
-static U32 Memmy_HexDigitValue(U8 c)
+static U32 Memmy_HexDigit_Value(U8 c)
 {
     U32 result = U32_MAX;
     if (c >= '0' && c <= '9')
@@ -36,7 +36,7 @@ static U32 Memmy_HexDigitValue(U8 c)
     return result;
 }
 
-static Memmy_Status Memmy_ParseUnsignedToken(String8 text, String8 context, U64 *out, Memmy_Error *error)
+static Memmy_Status Memmy_UnsignedToken_Parse(String8 text, String8 context, U64 *out, Memmy_Error *error)
 {
     if (out == 0)
     {
@@ -69,7 +69,7 @@ static Memmy_Status Memmy_ParseUnsignedToken(String8 text, String8 context, U64 
     for (U64 i = first_digit; i < text.len; i++)
     {
         U8 c = text.data[i];
-        U32 digit = (base == 16) ? Memmy_HexDigitValue(c) : (Char8_IsDigit(c) ? (U32)(c - '0') : U32_MAX);
+        U32 digit = (base == 16) ? Memmy_HexDigit_Value(c) : (Char8_IsDigit(c) ? (U32)(c - '0') : U32_MAX);
         if (digit >= base)
         {
             Memmy_Error_SetInput(error, Memmy_Status_ParseError, context, String8_Lit("invalid unsigned integer"), text,
@@ -94,14 +94,14 @@ static Memmy_Status Memmy_ParseUnsignedToken(String8 text, String8 context, U64 
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_ParseAddress(String8 text, Memmy_Addr *out, Memmy_Error *error)
+Memmy_Status Memmy_Address_Parse(String8 text, Memmy_Addr *out, Memmy_Error *error)
 {
-    return Memmy_ParseUnsignedToken(text, String8_Lit("address"), out, error);
+    return Memmy_UnsignedToken_Parse(text, String8_Lit("address"), out, error);
 }
 
-Memmy_Status Memmy_ParseSize(String8 text, Memmy_Size *out, Memmy_Error *error)
+Memmy_Status Memmy_Size_Parse(String8 text, Memmy_Size *out, Memmy_Error *error)
 {
-    return Memmy_ParseUnsignedToken(text, String8_Lit("range"), out, error);
+    return Memmy_UnsignedToken_Parse(text, String8_Lit("range"), out, error);
 }
 
 Memmy_Status Memmy_Range_FromStartEnd(Memmy_Addr start, Memmy_Addr end, Memmy_Range *out, Memmy_Error *error)

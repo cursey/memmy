@@ -93,7 +93,7 @@ struct Memmy_ObjectBaseResult
 };
 
 // Enumeration strings belong to arena; metadata pointers are valid only during callbacks. Error is optional.
-Memmy_Status Memmy_EnumerateProcesses(Arena *arena, Memmy_ProcessInfoSink sink, Memmy_Error *error);
+Memmy_Status Memmy_Process_Enumerate(Arena *arena, Memmy_ProcessInfoSink sink, Memmy_Error *error);
 // On return, including failure, out is initialized to null. The process belongs to arena.
 Memmy_Status Memmy_Process_Open(Arena *arena, U32 pid, Memmy_Process **out, Memmy_Error *error);
 B32 Memmy_Process_IsOpen(Memmy_Process *process);

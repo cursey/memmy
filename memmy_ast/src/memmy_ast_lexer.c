@@ -1,26 +1,26 @@
 #include "memmy_ast_parser.h"
 
-static B32 Memmy_Char_IsIdentStart(U8 c)
+static B32 MemmyAst_Char_IsIdentStart(U8 c)
 {
     return Char8_IsAlpha(c) || c == '_';
 }
 
-static B32 Memmy_Char_IsIdentContinue(U8 c)
+static B32 MemmyAst_Char_IsIdentContinue(U8 c)
 {
-    return Memmy_Char_IsIdentStart(c) || Char8_IsDigit(c);
+    return MemmyAst_Char_IsIdentStart(c) || Char8_IsDigit(c);
 }
 
-static B32 Memmy_Char_IsHexDigit(U8 c)
+static B32 MemmyAst_Char_IsHexDigit(U8 c)
 {
     return Char8_IsDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 }
 
-void Memmy_AstDiagnostic_Set(Memmy_AstDiagnostic *diagnostic, String8 input, String8 context, String8 message,
+void MemmyAst_Diagnostic_Set(MemmyAst_Diagnostic *diagnostic, String8 input, String8 context, String8 message,
                              U64 byte_offset, U64 byte_count)
 {
     if (diagnostic != 0)
     {
-        *diagnostic = (Memmy_AstDiagnostic){
+        *diagnostic = (MemmyAst_Diagnostic){
             .input = input,
             .message = message,
             .context = context,
@@ -30,119 +30,119 @@ void Memmy_AstDiagnostic_Set(Memmy_AstDiagnostic *diagnostic, String8 input, Str
     }
 }
 
-void Memmy_Parser_SetError(Memmy_Parser *parser, String8 message, U64 byte_offset, U64 byte_count)
+void MemmyAst_Parser_SetError(MemmyAst_Parser *parser, String8 message, U64 byte_offset, U64 byte_count)
 {
-    Memmy_AstDiagnostic_Set(parser->diagnostic, parser->input, String8_Lit("ast"), message, byte_offset, byte_count);
+    MemmyAst_Diagnostic_Set(parser->diagnostic, parser->input, String8_Lit("ast"), message, byte_offset, byte_count);
 }
 
-B32 Memmy_Parser_AtEnd(Memmy_Parser *parser)
+B32 MemmyAst_Parser_AtEnd(MemmyAst_Parser *parser)
 {
     return parser->pos >= parser->input.len;
 }
 
-U8 Memmy_Parser_Peek(Memmy_Parser *parser)
+U8 MemmyAst_Parser_Peek(MemmyAst_Parser *parser)
 {
     U8 result = 0;
-    if (!Memmy_Parser_AtEnd(parser))
+    if (!MemmyAst_Parser_AtEnd(parser))
     {
         result = parser->input.data[parser->pos];
     }
     return result;
 }
 
-static String8 Memmy_Parser_Slice(Memmy_Parser *parser, U64 start, U64 end)
+static String8 MemmyAst_Parser_Slice(MemmyAst_Parser *parser, U64 start, U64 end)
 {
     return String8_Substr(parser->input, start, end - start);
 }
 
-static void Memmy_Parser_SkipWhitespace(Memmy_Parser *parser)
+static void MemmyAst_Parser_SkipWhitespace(MemmyAst_Parser *parser)
 {
-    while (!Memmy_Parser_AtEnd(parser) && Char8_IsWhitespace(Memmy_Parser_Peek(parser)))
+    while (!MemmyAst_Parser_AtEnd(parser) && Char8_IsWhitespace(MemmyAst_Parser_Peek(parser)))
     {
         parser->pos++;
     }
 }
 
-Memmy_AstStatus Memmy_Parser_Next(Memmy_Parser *parser)
+MemmyAst_Status MemmyAst_Parser_Next(MemmyAst_Parser *parser)
 {
-    Memmy_Parser_SkipWhitespace(parser);
+    MemmyAst_Parser_SkipWhitespace(parser);
 
     U64 start = parser->pos;
-    if (Memmy_Parser_AtEnd(parser))
+    if (MemmyAst_Parser_AtEnd(parser))
     {
-        parser->token = (Memmy_Token){.kind = Memmy_TokenKind_Eof, .byte_offset = start};
-        return Memmy_AstStatus_Ok;
+        parser->token = (MemmyAst_Token){.kind = MemmyAst_TokenKind_Eof, .byte_offset = start};
+        return MemmyAst_Status_Ok;
     }
 
-    U8 c = Memmy_Parser_Peek(parser);
+    U8 c = MemmyAst_Parser_Peek(parser);
     parser->pos++;
-    Memmy_TokenKind kind = Memmy_TokenKind_Invalid;
+    MemmyAst_TokenKind kind = MemmyAst_TokenKind_Invalid;
 
-    if (Memmy_Char_IsIdentStart(c))
+    if (MemmyAst_Char_IsIdentStart(c))
     {
-        while (!Memmy_Parser_AtEnd(parser) && Memmy_Char_IsIdentContinue(Memmy_Parser_Peek(parser)))
+        while (!MemmyAst_Parser_AtEnd(parser) && MemmyAst_Char_IsIdentContinue(MemmyAst_Parser_Peek(parser)))
         {
             parser->pos++;
         }
-        String8 text = Memmy_Parser_Slice(parser, start, parser->pos);
-        kind = String8_Eq(text, String8_Lit("as")) ? Memmy_TokenKind_As : Memmy_TokenKind_Identifier;
+        String8 text = MemmyAst_Parser_Slice(parser, start, parser->pos);
+        kind = String8_Eq(text, String8_Lit("as")) ? MemmyAst_TokenKind_As : MemmyAst_TokenKind_Identifier;
     }
     else if (Char8_IsDigit(c))
     {
-        if (c == '0' && (Memmy_Parser_Peek(parser) == 'x' || Memmy_Parser_Peek(parser) == 'X'))
+        if (c == '0' && (MemmyAst_Parser_Peek(parser) == 'x' || MemmyAst_Parser_Peek(parser) == 'X'))
         {
             parser->pos++;
-            if (!Memmy_Char_IsHexDigit(Memmy_Parser_Peek(parser)))
+            if (!MemmyAst_Char_IsHexDigit(MemmyAst_Parser_Peek(parser)))
             {
-                Memmy_Parser_SetError(parser, String8_Lit("expected hexadecimal digit"), parser->pos, 1);
-                return Memmy_AstStatus_ParseError;
+                MemmyAst_Parser_SetError(parser, String8_Lit("expected hexadecimal digit"), parser->pos, 1);
+                return MemmyAst_Status_ParseError;
             }
-            while (!Memmy_Parser_AtEnd(parser) && Memmy_Char_IsHexDigit(Memmy_Parser_Peek(parser)))
+            while (!MemmyAst_Parser_AtEnd(parser) && MemmyAst_Char_IsHexDigit(MemmyAst_Parser_Peek(parser)))
             {
                 parser->pos++;
             }
         }
         else
         {
-            while (!Memmy_Parser_AtEnd(parser) && Char8_IsDigit(Memmy_Parser_Peek(parser)))
+            while (!MemmyAst_Parser_AtEnd(parser) && Char8_IsDigit(MemmyAst_Parser_Peek(parser)))
             {
                 parser->pos++;
             }
         }
-        kind = Memmy_TokenKind_Integer;
+        kind = MemmyAst_TokenKind_Integer;
     }
     else if (c == '$')
     {
-        if (Memmy_Parser_AtEnd(parser))
+        if (MemmyAst_Parser_AtEnd(parser))
         {
-            kind = Memmy_TokenKind_CurrentItem;
+            kind = MemmyAst_TokenKind_CurrentItem;
         }
-        else if (Memmy_Char_IsIdentStart(Memmy_Parser_Peek(parser)))
+        else if (MemmyAst_Char_IsIdentStart(MemmyAst_Parser_Peek(parser)))
         {
-            while (!Memmy_Parser_AtEnd(parser) && Memmy_Char_IsIdentContinue(Memmy_Parser_Peek(parser)))
+            while (!MemmyAst_Parser_AtEnd(parser) && MemmyAst_Char_IsIdentContinue(MemmyAst_Parser_Peek(parser)))
             {
                 parser->pos++;
             }
-            kind = Memmy_TokenKind_Variable;
+            kind = MemmyAst_TokenKind_Variable;
         }
-        else if (Char8_IsDigit(Memmy_Parser_Peek(parser)))
+        else if (Char8_IsDigit(MemmyAst_Parser_Peek(parser)))
         {
-            Memmy_Parser_SetError(parser, String8_Lit("invalid variable name"), start, parser->pos - start);
-            return Memmy_AstStatus_ParseError;
+            MemmyAst_Parser_SetError(parser, String8_Lit("invalid variable name"), start, parser->pos - start);
+            return MemmyAst_Status_ParseError;
         }
         else
         {
-            kind = Memmy_TokenKind_CurrentItem;
+            kind = MemmyAst_TokenKind_CurrentItem;
         }
     }
     else if (c == '"')
     {
         B32 terminated = 0;
-        while (!Memmy_Parser_AtEnd(parser))
+        while (!MemmyAst_Parser_AtEnd(parser))
         {
-            U8 next = Memmy_Parser_Peek(parser);
+            U8 next = MemmyAst_Parser_Peek(parser);
             parser->pos++;
-            if (next == '\\' && !Memmy_Parser_AtEnd(parser))
+            if (next == '\\' && !MemmyAst_Parser_AtEnd(parser))
             {
                 parser->pos++;
             }
@@ -154,17 +154,17 @@ Memmy_AstStatus Memmy_Parser_Next(Memmy_Parser *parser)
         }
         if (!terminated)
         {
-            Memmy_Parser_SetError(parser, String8_Lit("unterminated string"), start, parser->pos - start);
-            return Memmy_AstStatus_ParseError;
+            MemmyAst_Parser_SetError(parser, String8_Lit("unterminated string"), start, parser->pos - start);
+            return MemmyAst_Status_ParseError;
         }
-        kind = Memmy_TokenKind_String;
+        kind = MemmyAst_TokenKind_String;
     }
     else if (c == '<')
     {
         B32 terminated = 0;
-        while (!Memmy_Parser_AtEnd(parser))
+        while (!MemmyAst_Parser_AtEnd(parser))
         {
-            if (Memmy_Parser_Peek(parser) == '>')
+            if (MemmyAst_Parser_Peek(parser) == '>')
             {
                 parser->pos++;
                 terminated = 1;
@@ -174,113 +174,113 @@ Memmy_AstStatus Memmy_Parser_Next(Memmy_Parser *parser)
         }
         if (!terminated)
         {
-            Memmy_Parser_SetError(parser, String8_Lit("unterminated target"), start, parser->pos - start);
-            return Memmy_AstStatus_ParseError;
+            MemmyAst_Parser_SetError(parser, String8_Lit("unterminated target"), start, parser->pos - start);
+            return MemmyAst_Status_ParseError;
         }
-        kind = Memmy_TokenKind_Target;
+        kind = MemmyAst_TokenKind_Target;
     }
     else if (c == '/')
     {
-        if (Memmy_Char_IsIdentStart(Memmy_Parser_Peek(parser)))
+        if (MemmyAst_Char_IsIdentStart(MemmyAst_Parser_Peek(parser)))
         {
-            while (!Memmy_Parser_AtEnd(parser) && Memmy_Char_IsIdentContinue(Memmy_Parser_Peek(parser)))
+            while (!MemmyAst_Parser_AtEnd(parser) && MemmyAst_Char_IsIdentContinue(MemmyAst_Parser_Peek(parser)))
             {
                 parser->pos++;
             }
-            kind = Memmy_TokenKind_Command;
+            kind = MemmyAst_TokenKind_Command;
         }
         else
         {
-            kind = Memmy_TokenKind_Slash;
+            kind = MemmyAst_TokenKind_Slash;
         }
     }
-    else if (c == '-' && Memmy_Parser_Peek(parser) == '>')
+    else if (c == '-' && MemmyAst_Parser_Peek(parser) == '>')
     {
         parser->pos++;
-        kind = Memmy_TokenKind_Arrow;
+        kind = MemmyAst_TokenKind_Arrow;
     }
-    else if (c == '.' && Memmy_Parser_Peek(parser) == '.')
+    else if (c == '.' && MemmyAst_Parser_Peek(parser) == '.')
     {
         parser->pos++;
-        kind = Memmy_TokenKind_DotDot;
+        kind = MemmyAst_TokenKind_DotDot;
     }
-    else if (c == '=' && Memmy_Parser_Peek(parser) == '=')
+    else if (c == '=' && MemmyAst_Parser_Peek(parser) == '=')
     {
         parser->pos++;
-        kind = Memmy_TokenKind_EqualEqual;
+        kind = MemmyAst_TokenKind_EqualEqual;
     }
-    else if (c == '=' && Memmy_Parser_Peek(parser) == '>')
+    else if (c == '=' && MemmyAst_Parser_Peek(parser) == '>')
     {
         parser->pos++;
-        kind = Memmy_TokenKind_FatArrow;
+        kind = MemmyAst_TokenKind_FatArrow;
     }
     else if (c == '{')
     {
-        kind = Memmy_TokenKind_LBrace;
+        kind = MemmyAst_TokenKind_LBrace;
     }
     else if (c == '}')
     {
-        kind = Memmy_TokenKind_RBrace;
+        kind = MemmyAst_TokenKind_RBrace;
     }
     else if (c == '[')
     {
-        kind = Memmy_TokenKind_LBracket;
+        kind = MemmyAst_TokenKind_LBracket;
     }
     else if (c == ']')
     {
-        kind = Memmy_TokenKind_RBracket;
+        kind = MemmyAst_TokenKind_RBracket;
     }
     else if (c == '(')
     {
-        kind = Memmy_TokenKind_LParen;
+        kind = MemmyAst_TokenKind_LParen;
     }
     else if (c == ')')
     {
-        kind = Memmy_TokenKind_RParen;
+        kind = MemmyAst_TokenKind_RParen;
     }
     else if (c == '@')
     {
-        kind = Memmy_TokenKind_At;
+        kind = MemmyAst_TokenKind_At;
     }
     else if (c == '+')
     {
-        kind = Memmy_TokenKind_Plus;
+        kind = MemmyAst_TokenKind_Plus;
     }
     else if (c == '-')
     {
-        kind = Memmy_TokenKind_Minus;
+        kind = MemmyAst_TokenKind_Minus;
     }
     else if (c == '*')
     {
-        kind = Memmy_TokenKind_Star;
+        kind = MemmyAst_TokenKind_Star;
     }
     else if (c == '%')
     {
-        kind = Memmy_TokenKind_Percent;
+        kind = MemmyAst_TokenKind_Percent;
     }
     else if (c == '=')
     {
-        kind = Memmy_TokenKind_Equal;
+        kind = MemmyAst_TokenKind_Equal;
     }
 
-    if (kind == Memmy_TokenKind_Invalid)
+    if (kind == MemmyAst_TokenKind_Invalid)
     {
-        Memmy_Parser_SetError(parser, String8_Lit("unexpected character"), start, 1);
-        return Memmy_AstStatus_ParseError;
+        MemmyAst_Parser_SetError(parser, String8_Lit("unexpected character"), start, 1);
+        return MemmyAst_Status_ParseError;
     }
 
-    parser->token = (Memmy_Token){
+    parser->token = (MemmyAst_Token){
         .kind = kind,
-        .text = Memmy_Parser_Slice(parser, start, parser->pos),
+        .text = MemmyAst_Parser_Slice(parser, start, parser->pos),
         .byte_offset = start,
         .byte_count = parser->pos - start,
     };
-    return Memmy_AstStatus_Ok;
+    return MemmyAst_Status_Ok;
 }
 
-Memmy_AstNode *Memmy_Parser_PushNode(Memmy_Parser *parser, Memmy_AstNodeKind kind, Memmy_Token token)
+MemmyAst_Node *MemmyAst_Parser_PushNode(MemmyAst_Parser *parser, MemmyAst_NodeKind kind, MemmyAst_Token token)
 {
-    Memmy_AstNode *node = Arena_PushStruct(parser->arena, Memmy_AstNode);
+    MemmyAst_Node *node = Arena_PushStruct(parser->arena, MemmyAst_Node);
     node->kind = kind;
     node->text = token.text;
     node->byte_offset = token.byte_offset;
@@ -288,36 +288,36 @@ Memmy_AstNode *Memmy_Parser_PushNode(Memmy_Parser *parser, Memmy_AstNodeKind kin
     return node;
 }
 
-B32 Memmy_AstNode_MayBeAddressLike(Memmy_AstNode *node)
+B32 MemmyAst_Node_MayBeAddressLike(MemmyAst_Node *node)
 {
     B32 result = 0;
     if (node != 0)
     {
-        if (node->kind == Memmy_AstNodeKind_Address || node->kind == Memmy_AstNodeKind_Range ||
-            node->kind == Memmy_AstNodeKind_ProcessRange || node->kind == Memmy_AstNodeKind_Target ||
-            node->kind == Memmy_AstNodeKind_Deref || node->kind == Memmy_AstNodeKind_Function ||
-            node->kind == Memmy_AstNodeKind_ObjectBase || node->kind == Memmy_AstNodeKind_Variable ||
-            node->kind == Memmy_AstNodeKind_CurrentItem)
+        if (node->kind == MemmyAst_NodeKind_Address || node->kind == MemmyAst_NodeKind_Range ||
+            node->kind == MemmyAst_NodeKind_ProcessRange || node->kind == MemmyAst_NodeKind_Target ||
+            node->kind == MemmyAst_NodeKind_Deref || node->kind == MemmyAst_NodeKind_Function ||
+            node->kind == MemmyAst_NodeKind_ObjectBase || node->kind == MemmyAst_NodeKind_Variable ||
+            node->kind == MemmyAst_NodeKind_CurrentItem)
         {
             result = 1;
         }
-        else if (node->kind == Memmy_AstNodeKind_ConstArithmetic)
+        else if (node->kind == MemmyAst_NodeKind_ConstArithmetic)
         {
-            result = node->contains_variable || Memmy_AstNode_MayBeAddressLike(node->lhs) ||
-                     Memmy_AstNode_MayBeAddressLike(node->rhs);
+            result = node->contains_variable || MemmyAst_Node_MayBeAddressLike(node->lhs) ||
+                     MemmyAst_Node_MayBeAddressLike(node->rhs);
         }
     }
     return result;
 }
 
-void Memmy_Parser_NodeCoverInput(Memmy_Parser *parser, Memmy_AstNode *node, U64 start, U64 end)
+void MemmyAst_Parser_NodeCoverInput(MemmyAst_Parser *parser, MemmyAst_Node *node, U64 start, U64 end)
 {
     node->byte_offset = start;
     node->byte_count = end - start;
     node->text = String8_Substr(parser->input, node->byte_offset, node->byte_count);
 }
 
-B32 Memmy_Token_IsIdentifier(Memmy_Token token, String8 text)
+B32 MemmyAst_Token_IsIdentifier(MemmyAst_Token token, String8 text)
 {
-    return token.kind == Memmy_TokenKind_Identifier && String8_Eq(token.text, text);
+    return token.kind == MemmyAst_TokenKind_Identifier && String8_Eq(token.text, text);
 }

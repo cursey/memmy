@@ -1,19 +1,19 @@
 #include "memmy_ast.h"
 #include "test_framework.h"
 
-static void Test_ParseDisasmAstExpr(Arena *arena, char *text, Memmy_AstNode **out)
+static void Test_ParseDisasmAstExpr(Arena *arena, char *text, MemmyAst_Node **out)
 {
-    Memmy_AstDiagnostic diagnostic = {0};
-    AssertEq(Memmy_Ast_ParseExpr(arena, String8_FromCStr(text), out, &diagnostic), Memmy_AstStatus_Ok);
+    MemmyAst_Diagnostic diagnostic = {0};
+    AssertEq(MemmyAst_Expr_Parse(arena, String8_FromCStr(text), out, &diagnostic), MemmyAst_Status_Ok);
     AssertTrue(*out != 0);
 }
 
 static void Test_RejectDisasmAstExpr(char *text)
 {
     Arena *arena = Arena_CreateDefault();
-    Memmy_AstNode *expr = 0;
-    Memmy_AstDiagnostic diagnostic = {0};
-    AssertEq(Memmy_Ast_ParseExpr(arena, String8_FromCStr(text), &expr, &diagnostic), Memmy_AstStatus_ParseError);
+    MemmyAst_Node *expr = 0;
+    MemmyAst_Diagnostic diagnostic = {0};
+    AssertEq(MemmyAst_Expr_Parse(arena, String8_FromCStr(text), &expr, &diagnostic), MemmyAst_Status_ParseError);
     AssertTrue(expr == 0);
     AssertStrEq(diagnostic.context, String8_Lit("ast"));
     Arena_Destroy(arena);
@@ -22,20 +22,20 @@ static void Test_RejectDisasmAstExpr(char *text)
 Test(Test_MemmyAstDisasmX64ParsesScan)
 {
     Arena *arena = Arena_CreateDefault();
-    Memmy_AstNode *expr = 0;
+    MemmyAst_Node *expr = 0;
     Test_ParseDisasmAstExpr(arena, "[@0x1000..+0x40] disasm x64 { mov reg, [rip+disp32]; xor rax, rax }", &expr);
 
-    AssertEq(expr->kind, Memmy_AstNodeKind_DisasmScan);
-    AssertEq(expr->lhs->kind, Memmy_AstNodeKind_Range);
-    AssertEq(expr->disasm_pattern.arch, Memmy_AstDisasmArch_X64);
+    AssertEq(expr->kind, MemmyAst_NodeKind_DisasmScan);
+    AssertEq(expr->lhs->kind, MemmyAst_NodeKind_Range);
+    AssertEq(expr->disasm_pattern.arch, MemmyAst_DisasmArch_X64);
     AssertEq(expr->disasm_pattern.instruction_count, 2);
     AssertEq(expr->disasm_pattern.instructions[0].operand_count, 2);
     AssertStrEq(expr->disasm_pattern.instructions[0].mnemonic, String8_Lit("mov"));
-    AssertEq(expr->disasm_pattern.instructions[0].operands[0].kind, Memmy_AstDisasmOperandKind_RegisterAny);
-    AssertEq(expr->disasm_pattern.instructions[0].operands[1].kind, Memmy_AstDisasmOperandKind_RipDisp32);
+    AssertEq(expr->disasm_pattern.instructions[0].operands[0].kind, MemmyAst_DisasmOperandKind_RegisterAny);
+    AssertEq(expr->disasm_pattern.instructions[0].operands[1].kind, MemmyAst_DisasmOperandKind_RipDisp32);
     AssertEq(expr->disasm_pattern.instructions[1].operand_count, 2);
     AssertStrEq(expr->disasm_pattern.instructions[1].mnemonic, String8_Lit("xor"));
-    AssertEq(expr->disasm_pattern.instructions[1].operands[0].kind, Memmy_AstDisasmOperandKind_Register);
+    AssertEq(expr->disasm_pattern.instructions[1].operands[0].kind, MemmyAst_DisasmOperandKind_Register);
     AssertStrEq(expr->disasm_pattern.instructions[1].operands[0].reg, String8_Lit("rax"));
 
     Arena_Destroy(arena);
@@ -52,10 +52,10 @@ Test(Test_MemmyAstDisasmX64RejectsInvalidSyntax)
 Test(Test_MemmyAstDisasmX64LeavesNameResolutionToEval)
 {
     Arena *arena = Arena_CreateDefault();
-    Memmy_AstNode *expr = 0;
+    MemmyAst_Node *expr = 0;
     Test_ParseDisasmAstExpr(arena, "[@0x1000..+0x40] disasm x64 { nope maybe_reg }", &expr);
 
-    AssertEq(expr->kind, Memmy_AstNodeKind_DisasmScan);
+    AssertEq(expr->kind, MemmyAst_NodeKind_DisasmScan);
     AssertStrEq(expr->disasm_pattern.instructions[0].mnemonic, String8_Lit("nope"));
     AssertStrEq(expr->disasm_pattern.instructions[0].operands[0].reg, String8_Lit("maybe_reg"));
 

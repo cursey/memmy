@@ -5,13 +5,13 @@ Test(Test_MemmyParseAddressAcceptsUnsignedTokens)
     Memmy_Addr addr = 0;
     Memmy_Error error = {0};
 
-    AssertEq(Memmy_ParseAddress(String8_Lit("0x000001d856780004"), &addr, &error), Memmy_Status_Ok);
+    AssertEq(Memmy_Address_Parse(String8_Lit("0x000001d856780004"), &addr, &error), Memmy_Status_Ok);
     AssertTrue(addr == 0x000001d856780004ull);
 
-    AssertEq(Memmy_ParseAddress(String8_Lit("0X1000"), &addr, &error), Memmy_Status_Ok);
+    AssertEq(Memmy_Address_Parse(String8_Lit("0X1000"), &addr, &error), Memmy_Status_Ok);
     AssertEq(addr, 0x1000);
 
-    AssertEq(Memmy_ParseAddress(String8_Lit("4096"), &addr, &error), Memmy_Status_Ok);
+    AssertEq(Memmy_Address_Parse(String8_Lit("4096"), &addr, &error), Memmy_Status_Ok);
     AssertEq(addr, 4096);
 }
 
@@ -26,7 +26,7 @@ Test(Test_MemmyParseAddressRejectsExpressionsAndNames)
     {
         Memmy_Addr addr = 123;
         Memmy_Error error = {0};
-        AssertEq(Memmy_ParseAddress(rejected[i], &addr, &error), Memmy_Status_ParseError);
+        AssertEq(Memmy_Address_Parse(rejected[i], &addr, &error), Memmy_Status_ParseError);
         AssertStrEq(error.context, String8_Lit("address"));
         AssertStrEq(error.input, rejected[i]);
         AssertEq(addr, 123);
@@ -38,10 +38,10 @@ Test(Test_MemmyParseAddressRejectsOverflow)
     Memmy_Addr addr = 0;
     Memmy_Error error = {0};
 
-    AssertEq(Memmy_ParseAddress(String8_Lit("18446744073709551616"), &addr, &error), Memmy_Status_Overflow);
+    AssertEq(Memmy_Address_Parse(String8_Lit("18446744073709551616"), &addr, &error), Memmy_Status_Overflow);
     AssertStrEq(error.context, String8_Lit("address"));
 
-    AssertEq(Memmy_ParseAddress(String8_Lit("0x10000000000000000"), &addr, &error), Memmy_Status_Overflow);
+    AssertEq(Memmy_Address_Parse(String8_Lit("0x10000000000000000"), &addr, &error), Memmy_Status_Overflow);
     AssertStrEq(error.context, String8_Lit("address"));
 }
 
@@ -50,13 +50,13 @@ Test(Test_MemmyParseSizeAcceptsDecimalAndHexAndRejectsOverflow)
     Memmy_Size size = 0;
     Memmy_Error error = {0};
 
-    AssertEq(Memmy_ParseSize(String8_Lit("4096"), &size, &error), Memmy_Status_Ok);
+    AssertEq(Memmy_Size_Parse(String8_Lit("4096"), &size, &error), Memmy_Status_Ok);
     AssertEq(size, 4096);
 
-    AssertEq(Memmy_ParseSize(String8_Lit("0x1000"), &size, &error), Memmy_Status_Ok);
+    AssertEq(Memmy_Size_Parse(String8_Lit("0x1000"), &size, &error), Memmy_Status_Ok);
     AssertEq(size, 0x1000);
 
-    AssertEq(Memmy_ParseSize(String8_Lit("18446744073709551616"), &size, &error), Memmy_Status_Overflow);
+    AssertEq(Memmy_Size_Parse(String8_Lit("18446744073709551616"), &size, &error), Memmy_Status_Overflow);
     AssertStrEq(error.context, String8_Lit("range"));
 }
 

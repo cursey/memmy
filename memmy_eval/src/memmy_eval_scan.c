@@ -5,69 +5,69 @@
 #include "base_list.h"
 #include "base_memory.h"
 
-static Memmy_Status Memmy_EvalScanCollector_Push(void *user_data, Memmy_Addr address)
+static Memmy_Status MemmyEval_ScanCollector_Push(void *user_data, Memmy_Addr address)
 {
-    Memmy_EvalScanCollector *collector = (Memmy_EvalScanCollector *)user_data;
-    Memmy_EvalScanResultNode *node = Arena_PushStruct(collector->arena, Memmy_EvalScanResultNode);
+    MemmyEval_ScanCollector *collector = (MemmyEval_ScanCollector *)user_data;
+    MemmyEval_ScanResultNode *node = Arena_PushStruct(collector->arena, MemmyEval_ScanResultNode);
     node->address = address;
     List_PushBack(&collector->addresses, &node->link);
     return Memmy_Status_Ok;
 }
 
-static Memmy_ReferenceScanMode Memmy_Eval_ReferenceScanMode(Memmy_AstReferenceMode mode)
+static Memmy_ReferenceScanMode MemmyEval_ReferenceScanMode(MemmyAst_ReferenceMode mode)
 {
     switch (mode)
     {
-    case Memmy_AstReferenceMode_Ptr:
+    case MemmyAst_ReferenceMode_Ptr:
         return Memmy_ReferenceScanMode_Ptr;
-    case Memmy_AstReferenceMode_Rel32:
+    case MemmyAst_ReferenceMode_Rel32:
         return Memmy_ReferenceScanMode_Rel32;
-    case Memmy_AstReferenceMode_Any:
+    case MemmyAst_ReferenceMode_Any:
         return Memmy_ReferenceScanMode_Any;
     default:
         return Memmy_ReferenceScanMode_Any;
     }
 }
 
-static Memmy_EvalValue Memmy_Eval_AddressListFromCollector(Arena *arena, Memmy_EvalScanCollector *collector)
+static MemmyEval_Value MemmyEval_AddressList_FromCollector(Arena *arena, MemmyEval_ScanCollector *collector)
 {
     Memmy_Addr *addresses = Arena_PushArrayNoZero(arena, Memmy_Addr, collector->addresses.count);
     U64 index = 0;
-    List_ForEach(Memmy_EvalScanResultNode, node, &collector->addresses, link)
+    List_ForEach(MemmyEval_ScanResultNode, node, &collector->addresses, link)
     {
         addresses[index++] = node->address;
     }
 
-    return (Memmy_EvalValue){
-        .kind = Memmy_EvalValueKind_AddressList,
+    return (MemmyEval_Value){
+        .kind = MemmyEval_ValueKind_AddressList,
         .addresses = addresses,
         .address_count = collector->addresses.count,
     };
 }
 
-Memmy_Status Memmy_Eval_ScanExpr(Memmy_EvalExec *exec, Memmy_AstNode const *expr, Memmy_EvalValue *out,
-                                 Memmy_Error *error)
+Memmy_Status MemmyEval_Expr_EvalScan(MemmyEval_Exec *exec, MemmyAst_Node const *expr, MemmyEval_Value *out,
+                                     Memmy_Error *error)
 {
-    Memmy_EvalEnv *env = exec->env;
+    MemmyEval_Env *env = exec->env;
     (void)env;
-    if (expr->kind == Memmy_AstNodeKind_PatternScan)
+    if (expr->kind == MemmyAst_NodeKind_PatternScan)
     {
-        Memmy_EvalValue range_value = {0};
-        Memmy_Status status = Memmy_EvalExprWithContext(exec, expr->lhs, &range_value, error);
+        MemmyEval_Value range_value = {0};
+        Memmy_Status status = MemmyEval_Expr_EvalWithContext(exec, expr->lhs, &range_value, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
         Memmy_Process *process = 0;
-        status = Memmy_Eval_RequireProcess(exec, &range_value, String8_Lit("scan"), &process, error);
+        status = MemmyEval_Process_Require(exec, &range_value, String8_Lit("scan"), &process, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
-        if (range_value.kind != Memmy_EvalValueKind_Range && range_value.kind != Memmy_EvalValueKind_ProcessRange)
+        if (range_value.kind != MemmyEval_ValueKind_Range && range_value.kind != MemmyEval_ValueKind_ProcessRange)
         {
-            Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("scan"),
-                            String8_Lit("expected scan range"));
+            MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("scan"),
+                                String8_Lit("expected scan range"));
             return Memmy_Status_InvalidArgument;
         }
 
@@ -79,16 +79,16 @@ Memmy_Status Memmy_Eval_ScanExpr(Memmy_EvalExec *exec, Memmy_AstNode const *expr
             return status;
         }
 
-        Memmy_EvalScanCollector collector = {.arena = exec->transient_arena};
+        MemmyEval_ScanCollector collector = {.arena = exec->transient_arena};
         Memmy_ScanSink sink = {
-            .callback = Memmy_EvalScanCollector_Push,
+            .callback = MemmyEval_ScanCollector_Push,
             .user_data = &collector,
         };
         Memmy_ScanOptions options = {
             .range = range_value.range,
             .limit = 0,
             .chunk_size = 0,
-            .scan_readable_regions = range_value.kind == Memmy_EvalValueKind_ProcessRange,
+            .scan_readable_regions = range_value.kind == MemmyEval_ValueKind_ProcessRange,
         };
         status = Memmy_Process_ScanPattern(exec->transient_arena, process, &options, pattern, sink, error);
         if (status != Memmy_Status_Ok)
@@ -96,54 +96,54 @@ Memmy_Status Memmy_Eval_ScanExpr(Memmy_EvalExec *exec, Memmy_AstNode const *expr
             return status;
         }
 
-        *out = Memmy_Eval_AddressListFromCollector(exec->out_arena, &collector);
+        *out = MemmyEval_AddressList_FromCollector(exec->out_arena, &collector);
         return Memmy_Status_Ok;
     }
-    if (expr->kind == Memmy_AstNodeKind_ValueScan)
+    if (expr->kind == MemmyAst_NodeKind_ValueScan)
     {
-        Memmy_EvalValue range_value = {0};
-        Memmy_Status status = Memmy_EvalExprWithContext(exec, expr->lhs, &range_value, error);
+        MemmyEval_Value range_value = {0};
+        Memmy_Status status = MemmyEval_Expr_EvalWithContext(exec, expr->lhs, &range_value, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
         Memmy_Process *process = 0;
-        status = Memmy_Eval_RequireProcess(exec, &range_value, String8_Lit("scan"), &process, error);
+        status = MemmyEval_Process_Require(exec, &range_value, String8_Lit("scan"), &process, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
-        if (range_value.kind != Memmy_EvalValueKind_Range && range_value.kind != Memmy_EvalValueKind_ProcessRange)
+        if (range_value.kind != MemmyEval_ValueKind_Range && range_value.kind != MemmyEval_ValueKind_ProcessRange)
         {
-            Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("scan"),
-                            String8_Lit("expected scan range"));
+            MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("scan"),
+                                String8_Lit("expected scan range"));
             return Memmy_Status_InvalidArgument;
         }
 
         Memmy_Type type = {0};
-        status = Memmy_Eval_ParseType(expr->type_name, &type, error);
+        status = MemmyEval_Type_Parse(expr->type_name, &type, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
 
         Memmy_Value value = {0};
-        status = Memmy_Eval_ParseValue(exec, process, type, expr->value_text, &value, error);
+        status = MemmyEval_Value_Parse(exec, process, type, expr->value_text, &value, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
 
-        Memmy_EvalScanCollector collector = {.arena = exec->transient_arena};
+        MemmyEval_ScanCollector collector = {.arena = exec->transient_arena};
         Memmy_ScanSink sink = {
-            .callback = Memmy_EvalScanCollector_Push,
+            .callback = MemmyEval_ScanCollector_Push,
             .user_data = &collector,
         };
         Memmy_ScanOptions options = {
             .range = range_value.range,
             .limit = 0,
             .chunk_size = 0,
-            .scan_readable_regions = range_value.kind == Memmy_EvalValueKind_ProcessRange,
+            .scan_readable_regions = range_value.kind == MemmyEval_ValueKind_ProcessRange,
         };
         status = Memmy_Process_ScanValue(exec->transient_arena, process, &options, value, sink, error);
         if (status != Memmy_Status_Ok)
@@ -151,106 +151,106 @@ Memmy_Status Memmy_Eval_ScanExpr(Memmy_EvalExec *exec, Memmy_AstNode const *expr
             return status;
         }
 
-        *out = Memmy_Eval_AddressListFromCollector(exec->out_arena, &collector);
+        *out = MemmyEval_AddressList_FromCollector(exec->out_arena, &collector);
         return Memmy_Status_Ok;
     }
-    if (expr->kind == Memmy_AstNodeKind_ReferenceScan)
+    if (expr->kind == MemmyAst_NodeKind_ReferenceScan)
     {
-        Memmy_EvalValue range_value = {0};
-        Memmy_Status status = Memmy_EvalExprWithContext(exec, expr->lhs, &range_value, error);
+        MemmyEval_Value range_value = {0};
+        Memmy_Status status = MemmyEval_Expr_EvalWithContext(exec, expr->lhs, &range_value, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
         Memmy_Process *process = 0;
-        status = Memmy_Eval_RequireProcess(exec, &range_value, String8_Lit("scan"), &process, error);
+        status = MemmyEval_Process_Require(exec, &range_value, String8_Lit("scan"), &process, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
-        if (range_value.kind != Memmy_EvalValueKind_Range && range_value.kind != Memmy_EvalValueKind_ProcessRange)
+        if (range_value.kind != MemmyEval_ValueKind_Range && range_value.kind != MemmyEval_ValueKind_ProcessRange)
         {
-            Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("scan"),
-                            String8_Lit("expected scan range"));
+            MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("scan"),
+                                String8_Lit("expected scan range"));
             return Memmy_Status_InvalidArgument;
         }
 
-        Memmy_EvalValue target_value = {0};
-        status = Memmy_EvalExprWithContext(exec, expr->rhs, &target_value, error);
+        MemmyEval_Value target_value = {0};
+        status = MemmyEval_Expr_EvalWithContext(exec, expr->rhs, &target_value, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
         Memmy_Addr target = 0;
-        status = Memmy_EvalValue_AsAddress(&target_value, &target, error);
+        status = MemmyEval_Value_AsAddress(&target_value, &target, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
 
-        Memmy_EvalScanCollector collector = {.arena = exec->transient_arena};
+        MemmyEval_ScanCollector collector = {.arena = exec->transient_arena};
         Memmy_ScanSink sink = {
-            .callback = Memmy_EvalScanCollector_Push,
+            .callback = MemmyEval_ScanCollector_Push,
             .user_data = &collector,
         };
         Memmy_ScanOptions options = {
             .range = range_value.range,
             .limit = 0,
             .chunk_size = 0,
-            .scan_readable_regions = range_value.kind == Memmy_EvalValueKind_ProcessRange,
+            .scan_readable_regions = range_value.kind == MemmyEval_ValueKind_ProcessRange,
         };
         status = Memmy_Process_ScanReferences(exec->transient_arena, process, &options,
-                                              Memmy_Eval_ReferenceScanMode(expr->reference_mode), target, sink, error);
+                                              MemmyEval_ReferenceScanMode(expr->reference_mode), target, sink, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
 
-        *out = Memmy_Eval_AddressListFromCollector(exec->out_arena, &collector);
+        *out = MemmyEval_AddressList_FromCollector(exec->out_arena, &collector);
         return Memmy_Status_Ok;
     }
-    if (expr->kind == Memmy_AstNodeKind_DisasmScan)
+    if (expr->kind == MemmyAst_NodeKind_DisasmScan)
     {
-        Memmy_EvalValue range_value = {0};
-        Memmy_Status status = Memmy_EvalExprWithContext(exec, expr->lhs, &range_value, error);
+        MemmyEval_Value range_value = {0};
+        Memmy_Status status = MemmyEval_Expr_EvalWithContext(exec, expr->lhs, &range_value, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
         Memmy_Process *process = 0;
-        status = Memmy_Eval_RequireProcess(exec, &range_value, String8_Lit("disasm"), &process, error);
+        status = MemmyEval_Process_Require(exec, &range_value, String8_Lit("disasm"), &process, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
-        if (range_value.kind != Memmy_EvalValueKind_Range && range_value.kind != Memmy_EvalValueKind_ProcessRange)
+        if (range_value.kind != MemmyEval_ValueKind_Range && range_value.kind != MemmyEval_ValueKind_ProcessRange)
         {
-            Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("disasm"),
-                            String8_Lit("expected scan range"));
+            MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("disasm"),
+                                String8_Lit("expected scan range"));
             return Memmy_Status_InvalidArgument;
         }
 
-        Memmy_EvalScanCollector collector = {.arena = exec->transient_arena};
+        MemmyEval_ScanCollector collector = {.arena = exec->transient_arena};
         Memmy_ScanSink sink = {
-            .callback = Memmy_EvalScanCollector_Push,
+            .callback = MemmyEval_ScanCollector_Push,
             .user_data = &collector,
         };
         Memmy_ScanOptions options = {
             .range = range_value.range,
             .limit = 0,
             .chunk_size = 0,
-            .scan_readable_regions = range_value.kind == Memmy_EvalValueKind_ProcessRange,
+            .scan_readable_regions = range_value.kind == MemmyEval_ValueKind_ProcessRange,
         };
-        status = Memmy_Eval_DisasmX64Scan(exec->transient_arena, process, &options, expr->disasm_pattern, sink, error);
+        status = MemmyEval_DisasmX64_Scan(exec->transient_arena, process, &options, expr->disasm_pattern, sink, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
 
-        *out = Memmy_Eval_AddressListFromCollector(exec->out_arena, &collector);
+        *out = MemmyEval_AddressList_FromCollector(exec->out_arena, &collector);
         return Memmy_Status_Ok;
     }
-    Memmy_EvalError(error, Memmy_Status_Unsupported, String8_Lit("expr"),
-                    String8_Lit("expression kind is not implemented yet"));
+    MemmyEval_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("expr"),
+                        String8_Lit("expression kind is not implemented yet"));
     return Memmy_Status_Unsupported;
 }

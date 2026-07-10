@@ -19,14 +19,14 @@ struct Memmy_Win32Backend
     Memmy_Backend backend;
 };
 
-typedef struct Memmy_Win32ProcessData Memmy_Win32ProcessData;
-struct Memmy_Win32ProcessData
+typedef struct Memmy_Win32Backend_ProcessData Memmy_Win32Backend_ProcessData;
+struct Memmy_Win32Backend_ProcessData
 {
     HANDLE handle;
 };
 
-typedef struct Memmy_Win32ModuleSearch Memmy_Win32ModuleSearch;
-struct Memmy_Win32ModuleSearch
+typedef struct Memmy_Win32Backend_ModuleSearch Memmy_Win32Backend_ModuleSearch;
+struct Memmy_Win32Backend_ModuleSearch
 {
     Memmy_Addr address;
     Memmy_Module module;
@@ -34,15 +34,15 @@ struct Memmy_Win32ModuleSearch
     Memmy_Error *error;
 };
 
-typedef struct Memmy_Win32RuntimeFunctionEntry Memmy_Win32RuntimeFunctionEntry;
-struct Memmy_Win32RuntimeFunctionEntry
+typedef struct Memmy_Win32Backend_RuntimeFunctionEntry Memmy_Win32Backend_RuntimeFunctionEntry;
+struct Memmy_Win32Backend_RuntimeFunctionEntry
 {
     U32 begin_address;
     U32 end_address;
     U32 unwind_info_address;
 };
 
-static B32 Memmy_Win32_IsNative64(void)
+static B32 Memmy_Win32Backend_IsNative64(void)
 {
     SYSTEM_INFO sys_info;
     GetNativeSystemInfo(&sys_info);
@@ -50,7 +50,7 @@ static B32 Memmy_Win32_IsNative64(void)
            sys_info.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM64;
 }
 
-static void Memmy_Win32_SetLastError(Memmy_Error *error, Memmy_Status status, String8 context, String8 message)
+static void Memmy_Win32Backend_SetLastError(Memmy_Error *error, Memmy_Status status, String8 context, String8 message)
 {
     Memmy_Error_Set(error, status, context, message);
     if (error != 0)
@@ -59,14 +59,14 @@ static void Memmy_Win32_SetLastError(Memmy_Error *error, Memmy_Status status, St
     }
 }
 
-static String8 Memmy_Win32_CopyCString(Arena *arena, char *text)
+static String8 Memmy_Win32Backend_CopyCString(Arena *arena, char *text)
 {
     return String8_Copy(arena, String8_FromCStr(text));
 }
 
-static Memmy_PointerWidth Memmy_Win32_QueryPointerWidth(HANDLE process)
+static Memmy_PointerWidth Memmy_Win32Backend_QueryPointerWidth(HANDLE process)
 {
-    if (!Memmy_Win32_IsNative64())
+    if (!Memmy_Win32Backend_IsNative64())
     {
         return Memmy_PointerWidth_32;
     }
@@ -79,18 +79,18 @@ static Memmy_PointerWidth Memmy_Win32_QueryPointerWidth(HANDLE process)
     return Memmy_PointerWidth_64;
 }
 
-static B32 Memmy_Win32_IsUnsupportedCrossBitness(Memmy_PointerWidth target_width)
+static B32 Memmy_Win32Backend_IsUnsupportedCrossBitness(Memmy_PointerWidth target_width)
 {
-    return sizeof(void *) == 4 && Memmy_Win32_IsNative64() && target_width == Memmy_PointerWidth_64;
+    return sizeof(void *) == 4 && Memmy_Win32Backend_IsNative64() && target_width == Memmy_PointerWidth_64;
 }
 
-static Memmy_Status Memmy_Win32_EnumerateProcesses(Arena *arena, Memmy_ProcessInfoSink sink, Memmy_Error *error)
+static Memmy_Status Memmy_Win32Backend_EnumerateProcesses(Arena *arena, Memmy_ProcessInfoSink sink, Memmy_Error *error)
 {
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snapshot == INVALID_HANDLE_VALUE)
     {
-        Memmy_Win32_SetLastError(error, Memmy_Status_PlatformError, String8_Lit("win32"),
-                                 String8_Lit("CreateToolhelp32Snapshot failed"));
+        Memmy_Win32Backend_SetLastError(error, Memmy_Status_PlatformError, String8_Lit("win32"),
+                                        String8_Lit("CreateToolhelp32Snapshot failed"));
         return Memmy_Status_PlatformError;
     }
 
@@ -116,7 +116,7 @@ static Memmy_Status Memmy_Win32_EnumerateProcesses(Arena *arena, Memmy_ProcessIn
     {
         Memmy_ProcessInfo info = {
             .pid = entry.th32ProcessID,
-            .name = Memmy_Win32_CopyCString(arena, entry.szExeFile),
+            .name = Memmy_Win32Backend_CopyCString(arena, entry.szExeFile),
             .path = {0},
             .pointer_width = Memmy_PointerWidth_Unknown,
         };
@@ -130,7 +130,7 @@ static Memmy_Status Memmy_Win32_EnumerateProcesses(Arena *arena, Memmy_ProcessIn
             {
                 info.path = String8_Copy(arena, String8_Make((U8 *)path, path_size));
             }
-            info.pointer_width = Memmy_Win32_QueryPointerWidth(process);
+            info.pointer_width = Memmy_Win32Backend_QueryPointerWidth(process);
             CloseHandle(process);
         }
 
@@ -146,15 +146,15 @@ static Memmy_Status Memmy_Win32_EnumerateProcesses(Arena *arena, Memmy_ProcessIn
     return Memmy_Status_Ok;
 }
 
-static DWORD Memmy_Win32_ProcessAccess(void)
+static DWORD Memmy_Win32Backend_ProcessAccess(void)
 {
     return PROCESS_QUERY_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ | PROCESS_VM_WRITE |
            PROCESS_VM_OPERATION;
 }
 
-static Memmy_Status Memmy_Win32_OpenProcess(Arena *arena, U32 pid, Memmy_Process **out, Memmy_Error *error)
+static Memmy_Status Memmy_Win32Backend_OpenProcess(Arena *arena, U32 pid, Memmy_Process **out, Memmy_Error *error)
 {
-    HANDLE handle = OpenProcess(Memmy_Win32_ProcessAccess(), FALSE, pid);
+    HANDLE handle = OpenProcess(Memmy_Win32Backend_ProcessAccess(), FALSE, pid);
     if (handle == 0)
     {
         DWORD err = GetLastError();
@@ -167,8 +167,8 @@ static Memmy_Status Memmy_Win32_OpenProcess(Arena *arena, U32 pid, Memmy_Process
         return status;
     }
 
-    Memmy_PointerWidth pointer_width = Memmy_Win32_QueryPointerWidth(handle);
-    if (Memmy_Win32_IsUnsupportedCrossBitness(pointer_width))
+    Memmy_PointerWidth pointer_width = Memmy_Win32Backend_QueryPointerWidth(handle);
+    if (Memmy_Win32Backend_IsUnsupportedCrossBitness(pointer_width))
     {
         CloseHandle(handle);
         Memmy_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("win32"),
@@ -177,7 +177,7 @@ static Memmy_Status Memmy_Win32_OpenProcess(Arena *arena, U32 pid, Memmy_Process
     }
 
     Memmy_Win32Backend *backend = ContainerOf(Memmy_Context_Get()->backend, Memmy_Win32Backend, backend);
-    Memmy_Win32ProcessData *data = Arena_PushStruct(arena, Memmy_Win32ProcessData);
+    Memmy_Win32Backend_ProcessData *data = Arena_PushStruct(arena, Memmy_Win32Backend_ProcessData);
     data->handle = handle;
 
     Memmy_Process *process = Arena_PushStruct(arena, Memmy_Process);
@@ -189,9 +189,9 @@ static Memmy_Status Memmy_Win32_OpenProcess(Arena *arena, U32 pid, Memmy_Process
     return Memmy_Status_Ok;
 }
 
-static void Memmy_Win32_CloseProcess(Memmy_Process *process)
+static void Memmy_Win32Backend_CloseProcess(Memmy_Process *process)
 {
-    Memmy_Win32ProcessData *data = (Memmy_Win32ProcessData *)process->backend_data;
+    Memmy_Win32Backend_ProcessData *data = (Memmy_Win32Backend_ProcessData *)process->backend_data;
     if (data != 0 && data->handle != 0)
     {
         CloseHandle(data->handle);
@@ -200,10 +200,10 @@ static void Memmy_Win32_CloseProcess(Memmy_Process *process)
     process->backend_data = 0;
 }
 
-static Memmy_Status Memmy_Win32_Read(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size, U64 *bytes_read,
-                                     Memmy_Error *error)
+static Memmy_Status Memmy_Win32Backend_Read(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size,
+                                            U64 *bytes_read, Memmy_Error *error)
 {
-    Memmy_Win32ProcessData *data = (Memmy_Win32ProcessData *)process->backend_data;
+    Memmy_Win32Backend_ProcessData *data = (Memmy_Win32Backend_ProcessData *)process->backend_data;
     SIZE_T got = 0;
     *bytes_read = 0;
 
@@ -251,10 +251,10 @@ static Memmy_Status Memmy_Win32_Read(Memmy_Process *process, Memmy_Addr addr, vo
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Win32_Write(Memmy_Process *process, Memmy_Addr addr, void const *buffer, U64 size,
-                                      U64 *bytes_written, Memmy_Error *error)
+static Memmy_Status Memmy_Win32Backend_Write(Memmy_Process *process, Memmy_Addr addr, void const *buffer, U64 size,
+                                             U64 *bytes_written, Memmy_Error *error)
 {
-    Memmy_Win32ProcessData *data = (Memmy_Win32ProcessData *)process->backend_data;
+    Memmy_Win32Backend_ProcessData *data = (Memmy_Win32Backend_ProcessData *)process->backend_data;
     SIZE_T got = 0;
     *bytes_written = 0;
 
@@ -302,14 +302,14 @@ static Memmy_Status Memmy_Win32_Write(Memmy_Process *process, Memmy_Addr addr, v
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Win32_EnumerateModules(Arena *arena, Memmy_Process *process, Memmy_ModuleSink sink,
-                                                 Memmy_Error *error)
+static Memmy_Status Memmy_Win32Backend_EnumerateModules(Arena *arena, Memmy_Process *process, Memmy_ModuleSink sink,
+                                                        Memmy_Error *error)
 {
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, process->pid);
     if (snapshot == INVALID_HANDLE_VALUE)
     {
-        Memmy_Win32_SetLastError(error, Memmy_Status_PlatformError, String8_Lit("win32"),
-                                 String8_Lit("module snapshot failed"));
+        Memmy_Win32Backend_SetLastError(error, Memmy_Status_PlatformError, String8_Lit("win32"),
+                                        String8_Lit("module snapshot failed"));
         return Memmy_Status_PlatformError;
     }
 
@@ -334,8 +334,8 @@ static Memmy_Status Memmy_Win32_EnumerateModules(Arena *arena, Memmy_Process *pr
     do
     {
         Memmy_Module module = {
-            .name = Memmy_Win32_CopyCString(arena, entry.szModule),
-            .path = Memmy_Win32_CopyCString(arena, entry.szExePath),
+            .name = Memmy_Win32Backend_CopyCString(arena, entry.szModule),
+            .path = Memmy_Win32Backend_CopyCString(arena, entry.szExePath),
             .base = (Memmy_Addr)(uintptr_t)entry.modBaseAddr,
             .size = entry.modBaseSize,
         };
@@ -351,8 +351,8 @@ static Memmy_Status Memmy_Win32_EnumerateModules(Arena *arena, Memmy_Process *pr
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Win32_ReadExact(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size,
-                                          Memmy_Error *error)
+static Memmy_Status Memmy_Win32Backend_ReadExact(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size,
+                                                 Memmy_Error *error)
 {
     U64 bytes_read = 0;
     Memmy_Status status = Memmy_Process_Read(process, addr, buffer, size, &bytes_read, error);
@@ -372,9 +372,9 @@ static Memmy_Status Memmy_Win32_ReadExact(Memmy_Process *process, Memmy_Addr add
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Win32_ModuleSearch_Push(void *user_data, Memmy_Module const *module)
+static Memmy_Status Memmy_Win32Backend_ModuleSearch_Push(void *user_data, Memmy_Module const *module)
 {
-    Memmy_Win32ModuleSearch *search = (Memmy_Win32ModuleSearch *)user_data;
+    Memmy_Win32Backend_ModuleSearch *search = (Memmy_Win32Backend_ModuleSearch *)user_data;
     Memmy_Addr end = 0;
     if (!AddU64Checked(module->base, module->size, &end))
     {
@@ -391,7 +391,7 @@ static Memmy_Status Memmy_Win32_ModuleSearch_Push(void *user_data, Memmy_Module 
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Win32_RvaToVa(Memmy_Module module, U32 rva, Memmy_Addr *out, Memmy_Error *error)
+static Memmy_Status Memmy_Win32Backend_RvaToVa(Memmy_Module module, U32 rva, Memmy_Addr *out, Memmy_Error *error)
 {
     if ((U64)rva > module.size)
     {
@@ -407,43 +407,43 @@ static Memmy_Status Memmy_Win32_RvaToVa(Memmy_Module module, U32 rva, Memmy_Addr
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Win32_FunctionMetadataNotFound(Memmy_Error *error)
+static Memmy_Status Memmy_Win32Backend_FunctionMetadataNotFound(Memmy_Error *error)
 {
     Memmy_Error_Set(error, Memmy_Status_NotFound, String8_Lit("function"), String8_Lit("function metadata not found"));
     return Memmy_Status_NotFound;
 }
 
-static Memmy_Status Memmy_Win32_FindFunction(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Range *out,
-                                             Memmy_Error *error)
+static Memmy_Status Memmy_Win32Backend_FindFunction(Arena *arena, Memmy_Process *process, Memmy_Addr address,
+                                                    Memmy_Range *out, Memmy_Error *error)
 {
-    Memmy_Win32ModuleSearch search = {
+    Memmy_Win32Backend_ModuleSearch search = {
         .address = address,
         .error = error,
     };
     Memmy_ModuleSink sink = {
-        .callback = Memmy_Win32_ModuleSearch_Push,
+        .callback = Memmy_Win32Backend_ModuleSearch_Push,
         .user_data = &search,
     };
-    Memmy_Status status = Memmy_Win32_EnumerateModules(arena, process, sink, error);
+    Memmy_Status status = Memmy_Win32Backend_EnumerateModules(arena, process, sink, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
     }
     if (!search.found)
     {
-        return Memmy_Win32_FunctionMetadataNotFound(error);
+        return Memmy_Win32Backend_FunctionMetadataNotFound(error);
     }
 
     Memmy_Module module = search.module;
     IMAGE_DOS_HEADER dos = {0};
-    status = Memmy_Win32_ReadExact(process, module.base, &dos, sizeof(dos), error);
+    status = Memmy_Win32Backend_ReadExact(process, module.base, &dos, sizeof(dos), error);
     if (status != Memmy_Status_Ok)
     {
         return status;
     }
     if (dos.e_magic != IMAGE_DOS_SIGNATURE || dos.e_lfanew < 0)
     {
-        return Memmy_Win32_FunctionMetadataNotFound(error);
+        return Memmy_Win32Backend_FunctionMetadataNotFound(error);
     }
 
     Memmy_Addr nt = 0;
@@ -454,14 +454,14 @@ static Memmy_Status Memmy_Win32_FindFunction(Arena *arena, Memmy_Process *proces
     }
 
     DWORD signature = 0;
-    status = Memmy_Win32_ReadExact(process, nt, &signature, sizeof(signature), error);
+    status = Memmy_Win32Backend_ReadExact(process, nt, &signature, sizeof(signature), error);
     if (status != Memmy_Status_Ok)
     {
         return status;
     }
     if (signature != IMAGE_NT_SIGNATURE)
     {
-        return Memmy_Win32_FunctionMetadataNotFound(error);
+        return Memmy_Win32Backend_FunctionMetadataNotFound(error);
     }
 
     Memmy_Addr file_header_addr = 0;
@@ -472,7 +472,7 @@ static Memmy_Status Memmy_Win32_FindFunction(Arena *arena, Memmy_Process *proces
     }
 
     IMAGE_FILE_HEADER file_header = {0};
-    status = Memmy_Win32_ReadExact(process, file_header_addr, &file_header, sizeof(file_header), error);
+    status = Memmy_Win32Backend_ReadExact(process, file_header_addr, &file_header, sizeof(file_header), error);
     if (status != Memmy_Status_Ok)
     {
         return status;
@@ -486,14 +486,15 @@ static Memmy_Status Memmy_Win32_FindFunction(Arena *arena, Memmy_Process *proces
     }
 
     WORD optional_magic = 0;
-    status = Memmy_Win32_ReadExact(process, optional_header_addr, &optional_magic, sizeof(optional_magic), error);
+    status =
+        Memmy_Win32Backend_ReadExact(process, optional_header_addr, &optional_magic, sizeof(optional_magic), error);
     if (status != Memmy_Status_Ok)
     {
         return status;
     }
     if (optional_magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC)
     {
-        return Memmy_Win32_FunctionMetadataNotFound(error);
+        return Memmy_Win32Backend_FunctionMetadataNotFound(error);
     }
 
     U64 exception_dir_offset = offsetof(IMAGE_OPTIONAL_HEADER64, DataDirectory) +
@@ -501,7 +502,7 @@ static Memmy_Status Memmy_Win32_FindFunction(Arena *arena, Memmy_Process *proces
     U64 exception_dir_end = exception_dir_offset + sizeof(IMAGE_DATA_DIRECTORY);
     if ((U64)file_header.SizeOfOptionalHeader < exception_dir_end)
     {
-        return Memmy_Win32_FunctionMetadataNotFound(error);
+        return Memmy_Win32Backend_FunctionMetadataNotFound(error);
     }
 
     Memmy_Addr exception_dir_addr = 0;
@@ -512,40 +513,40 @@ static Memmy_Status Memmy_Win32_FindFunction(Arena *arena, Memmy_Process *proces
     }
 
     IMAGE_DATA_DIRECTORY exception_dir = {0};
-    status = Memmy_Win32_ReadExact(process, exception_dir_addr, &exception_dir, sizeof(exception_dir), error);
+    status = Memmy_Win32Backend_ReadExact(process, exception_dir_addr, &exception_dir, sizeof(exception_dir), error);
     if (status != Memmy_Status_Ok)
     {
         return status;
     }
-    if (exception_dir.VirtualAddress == 0 || exception_dir.Size < sizeof(Memmy_Win32RuntimeFunctionEntry) ||
-        exception_dir.Size % sizeof(Memmy_Win32RuntimeFunctionEntry) != 0)
+    if (exception_dir.VirtualAddress == 0 || exception_dir.Size < sizeof(Memmy_Win32Backend_RuntimeFunctionEntry) ||
+        exception_dir.Size % sizeof(Memmy_Win32Backend_RuntimeFunctionEntry) != 0)
     {
-        return Memmy_Win32_FunctionMetadataNotFound(error);
+        return Memmy_Win32Backend_FunctionMetadataNotFound(error);
     }
     if ((U64)exception_dir.VirtualAddress > module.size || (U64)exception_dir.Size > module.size ||
         (U64)exception_dir.VirtualAddress > module.size - (U64)exception_dir.Size)
     {
-        return Memmy_Win32_FunctionMetadataNotFound(error);
+        return Memmy_Win32Backend_FunctionMetadataNotFound(error);
     }
 
     Memmy_Addr table_addr = 0;
-    status = Memmy_Win32_RvaToVa(module, exception_dir.VirtualAddress, &table_addr, error);
+    status = Memmy_Win32Backend_RvaToVa(module, exception_dir.VirtualAddress, &table_addr, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
     }
 
-    U64 entry_count = exception_dir.Size / sizeof(Memmy_Win32RuntimeFunctionEntry);
+    U64 entry_count = exception_dir.Size / sizeof(Memmy_Win32Backend_RuntimeFunctionEntry);
     for (U64 i = 0; i < entry_count; i++)
     {
         U64 entry_offset = 0;
-        if (i > U64_MAX / sizeof(Memmy_Win32RuntimeFunctionEntry))
+        if (i > U64_MAX / sizeof(Memmy_Win32Backend_RuntimeFunctionEntry))
         {
             Memmy_Error_Set(error, Memmy_Status_Overflow, String8_Lit("function"),
                             String8_Lit("function table offset overflow"));
             return Memmy_Status_Overflow;
         }
-        entry_offset = i * sizeof(Memmy_Win32RuntimeFunctionEntry);
+        entry_offset = i * sizeof(Memmy_Win32Backend_RuntimeFunctionEntry);
 
         Memmy_Addr entry_addr = 0;
         if (!AddU64Checked(table_addr, entry_offset, &entry_addr))
@@ -555,28 +556,28 @@ static Memmy_Status Memmy_Win32_FindFunction(Arena *arena, Memmy_Process *proces
             return Memmy_Status_Overflow;
         }
 
-        Memmy_Win32RuntimeFunctionEntry entry = {0};
-        status = Memmy_Win32_ReadExact(process, entry_addr, &entry, sizeof(entry), error);
+        Memmy_Win32Backend_RuntimeFunctionEntry entry = {0};
+        status = Memmy_Win32Backend_ReadExact(process, entry_addr, &entry, sizeof(entry), error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
 
         Memmy_Addr start = 0;
-        status = Memmy_Win32_RvaToVa(module, entry.begin_address, &start, error);
+        status = Memmy_Win32Backend_RvaToVa(module, entry.begin_address, &start, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
         Memmy_Addr end = 0;
-        status = Memmy_Win32_RvaToVa(module, entry.end_address, &end, error);
+        status = Memmy_Win32Backend_RvaToVa(module, entry.end_address, &end, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
         if (end < start)
         {
-            return Memmy_Win32_FunctionMetadataNotFound(error);
+            return Memmy_Win32Backend_FunctionMetadataNotFound(error);
         }
         if (address >= start && address < end)
         {
@@ -584,10 +585,10 @@ static Memmy_Status Memmy_Win32_FindFunction(Arena *arena, Memmy_Process *proces
         }
     }
 
-    return Memmy_Win32_FunctionMetadataNotFound(error);
+    return Memmy_Win32Backend_FunctionMetadataNotFound(error);
 }
 
-static Memmy_RegionState Memmy_Win32_RegionState(DWORD state)
+static Memmy_RegionState Memmy_Win32Backend_RegionState(DWORD state)
 {
     if (state == MEM_COMMIT)
     {
@@ -600,7 +601,7 @@ static Memmy_RegionState Memmy_Win32_RegionState(DWORD state)
     return Memmy_RegionState_Free;
 }
 
-static Memmy_RegionAccess Memmy_Win32_RegionAccess(DWORD protect)
+static Memmy_RegionAccess Memmy_Win32Backend_RegionAccess(DWORD protect)
 {
     Memmy_RegionAccess result = 0;
     if (protect & PAGE_GUARD)
@@ -632,12 +633,12 @@ static Memmy_RegionAccess Memmy_Win32_RegionAccess(DWORD protect)
     return result;
 }
 
-static Memmy_Status Memmy_Win32_EnumerateRegions(Arena *arena, Memmy_Process *process, Memmy_RegionSink sink,
-                                                 Memmy_Error *error)
+static Memmy_Status Memmy_Win32Backend_EnumerateRegions(Arena *arena, Memmy_Process *process, Memmy_RegionSink sink,
+                                                        Memmy_Error *error)
 {
     Unused(arena);
 
-    Memmy_Win32ProcessData *data = (Memmy_Win32ProcessData *)process->backend_data;
+    Memmy_Win32Backend_ProcessData *data = (Memmy_Win32Backend_ProcessData *)process->backend_data;
     U8 *addr = 0;
     for (;;)
     {
@@ -651,8 +652,8 @@ static Memmy_Status Memmy_Win32_EnumerateRegions(Arena *arena, Memmy_Process *pr
         Memmy_Region region = {
             .base = (Memmy_Addr)(uintptr_t)mbi.BaseAddress,
             .size = (Memmy_Size)mbi.RegionSize,
-            .access = Memmy_Win32_RegionAccess(mbi.Protect),
-            .state = Memmy_Win32_RegionState(mbi.State),
+            .access = Memmy_Win32Backend_RegionAccess(mbi.Protect),
+            .state = Memmy_Win32Backend_RegionState(mbi.State),
         };
 
         U64 next = 0;
@@ -672,41 +673,41 @@ static Memmy_Status Memmy_Win32_EnumerateRegions(Arena *arena, Memmy_Process *pr
     return Memmy_Status_Ok;
 }
 
-static B32 Memmy_Win32_IsReadableCommitted(MEMORY_BASIC_INFORMATION *mbi)
+static B32 Memmy_Win32Backend_IsReadableCommitted(MEMORY_BASIC_INFORMATION *mbi)
 {
-    Memmy_RegionAccess access = Memmy_Win32_RegionAccess(mbi->Protect);
+    Memmy_RegionAccess access = Memmy_Win32Backend_RegionAccess(mbi->Protect);
     return mbi->State == MEM_COMMIT && (access & Memmy_RegionAccess_Read) != 0 &&
            (access & Memmy_RegionAccess_Guard) == 0;
 }
 
-static B32 Memmy_Win32_IsExecutableCommitted(MEMORY_BASIC_INFORMATION *mbi)
+static B32 Memmy_Win32Backend_IsExecutableCommitted(MEMORY_BASIC_INFORMATION *mbi)
 {
-    Memmy_RegionAccess access = Memmy_Win32_RegionAccess(mbi->Protect);
+    Memmy_RegionAccess access = Memmy_Win32Backend_RegionAccess(mbi->Protect);
     return mbi->State == MEM_COMMIT && (access & Memmy_RegionAccess_Execute) != 0 &&
            (access & Memmy_RegionAccess_Guard) == 0;
 }
 
-static B32 Memmy_Win32_QueryAddress(Memmy_Process *process, Memmy_Addr address, MEMORY_BASIC_INFORMATION *out)
+static B32 Memmy_Win32Backend_QueryAddress(Memmy_Process *process, Memmy_Addr address, MEMORY_BASIC_INFORMATION *out)
 {
-    Memmy_Win32ProcessData *data = (Memmy_Win32ProcessData *)process->backend_data;
+    Memmy_Win32Backend_ProcessData *data = (Memmy_Win32Backend_ProcessData *)process->backend_data;
     SIZE_T got = VirtualQueryEx(data->handle, (void *)(uintptr_t)address, out, sizeof(*out));
     return got != 0;
 }
 
-static B32 Memmy_Win32_AddressInRegion(MEMORY_BASIC_INFORMATION *mbi, Memmy_Addr address)
+static B32 Memmy_Win32Backend_AddressInRegion(MEMORY_BASIC_INFORMATION *mbi, Memmy_Addr address)
 {
     Memmy_Addr base = (Memmy_Addr)(uintptr_t)mbi->BaseAddress;
     Memmy_Addr end = base + (Memmy_Size)mbi->RegionSize;
     return address >= base && address < end && end >= base;
 }
 
-static B32 Memmy_Win32_ReadPointer(Memmy_Process *process, Memmy_Addr address, Memmy_Addr *out)
+static B32 Memmy_Win32Backend_ReadPointer(Memmy_Process *process, Memmy_Addr address, Memmy_Addr *out)
 {
     Memmy_Error ignored = {0};
     if (process->pointer_width == Memmy_PointerWidth_32)
     {
         U32 value = 0;
-        if (Memmy_Win32_ReadExact(process, address, &value, sizeof(value), &ignored) != Memmy_Status_Ok)
+        if (Memmy_Win32Backend_ReadExact(process, address, &value, sizeof(value), &ignored) != Memmy_Status_Ok)
         {
             return 0;
         }
@@ -715,7 +716,7 @@ static B32 Memmy_Win32_ReadPointer(Memmy_Process *process, Memmy_Addr address, M
     else
     {
         U64 value = 0;
-        if (Memmy_Win32_ReadExact(process, address, &value, sizeof(value), &ignored) != Memmy_Status_Ok)
+        if (Memmy_Win32Backend_ReadExact(process, address, &value, sizeof(value), &ignored) != Memmy_Status_Ok)
         {
             return 0;
         }
@@ -724,10 +725,11 @@ static B32 Memmy_Win32_ReadPointer(Memmy_Process *process, Memmy_Addr address, M
     return 1;
 }
 
-static B32 Memmy_Win32_IsPlausibleVtable(Memmy_Process *process, Memmy_Addr vtable, U32 min_vtable_entries)
+static B32 Memmy_Win32Backend_IsPlausibleVtable(Memmy_Process *process, Memmy_Addr vtable, U32 min_vtable_entries)
 {
     MEMORY_BASIC_INFORMATION vtable_mbi = {0};
-    if (!Memmy_Win32_QueryAddress(process, vtable, &vtable_mbi) || !Memmy_Win32_IsReadableCommitted(&vtable_mbi))
+    if (!Memmy_Win32Backend_QueryAddress(process, vtable, &vtable_mbi) ||
+        !Memmy_Win32Backend_IsReadableCommitted(&vtable_mbi))
     {
         return 0;
     }
@@ -736,20 +738,20 @@ static B32 Memmy_Win32_IsPlausibleVtable(Memmy_Process *process, Memmy_Addr vtab
     for (U32 i = 0; i < min_vtable_entries; i++)
     {
         Memmy_Addr entry_addr = vtable + (U64)i * pointer_size;
-        if (!Memmy_Win32_AddressInRegion(&vtable_mbi, entry_addr))
+        if (!Memmy_Win32Backend_AddressInRegion(&vtable_mbi, entry_addr))
         {
             return 0;
         }
 
         Memmy_Addr function_addr = 0;
-        if (!Memmy_Win32_ReadPointer(process, entry_addr, &function_addr))
+        if (!Memmy_Win32Backend_ReadPointer(process, entry_addr, &function_addr))
         {
             return 0;
         }
 
         MEMORY_BASIC_INFORMATION function_mbi = {0};
-        if (!Memmy_Win32_QueryAddress(process, function_addr, &function_mbi) ||
-            !Memmy_Win32_IsExecutableCommitted(&function_mbi))
+        if (!Memmy_Win32Backend_QueryAddress(process, function_addr, &function_mbi) ||
+            !Memmy_Win32Backend_IsExecutableCommitted(&function_mbi))
         {
             return 0;
         }
@@ -757,14 +759,14 @@ static B32 Memmy_Win32_IsPlausibleVtable(Memmy_Process *process, Memmy_Addr vtab
     return 1;
 }
 
-static Memmy_Status Memmy_Win32_FindObjectBase(Arena *arena, Memmy_Process *process, Memmy_Addr address,
-                                               Memmy_ObjectBaseOptions const *options, Memmy_ObjectBaseResult *out,
-                                               Memmy_Error *error)
+static Memmy_Status Memmy_Win32Backend_FindObjectBase(Arena *arena, Memmy_Process *process, Memmy_Addr address,
+                                                      Memmy_ObjectBaseOptions const *options,
+                                                      Memmy_ObjectBaseResult *out, Memmy_Error *error)
 {
     Unused(arena);
 
     MEMORY_BASIC_INFORMATION mbi = {0};
-    if (!Memmy_Win32_QueryAddress(process, address, &mbi) || !Memmy_Win32_IsReadableCommitted(&mbi))
+    if (!Memmy_Win32Backend_QueryAddress(process, address, &mbi) || !Memmy_Win32Backend_IsReadableCommitted(&mbi))
     {
         Memmy_Error_Set(error, Memmy_Status_NotFound, String8_Lit("objectbase"),
                         String8_Lit("object base metadata not found"));
@@ -789,8 +791,8 @@ static Memmy_Status Memmy_Win32_FindObjectBase(Arena *arena, Memmy_Process *proc
         }
 
         Memmy_Addr vtable = 0;
-        if (Memmy_Win32_ReadPointer(process, candidate, &vtable) &&
-            Memmy_Win32_IsPlausibleVtable(process, vtable, options->min_vtable_entries))
+        if (Memmy_Win32Backend_ReadPointer(process, candidate, &vtable) &&
+            Memmy_Win32Backend_IsPlausibleVtable(process, vtable, options->min_vtable_entries))
         {
             Memmy_ObjectBaseResult result = {
                 .address = candidate,
@@ -838,15 +840,15 @@ Memmy_Backend *Memmy_Win32Backend_Create(Arena *arena)
     Memmy_Win32Backend *backend = Arena_PushStruct(arena, Memmy_Win32Backend);
     backend->backend = (Memmy_Backend){
         .name = String8_Lit("win32"),
-        .enumerate_processes = Memmy_Win32_EnumerateProcesses,
-        .open_process = Memmy_Win32_OpenProcess,
-        .close_process = Memmy_Win32_CloseProcess,
-        .read = Memmy_Win32_Read,
-        .write = Memmy_Win32_Write,
-        .enumerate_modules = Memmy_Win32_EnumerateModules,
-        .enumerate_regions = Memmy_Win32_EnumerateRegions,
-        .find_function = Memmy_Win32_FindFunction,
-        .find_object_base = Memmy_Win32_FindObjectBase,
+        .enumerate_processes = Memmy_Win32Backend_EnumerateProcesses,
+        .open_process = Memmy_Win32Backend_OpenProcess,
+        .close_process = Memmy_Win32Backend_CloseProcess,
+        .read = Memmy_Win32Backend_Read,
+        .write = Memmy_Win32Backend_Write,
+        .enumerate_modules = Memmy_Win32Backend_EnumerateModules,
+        .enumerate_regions = Memmy_Win32Backend_EnumerateRegions,
+        .find_function = Memmy_Win32Backend_FindFunction,
+        .find_object_base = Memmy_Win32Backend_FindObjectBase,
     };
     return &backend->backend;
 }

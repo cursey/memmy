@@ -5,7 +5,7 @@
 #include "base_list.h"
 #include "base_memory.h"
 
-Memmy_Status Memmy_Eval_ParseType(String8 type_name, Memmy_Type *out, Memmy_Error *error)
+Memmy_Status MemmyEval_Type_Parse(String8 type_name, Memmy_Type *out, Memmy_Error *error)
 {
     Memmy_Status status = Memmy_Type_Parse(type_name, out, error);
     if (status != Memmy_Status_Ok)
@@ -15,7 +15,7 @@ Memmy_Status Memmy_Eval_ParseType(String8 type_name, Memmy_Type *out, Memmy_Erro
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Eval_TypeSize(Memmy_Process *process, Memmy_Type type, U64 *out, Memmy_Error *error)
+static Memmy_Status MemmyEval_Type_Size(Memmy_Process *process, Memmy_Type type, U64 *out, Memmy_Error *error)
 {
     if (type.kind == Memmy_TypeKind_Ptr)
     {
@@ -29,14 +29,14 @@ static Memmy_Status Memmy_Eval_TypeSize(Memmy_Process *process, Memmy_Type type,
             *out = 8;
             return Memmy_Status_Ok;
         }
-        Memmy_EvalError(error, Memmy_Status_Unsupported, String8_Lit("type"),
-                        String8_Lit("target pointer width is unknown"));
+        MemmyEval_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("type"),
+                            String8_Lit("target pointer width is unknown"));
         return Memmy_Status_Unsupported;
     }
     if (type.fixed_size == 0)
     {
-        Memmy_EvalError(error, Memmy_Status_Unsupported, String8_Lit("type"),
-                        String8_Lit("variable-width typed reads are not supported"));
+        MemmyEval_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("type"),
+                            String8_Lit("variable-width typed reads are not supported"));
         return Memmy_Status_Unsupported;
     }
 
@@ -44,12 +44,12 @@ static Memmy_Status Memmy_Eval_TypeSize(Memmy_Process *process, Memmy_Type type,
     return Memmy_Status_Ok;
 }
 
-static B32 Memmy_Eval_IsPrintableCodepoint(U32 cp)
+static B32 MemmyEval_Codepoint_IsPrintable(U32 cp)
 {
     return (cp < 0x80 && Char8_IsPrint((U8)cp)) || (cp >= 0x80 && cp <= 0x10ffff);
 }
 
-static Memmy_Status Memmy_EvalByteReader_Read(Memmy_EvalByteReader *reader, U8 *out, Memmy_Error *error)
+static Memmy_Status MemmyEval_ByteReader_Read(MemmyEval_ByteReader *reader, U8 *out, Memmy_Error *error)
 {
     if (reader->pos == reader->count)
     {
@@ -78,12 +78,12 @@ static Memmy_Status Memmy_EvalByteReader_Read(Memmy_EvalByteReader *reader, U8 *
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Eval_ReadStr(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Type type,
-                                       Memmy_Value *out, Memmy_Error *error)
+static Memmy_Status MemmyEval_String_Read(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Type type,
+                                          Memmy_Value *out, Memmy_Error *error)
 {
     U8 *buffer = Arena_PushArrayNoZero(arena, U8, MEMMY_EVAL_STRING_READ_MAX);
     U64 len = 0;
-    Memmy_EvalByteReader reader = {
+    MemmyEval_ByteReader reader = {
         .process = process,
         .address = address,
     };
@@ -93,7 +93,7 @@ static Memmy_Status Memmy_Eval_ReadStr(Arena *arena, Memmy_Process *process, Mem
         U8 sequence[4];
         U64 need = 0;
         U32 cp = 0;
-        Memmy_Status status = Memmy_EvalByteReader_Read(&reader, &sequence[0], error);
+        Memmy_Status status = MemmyEval_ByteReader_Read(&reader, &sequence[0], error);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -136,7 +136,7 @@ static Memmy_Status Memmy_Eval_ReadStr(Arena *arena, Memmy_Process *process, Mem
         B32 valid = 1;
         for (U64 i = 1; i < need; i++)
         {
-            status = Memmy_EvalByteReader_Read(&reader, &sequence[i], error);
+            status = MemmyEval_ByteReader_Read(&reader, &sequence[i], error);
             if (status != Memmy_Status_Ok)
             {
                 return status;
@@ -149,7 +149,7 @@ static Memmy_Status Memmy_Eval_ReadStr(Arena *arena, Memmy_Process *process, Mem
             cp = (cp << 6) | (sequence[i] & 0x3f);
         }
         if (!valid || (need == 3 && cp < 0x800) || (need == 4 && cp < 0x10000) || (cp >= 0xd800 && cp <= 0xdfff) ||
-            !Memmy_Eval_IsPrintableCodepoint(cp))
+            !MemmyEval_Codepoint_IsPrintable(cp))
         {
             break;
         }
@@ -164,8 +164,8 @@ static Memmy_Status Memmy_Eval_ReadStr(Arena *arena, Memmy_Process *process, Mem
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Eval_ReadWStr(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Type type,
-                                        Memmy_Value *out, Memmy_Error *error)
+static Memmy_Status MemmyEval_WString_Read(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Type type,
+                                           Memmy_Value *out, Memmy_Error *error)
 {
     U64 max_size = MEMMY_EVAL_STRING_READ_MAX * 2;
     U8 *buffer = Arena_PushArrayNoZero(arena, U8, max_size);
@@ -226,7 +226,7 @@ static Memmy_Status Memmy_Eval_ReadWStr(Arena *arena, Memmy_Process *process, Me
                 pending_high = unit;
                 continue;
             }
-            if (!Memmy_Eval_IsPrintableCodepoint(unit))
+            if (!MemmyEval_Codepoint_IsPrintable(unit))
             {
                 stopped = 1;
                 break;
@@ -241,7 +241,8 @@ static Memmy_Status Memmy_Eval_ReadWStr(Arena *arena, Memmy_Process *process, Me
         }
         if (status != Memmy_Status_Ok || bytes_read != size)
         {
-            Memmy_EvalError(error, Memmy_Status_PartialRead, String8_Lit("read"), String8_Lit("partial string read"));
+            MemmyEval_Error_Set(error, Memmy_Status_PartialRead, String8_Lit("read"),
+                                String8_Lit("partial string read"));
             if (error != 0)
             {
                 error->byte_count = bytes_read;
@@ -254,7 +255,7 @@ static Memmy_Status Memmy_Eval_ReadWStr(Arena *arena, Memmy_Process *process, Me
     return Memmy_Status_Ok;
 }
 
-I64 Memmy_Eval_IntegerFromBytes(Memmy_Value value)
+I64 MemmyEval_Integer_FromBytes(Memmy_Value value)
 {
     U64 raw = 0;
     U64 size = Min(value.bytes.len, (U64)sizeof(raw));
@@ -278,20 +279,20 @@ I64 Memmy_Eval_IntegerFromBytes(Memmy_Value value)
     }
 }
 
-Memmy_Status Memmy_Eval_ReadValue(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Type type,
+Memmy_Status MemmyEval_Value_Read(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Type type,
                                   Memmy_Value *out, Memmy_Error *error)
 {
     if (type.kind == Memmy_TypeKind_Str)
     {
-        return Memmy_Eval_ReadStr(arena, process, address, type, out, error);
+        return MemmyEval_String_Read(arena, process, address, type, out, error);
     }
     if (type.kind == Memmy_TypeKind_WStr)
     {
-        return Memmy_Eval_ReadWStr(arena, process, address, type, out, error);
+        return MemmyEval_WString_Read(arena, process, address, type, out, error);
     }
 
     U64 size = 0;
-    Memmy_Status status = Memmy_Eval_TypeSize(process, type, &size, error);
+    Memmy_Status status = MemmyEval_Type_Size(process, type, &size, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
@@ -306,7 +307,7 @@ Memmy_Status Memmy_Eval_ReadValue(Arena *arena, Memmy_Process *process, Memmy_Ad
     }
     if (bytes_read != size)
     {
-        Memmy_EvalError(error, Memmy_Status_PartialRead, String8_Lit("read"), String8_Lit("partial typed read"));
+        MemmyEval_Error_Set(error, Memmy_Status_PartialRead, String8_Lit("read"), String8_Lit("partial typed read"));
         if (error != 0)
         {
             error->byte_count = bytes_read;
@@ -318,7 +319,7 @@ Memmy_Status Memmy_Eval_ReadValue(Arena *arena, Memmy_Process *process, Memmy_Ad
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Eval_DecodeStringLiteral(Arena *arena, String8 text, String8 *out, Memmy_Error *error)
+static Memmy_Status MemmyEval_StringLiteral_Decode(Arena *arena, String8 text, String8 *out, Memmy_Error *error)
 {
     if (text.len < 2 || text.data[0] != '"' || text.data[text.len - 1] != '"')
     {
@@ -336,8 +337,8 @@ static Memmy_Status Memmy_Eval_DecodeStringLiteral(Arena *arena, String8 text, S
             i++;
             if (i + 1 >= text.len)
             {
-                Memmy_EvalError(error, Memmy_Status_ParseError, String8_Lit("value"),
-                                String8_Lit("unterminated string escape"));
+                MemmyEval_Error_Set(error, Memmy_Status_ParseError, String8_Lit("value"),
+                                    String8_Lit("unterminated string escape"));
                 return Memmy_Status_ParseError;
             }
 
@@ -364,8 +365,8 @@ static Memmy_Status Memmy_Eval_DecodeStringLiteral(Arena *arena, String8 text, S
             }
             else
             {
-                Memmy_EvalError(error, Memmy_Status_ParseError, String8_Lit("value"),
-                                String8_Lit("unknown string escape"));
+                MemmyEval_Error_Set(error, Memmy_Status_ParseError, String8_Lit("value"),
+                                    String8_Lit("unknown string escape"));
                 return Memmy_Status_ParseError;
             }
         }
@@ -377,39 +378,39 @@ static Memmy_Status Memmy_Eval_DecodeStringLiteral(Arena *arena, String8 text, S
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_Eval_ParseValue(Memmy_EvalExec *exec, Memmy_Process *process, Memmy_Type type, String8 value_text,
+Memmy_Status MemmyEval_Value_Parse(MemmyEval_Exec *exec, Memmy_Process *process, Memmy_Type type, String8 value_text,
                                    Memmy_Value *out, Memmy_Error *error)
 {
-    Memmy_EvalEnv *env = exec->env;
+    MemmyEval_Env *env = exec->env;
     String8 parse_text = value_text;
     Scratch scratch = {0};
     B32 using_scratch = 0;
-    if (Memmy_EvalValue_IsIntegerTyped(
-            &(Memmy_EvalValue){.kind = Memmy_EvalValueKind_TypedValue, .typed_value = {.type = type}}) &&
+    if (MemmyEval_Value_IsIntegerTyped(
+            &(MemmyEval_Value){.kind = MemmyEval_ValueKind_TypedValue, .typed_value = {.type = type}}) &&
         String8_FindChar(value_text, '$', 0) != STRING8_NPOS)
     {
         scratch = Scratch_Begin((Arena *[]){env->arena, exec->out_arena}, 2);
         using_scratch = 1;
-        Memmy_AstNode *expr = 0;
-        Memmy_AstDiagnostic diagnostic = {0};
-        Memmy_AstStatus ast_status = Memmy_Ast_ParseExpr(scratch.arena, value_text, &expr, &diagnostic);
-        if (ast_status != Memmy_AstStatus_Ok)
+        MemmyAst_Node *expr = 0;
+        MemmyAst_Diagnostic diagnostic = {0};
+        MemmyAst_Status ast_status = MemmyAst_Expr_Parse(scratch.arena, value_text, &expr, &diagnostic);
+        if (ast_status != MemmyAst_Status_Ok)
         {
             Scratch_End(scratch);
-            Memmy_EvalError(error, Memmy_Status_ParseError, String8_Lit("value"),
-                            String8_Lit("invalid value expression"));
+            MemmyEval_Error_Set(error, Memmy_Status_ParseError, String8_Lit("value"),
+                                String8_Lit("invalid value expression"));
             return Memmy_Status_ParseError;
         }
 
-        Memmy_EvalValue value = {0};
-        Memmy_Status status = Memmy_EvalExprWithContext(exec, expr, &value, error);
+        MemmyEval_Value value = {0};
+        Memmy_Status status = MemmyEval_Expr_EvalWithContext(exec, expr, &value, error);
         if (status != Memmy_Status_Ok)
         {
             Scratch_End(scratch);
             return status;
         }
         I64 constant = 0;
-        status = Memmy_EvalValue_AsConst(&value, &constant, error);
+        status = MemmyEval_Value_AsConst(&value, &constant, error);
         if (status != Memmy_Status_Ok)
         {
             Scratch_End(scratch);
@@ -425,7 +426,7 @@ Memmy_Status Memmy_Eval_ParseValue(Memmy_EvalExec *exec, Memmy_Process *process,
             scratch = Scratch_Begin((Arena *[]){env->arena, exec->out_arena}, 2);
             using_scratch = 1;
         }
-        Memmy_Status decode_status = Memmy_Eval_DecodeStringLiteral(scratch.arena, parse_text, &parse_text, error);
+        Memmy_Status decode_status = MemmyEval_StringLiteral_Decode(scratch.arena, parse_text, &parse_text, error);
         if (decode_status != Memmy_Status_Ok)
         {
             Scratch_End(scratch);
@@ -441,12 +442,12 @@ Memmy_Status Memmy_Eval_ParseValue(Memmy_EvalExec *exec, Memmy_Process *process,
     return status;
 }
 
-Memmy_Status Memmy_Eval_ReadPointer(Memmy_Process *process, Memmy_Addr address, Memmy_Addr *out, Memmy_Error *error)
+Memmy_Status MemmyEval_Pointer_Read(Memmy_Process *process, Memmy_Addr address, Memmy_Addr *out, Memmy_Error *error)
 {
     if (process == 0 || !Memmy_Process_IsOpen(process))
     {
-        Memmy_EvalError(error, Memmy_Status_InvalidArgument, String8_Lit("address"),
-                        String8_Lit("missing selected process for pointer dereference"));
+        MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("address"),
+                            String8_Lit("missing selected process for pointer dereference"));
         return Memmy_Status_InvalidArgument;
     }
 
@@ -461,8 +462,8 @@ Memmy_Status Memmy_Eval_ReadPointer(Memmy_Process *process, Memmy_Addr address, 
     }
     else
     {
-        Memmy_EvalError(error, Memmy_Status_Unsupported, String8_Lit("address"),
-                        String8_Lit("target pointer width is unknown"));
+        MemmyEval_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("address"),
+                            String8_Lit("target pointer width is unknown"));
         return Memmy_Status_Unsupported;
     }
 
@@ -475,8 +476,8 @@ Memmy_Status Memmy_Eval_ReadPointer(Memmy_Process *process, Memmy_Addr address, 
     }
     if (bytes_read != pointer_size)
     {
-        Memmy_EvalError(error, Memmy_Status_PartialRead, String8_Lit("address"),
-                        String8_Lit("pointer read returned too few bytes"));
+        MemmyEval_Error_Set(error, Memmy_Status_PartialRead, String8_Lit("address"),
+                            String8_Lit("pointer read returned too few bytes"));
         return Memmy_Status_PartialRead;
     }
 
@@ -489,139 +490,139 @@ Memmy_Status Memmy_Eval_ReadPointer(Memmy_Process *process, Memmy_Addr address, 
     return Memmy_Status_Ok;
 }
 
-Memmy_Status Memmy_Eval_MemoryExpr(Memmy_EvalExec *exec, Memmy_AstNode const *expr, Memmy_EvalValue *out,
-                                   Memmy_Error *error)
+Memmy_Status MemmyEval_Expr_EvalMemory(MemmyEval_Exec *exec, MemmyAst_Node const *expr, MemmyEval_Value *out,
+                                       Memmy_Error *error)
 {
-    Memmy_EvalEnv *env = exec->env;
+    MemmyEval_Env *env = exec->env;
     (void)env;
-    if (expr->kind == Memmy_AstNodeKind_Deref)
+    if (expr->kind == MemmyAst_NodeKind_Deref)
     {
-        Memmy_EvalValue base = {0};
-        Memmy_Status status = Memmy_EvalExprWithContext(exec, expr->lhs, &base, error);
+        MemmyEval_Value base = {0};
+        Memmy_Status status = MemmyEval_Expr_EvalWithContext(exec, expr->lhs, &base, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
         Memmy_Addr address = 0;
-        status = Memmy_EvalValue_AsAddress(&base, &address, error);
+        status = MemmyEval_Value_AsAddress(&base, &address, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
         Memmy_Process *process = 0;
-        status = Memmy_Eval_RequireProcess(exec, &base, String8_Lit("address"), &process, error);
+        status = MemmyEval_Process_Require(exec, &base, String8_Lit("address"), &process, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
-        status = Memmy_Eval_ReadPointer(process, address, &address, error);
+        status = MemmyEval_Pointer_Read(process, address, &address, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
         if (expr->rhs != 0)
         {
-            Memmy_EvalValue offset_value = {0};
-            status = Memmy_EvalExprWithContext(exec, expr->rhs, &offset_value, error);
+            MemmyEval_Value offset_value = {0};
+            status = MemmyEval_Expr_EvalWithContext(exec, expr->rhs, &offset_value, error);
             if (status != Memmy_Status_Ok)
             {
                 return status;
             }
             I64 offset = 0;
-            status = Memmy_EvalValue_AsConst(&offset_value, &offset, error);
+            status = MemmyEval_Value_AsConst(&offset_value, &offset, error);
             if (status != Memmy_Status_Ok)
             {
                 return status;
             }
-            status = Memmy_Eval_AddressAddConst(address, offset, &address, error);
+            status = MemmyEval_Address_AddConst(address, offset, &address, error);
             if (status != Memmy_Status_Ok)
             {
                 return status;
             }
         }
-        *out = (Memmy_EvalValue){.kind = Memmy_EvalValueKind_Address, .address = address};
+        *out = (MemmyEval_Value){.kind = MemmyEval_ValueKind_Address, .address = address};
         return Memmy_Status_Ok;
     }
-    if (expr->kind == Memmy_AstNodeKind_TypedRead)
+    if (expr->kind == MemmyAst_NodeKind_TypedRead)
     {
-        Memmy_EvalValue base = {0};
-        Memmy_Status status = Memmy_EvalExprWithContext(exec, expr->lhs, &base, error);
+        MemmyEval_Value base = {0};
+        Memmy_Status status = MemmyEval_Expr_EvalWithContext(exec, expr->lhs, &base, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
         Memmy_Process *process = 0;
-        status = Memmy_Eval_RequireProcess(exec, &base, String8_Lit("read"), &process, error);
+        status = MemmyEval_Process_Require(exec, &base, String8_Lit("read"), &process, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
         Memmy_Addr address = 0;
-        status = Memmy_EvalValue_AsAddress(&base, &address, error);
+        status = MemmyEval_Value_AsAddress(&base, &address, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
 
         Memmy_Type type = {0};
-        status = Memmy_Eval_ParseType(expr->type_name, &type, error);
+        status = MemmyEval_Type_Parse(expr->type_name, &type, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
 
         Memmy_Value value = {0};
-        status = Memmy_Eval_ReadValue(exec->out_arena, process, address, type, &value, error);
+        status = MemmyEval_Value_Read(exec->out_arena, process, address, type, &value, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
 
-        *out = (Memmy_EvalValue){
-            .kind = Memmy_EvalValueKind_TypedValue,
-            .constant = Memmy_Eval_IntegerFromBytes(value),
+        *out = (MemmyEval_Value){
+            .kind = MemmyEval_ValueKind_TypedValue,
+            .constant = MemmyEval_Integer_FromBytes(value),
             .address = address,
             .typed_value = value,
         };
         return Memmy_Status_Ok;
     }
-    if (expr->kind == Memmy_AstNodeKind_TypedWrite)
+    if (expr->kind == MemmyAst_NodeKind_TypedWrite)
     {
-        Memmy_EvalValue base = {0};
-        Memmy_Status status = Memmy_EvalExprWithContext(exec, expr->lhs, &base, error);
+        MemmyEval_Value base = {0};
+        Memmy_Status status = MemmyEval_Expr_EvalWithContext(exec, expr->lhs, &base, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
         Memmy_Process *process = 0;
-        status = Memmy_Eval_RequireProcess(exec, &base, String8_Lit("write"), &process, error);
+        status = MemmyEval_Process_Require(exec, &base, String8_Lit("write"), &process, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
         Memmy_Addr address = 0;
-        status = Memmy_EvalValue_AsAddress(&base, &address, error);
+        status = MemmyEval_Value_AsAddress(&base, &address, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
 
         Memmy_Type type = {0};
-        status = Memmy_Eval_ParseType(expr->type_name, &type, error);
+        status = MemmyEval_Type_Parse(expr->type_name, &type, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
 
         Memmy_Value old_value = {0};
-        status = Memmy_Eval_ReadValue(exec->out_arena, process, address, type, &old_value, error);
+        status = MemmyEval_Value_Read(exec->out_arena, process, address, type, &old_value, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
 
         Memmy_Value new_value = {0};
-        status = Memmy_Eval_ParseValue(exec, process, type, expr->value_text, &new_value, error);
+        status = MemmyEval_Value_Parse(exec, process, type, expr->value_text, &new_value, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -636,7 +637,8 @@ Memmy_Status Memmy_Eval_MemoryExpr(Memmy_EvalExec *exec, Memmy_AstNode const *ex
         }
         if (bytes_written != new_value.bytes.len)
         {
-            Memmy_EvalError(error, Memmy_Status_PartialWrite, String8_Lit("write"), String8_Lit("partial typed write"));
+            MemmyEval_Error_Set(error, Memmy_Status_PartialWrite, String8_Lit("write"),
+                                String8_Lit("partial typed write"));
             if (error != 0)
             {
                 error->byte_count = bytes_written;
@@ -644,16 +646,16 @@ Memmy_Status Memmy_Eval_MemoryExpr(Memmy_EvalExec *exec, Memmy_AstNode const *ex
             return Memmy_Status_PartialWrite;
         }
 
-        *out = (Memmy_EvalValue){
-            .kind = Memmy_EvalValueKind_TypedValue,
-            .constant = Memmy_Eval_IntegerFromBytes(new_value),
+        *out = (MemmyEval_Value){
+            .kind = MemmyEval_ValueKind_TypedValue,
+            .constant = MemmyEval_Integer_FromBytes(new_value),
             .address = address,
             .typed_value = new_value,
             .old_typed_value = old_value,
         };
         return Memmy_Status_Ok;
     }
-    Memmy_EvalError(error, Memmy_Status_Unsupported, String8_Lit("expr"),
-                    String8_Lit("expression kind is not implemented yet"));
+    MemmyEval_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("expr"),
+                        String8_Lit("expression kind is not implemented yet"));
     return Memmy_Status_Unsupported;
 }

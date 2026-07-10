@@ -4,120 +4,120 @@
 #include "base_arena.h"
 #include "base_string.h"
 
-typedef U32 Memmy_AstStatus;
+typedef U32 MemmyAst_Status;
 enum
 {
-    Memmy_AstStatus_Ok,
-    Memmy_AstStatus_InvalidArgument,
-    Memmy_AstStatus_ParseError,
-    Memmy_AstStatus_Overflow,
-    Memmy_AstStatus_Unsupported,
+    MemmyAst_Status_Ok,
+    MemmyAst_Status_InvalidArgument,
+    MemmyAst_Status_ParseError,
+    MemmyAst_Status_Overflow,
+    MemmyAst_Status_Unsupported,
 };
 
-typedef U32 Memmy_AstNodeKind;
+typedef U32 MemmyAst_NodeKind;
 enum
 {
-    Memmy_AstNodeKind_Null,
-    Memmy_AstNodeKind_ConstArithmetic,
-    Memmy_AstNodeKind_Variable,
-    Memmy_AstNodeKind_CurrentItem,
-    Memmy_AstNodeKind_Target,
-    Memmy_AstNodeKind_Address,
-    Memmy_AstNodeKind_Range,
-    Memmy_AstNodeKind_ProcessRange,
-    Memmy_AstNodeKind_Deref,
-    Memmy_AstNodeKind_TypedRead,
-    Memmy_AstNodeKind_TypedWrite,
-    Memmy_AstNodeKind_PatternScan,
-    Memmy_AstNodeKind_ValueScan,
-    Memmy_AstNodeKind_Index,
-    Memmy_AstNodeKind_ListTransform,
-    Memmy_AstNodeKind_Assignment,
-    Memmy_AstNodeKind_Command,
-    Memmy_AstNodeKind_ReferenceScan,
-    Memmy_AstNodeKind_DisasmScan,
-    Memmy_AstNodeKind_Function,
-    Memmy_AstNodeKind_ObjectBase,
+    MemmyAst_NodeKind_Null,
+    MemmyAst_NodeKind_ConstArithmetic,
+    MemmyAst_NodeKind_Variable,
+    MemmyAst_NodeKind_CurrentItem,
+    MemmyAst_NodeKind_Target,
+    MemmyAst_NodeKind_Address,
+    MemmyAst_NodeKind_Range,
+    MemmyAst_NodeKind_ProcessRange,
+    MemmyAst_NodeKind_Deref,
+    MemmyAst_NodeKind_TypedRead,
+    MemmyAst_NodeKind_TypedWrite,
+    MemmyAst_NodeKind_PatternScan,
+    MemmyAst_NodeKind_ValueScan,
+    MemmyAst_NodeKind_Index,
+    MemmyAst_NodeKind_ListTransform,
+    MemmyAst_NodeKind_Assignment,
+    MemmyAst_NodeKind_Command,
+    MemmyAst_NodeKind_ReferenceScan,
+    MemmyAst_NodeKind_DisasmScan,
+    MemmyAst_NodeKind_Function,
+    MemmyAst_NodeKind_ObjectBase,
 };
 
-typedef U32 Memmy_AstDisasmArch;
+typedef U32 MemmyAst_DisasmArch;
 enum
 {
-    Memmy_AstDisasmArch_Null,
-    Memmy_AstDisasmArch_X64,
+    MemmyAst_DisasmArch_Null,
+    MemmyAst_DisasmArch_X64,
 };
 
-typedef U32 Memmy_AstDisasmOperandKind;
+typedef U32 MemmyAst_DisasmOperandKind;
 enum
 {
-    Memmy_AstDisasmOperandKind_RegisterAny,
-    Memmy_AstDisasmOperandKind_Register,
-    Memmy_AstDisasmOperandKind_RipDisp32,
+    MemmyAst_DisasmOperandKind_RegisterAny,
+    MemmyAst_DisasmOperandKind_Register,
+    MemmyAst_DisasmOperandKind_RipDisp32,
 };
 
-typedef struct Memmy_AstDisasmOperand Memmy_AstDisasmOperand;
-struct Memmy_AstDisasmOperand
+typedef struct MemmyAst_DisasmOperand MemmyAst_DisasmOperand;
+struct MemmyAst_DisasmOperand
 {
-    Memmy_AstDisasmOperandKind kind;
+    MemmyAst_DisasmOperandKind kind;
     String8 reg;
 };
 
-typedef struct Memmy_AstDisasmInstruction Memmy_AstDisasmInstruction;
-struct Memmy_AstDisasmInstruction
+typedef struct MemmyAst_DisasmInstruction MemmyAst_DisasmInstruction;
+struct MemmyAst_DisasmInstruction
 {
     String8 mnemonic;
-    Memmy_AstDisasmOperand *operands;
+    MemmyAst_DisasmOperand *operands;
     U32 operand_count;
 };
 
-typedef struct Memmy_AstDisasmPattern Memmy_AstDisasmPattern;
-struct Memmy_AstDisasmPattern
+typedef struct MemmyAst_DisasmPattern MemmyAst_DisasmPattern;
+struct MemmyAst_DisasmPattern
 {
-    Memmy_AstDisasmArch arch;
-    Memmy_AstDisasmInstruction *instructions;
+    MemmyAst_DisasmArch arch;
+    MemmyAst_DisasmInstruction *instructions;
     U32 instruction_count;
 };
 
-typedef U32 Memmy_AstReferenceMode;
+typedef U32 MemmyAst_ReferenceMode;
 enum
 {
-    Memmy_AstReferenceMode_Ptr,
-    Memmy_AstReferenceMode_Rel32,
-    Memmy_AstReferenceMode_Any,
+    MemmyAst_ReferenceMode_Ptr,
+    MemmyAst_ReferenceMode_Rel32,
+    MemmyAst_ReferenceMode_Any,
 };
 
-typedef U32 Memmy_AstConstOp;
+typedef U32 MemmyAst_ConstOp;
 enum
 {
-    Memmy_AstConstOp_None,
-    Memmy_AstConstOp_Pos,
-    Memmy_AstConstOp_Neg,
-    Memmy_AstConstOp_Add,
-    Memmy_AstConstOp_Sub,
-    Memmy_AstConstOp_Mul,
-    Memmy_AstConstOp_Div,
-    Memmy_AstConstOp_Mod,
+    MemmyAst_ConstOp_None,
+    MemmyAst_ConstOp_Pos,
+    MemmyAst_ConstOp_Neg,
+    MemmyAst_ConstOp_Add,
+    MemmyAst_ConstOp_Sub,
+    MemmyAst_ConstOp_Mul,
+    MemmyAst_ConstOp_Div,
+    MemmyAst_ConstOp_Mod,
 };
 
-typedef U32 Memmy_AstCommandKind;
+typedef U32 MemmyAst_CommandKind;
 enum
 {
-    Memmy_AstCommandKind_None,
-    Memmy_AstCommandKind_Procs,
-    Memmy_AstCommandKind_Attach,
-    Memmy_AstCommandKind_Detach,
-    Memmy_AstCommandKind_Mods,
-    Memmy_AstCommandKind_Regions,
-    Memmy_AstCommandKind_Vars,
-    Memmy_AstCommandKind_Unset,
-    Memmy_AstCommandKind_Clear,
-    Memmy_AstCommandKind_Help,
-    Memmy_AstCommandKind_Exit,
-    Memmy_AstCommandKind_Quit,
+    MemmyAst_CommandKind_None,
+    MemmyAst_CommandKind_Procs,
+    MemmyAst_CommandKind_Attach,
+    MemmyAst_CommandKind_Detach,
+    MemmyAst_CommandKind_Mods,
+    MemmyAst_CommandKind_Regions,
+    MemmyAst_CommandKind_Vars,
+    MemmyAst_CommandKind_Unset,
+    MemmyAst_CommandKind_Clear,
+    MemmyAst_CommandKind_Help,
+    MemmyAst_CommandKind_Exit,
+    MemmyAst_CommandKind_Quit,
 };
 
-typedef struct Memmy_AstDiagnostic Memmy_AstDiagnostic;
-struct Memmy_AstDiagnostic
+typedef struct MemmyAst_Diagnostic MemmyAst_Diagnostic;
+struct MemmyAst_Diagnostic
 {
     String8 input;
     String8 message;
@@ -126,36 +126,36 @@ struct Memmy_AstDiagnostic
     U64 byte_count;
 };
 
-typedef struct Memmy_AstNode Memmy_AstNode;
-struct Memmy_AstNode
+typedef struct MemmyAst_Node MemmyAst_Node;
+struct MemmyAst_Node
 {
-    Memmy_AstNodeKind kind;
+    MemmyAst_NodeKind kind;
     String8 text;
     U64 byte_offset;
     U64 byte_count;
     I64 value;
     B32 contains_variable;
-    Memmy_AstConstOp op;
-    Memmy_AstNode *lhs;
-    Memmy_AstNode *rhs;
-    Memmy_AstNode *value_expr;
+    MemmyAst_ConstOp op;
+    MemmyAst_Node *lhs;
+    MemmyAst_Node *rhs;
+    MemmyAst_Node *value_expr;
     B32 range_is_sized;
-    Memmy_AstReferenceMode reference_mode;
+    MemmyAst_ReferenceMode reference_mode;
     String8 name;
     String8 type_name;
     String8 pattern;
-    Memmy_AstDisasmPattern disasm_pattern;
+    MemmyAst_DisasmPattern disasm_pattern;
     String8 value_text;
     String8 target_module;
 };
 
-typedef struct Memmy_AstStatement Memmy_AstStatement;
-struct Memmy_AstStatement
+typedef struct MemmyAst_Statement MemmyAst_Statement;
+struct MemmyAst_Statement
 {
-    Memmy_AstNodeKind kind;
-    Memmy_AstCommandKind command_kind;
-    Memmy_AstNode *expr;
-    Memmy_AstNode *assignment_value;
+    MemmyAst_NodeKind kind;
+    MemmyAst_CommandKind command_kind;
+    MemmyAst_Node *expr;
+    MemmyAst_Node *assignment_value;
     String8 assignment_name;
     String8 command_arg;
     String8 text;
@@ -163,8 +163,8 @@ struct Memmy_AstStatement
 
 // Input text is copied into arena. All returned nodes and slices remain valid for the arena lifetime.
 // Required outputs, and optional diagnostics when supplied, are cleared before validation.
-Memmy_AstStatus Memmy_Ast_ParseExpr(Arena *arena, String8 text, Memmy_AstNode **out, Memmy_AstDiagnostic *diagnostic);
-Memmy_AstStatus Memmy_Ast_ParseStatement(Arena *arena, String8 text, Memmy_AstStatement *out,
-                                         Memmy_AstDiagnostic *diagnostic);
+MemmyAst_Status MemmyAst_Expr_Parse(Arena *arena, String8 text, MemmyAst_Node **out, MemmyAst_Diagnostic *diagnostic);
+MemmyAst_Status MemmyAst_Statement_Parse(Arena *arena, String8 text, MemmyAst_Statement *out,
+                                         MemmyAst_Diagnostic *diagnostic);
 
 #endif // MEMMY_AST_H

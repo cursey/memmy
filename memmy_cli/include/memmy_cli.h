@@ -3,42 +3,42 @@
 
 #include "memmy_eval.h"
 
-typedef Memmy_Status Memmy_CliWriteFn(void *user_data, String8 text);
+typedef Memmy_Status MemmyCli_WriteFn(void *user_data, String8 text);
 
-typedef struct Memmy_CliOutputWriter Memmy_CliOutputWriter;
-struct Memmy_CliOutputWriter
+typedef struct MemmyCli_OutputWriter MemmyCli_OutputWriter;
+struct MemmyCli_OutputWriter
 {
-    Memmy_CliWriteFn *write;
+    MemmyCli_WriteFn *write;
     void *user_data;
 };
 
-typedef struct Memmy_CliReplSession Memmy_CliReplSession;
-struct Memmy_CliReplSession
+typedef struct MemmyCli_ReplSession MemmyCli_ReplSession;
+struct MemmyCli_ReplSession
 {
     Arena *arena;
-    Memmy_EvalEnv *env;
+    MemmyEval_Env *env;
     B32 has_attached_process;
     Memmy_ProcessInfo attached_process;
 };
 
-Memmy_CliReplSession Memmy_CliReplSession_Begin(Arena *arena);
-String8 Memmy_CliReplSession_Prompt(Arena *arena, Memmy_CliReplSession *session);
-Memmy_Status Memmy_Cli_RunReplSessionLine(Arena *arena, Memmy_CliReplSession *session, String8 line, String8 *out,
+MemmyCli_ReplSession MemmyCli_ReplSession_Begin(Arena *arena);
+String8 MemmyCli_ReplSession_Prompt(Arena *arena, MemmyCli_ReplSession *session);
+Memmy_Status MemmyCli_ReplSession_RunLine(Arena *arena, MemmyCli_ReplSession *session, String8 line, String8 *out,
                                           B32 *out_exit, Memmy_Error *error);
-Memmy_Status Memmy_Cli_RunReplLine(Arena *arena, String8 line, String8 *out, Memmy_Error *error);
-Memmy_Status Memmy_Cli_RunReplString(Arena *arena, String8 input, String8 *out, Memmy_Error *error);
-Memmy_Status Memmy_Cli_RunInputString(Arena *arena, I32 argc, char **argv, String8 input, String8 *out,
+Memmy_Status MemmyCli_Repl_RunLine(Arena *arena, String8 line, String8 *out, Memmy_Error *error);
+Memmy_Status MemmyCli_Repl_RunString(Arena *arena, String8 input, String8 *out, Memmy_Error *error);
+Memmy_Status MemmyCli_Input_RunString(Arena *arena, I32 argc, char **argv, String8 input, String8 *out,
                                       Memmy_Error *error);
-Memmy_Status Memmy_Cli_RunToString(Arena *arena, I32 argc, char **argv, String8 *out, Memmy_Error *error);
-Memmy_Status Memmy_Cli_RunToWriter(Arena *arena, I32 argc, char **argv, Memmy_CliOutputWriter writer,
-                                   Memmy_Error *error);
-I32 Memmy_Cli_ExitCodeFromStatus(Memmy_Status status);
-B32 Memmy_Cli_ArgvHasHelp(I32 argc, char **argv);
-B32 Memmy_Cli_ArgvHasVersion(I32 argc, char **argv);
-B32 Memmy_Cli_ArgvHasJsonl(I32 argc, char **argv);
-String8 Memmy_Cli_FormatAddress(Arena *arena, Memmy_PointerWidth pointer_width, Memmy_Addr address);
-String8 Memmy_Cli_FormatJsonString(Arena *arena, String8 text);
-String8 Memmy_Cli_FormatHexBytes(Arena *arena, String8 bytes);
-String8 Memmy_Cli_FormatJsonlError(Arena *arena, Memmy_Error *error);
+Memmy_Status MemmyCli_Argv_RunToString(Arena *arena, I32 argc, char **argv, String8 *out, Memmy_Error *error);
+Memmy_Status MemmyCli_Argv_RunToWriter(Arena *arena, I32 argc, char **argv, MemmyCli_OutputWriter writer,
+                                       Memmy_Error *error);
+I32 MemmyCli_ExitCode_FromStatus(Memmy_Status status);
+B32 MemmyCli_Argv_HasHelp(I32 argc, char **argv);
+B32 MemmyCli_Argv_HasVersion(I32 argc, char **argv);
+B32 MemmyCli_Argv_HasJsonl(I32 argc, char **argv);
+String8 MemmyCli_Address_Format(Arena *arena, Memmy_PointerWidth pointer_width, Memmy_Addr address);
+String8 MemmyCli_JsonString_Format(Arena *arena, String8 text);
+String8 MemmyCli_HexBytes_Format(Arena *arena, String8 bytes);
+String8 MemmyCli_JsonlError_Format(Arena *arena, Memmy_Error *error);
 
 #endif // MEMMY_CLI_H
