@@ -56,6 +56,8 @@ enum
 #define Char8_IsAlpha(c) (((c) >= 'a' && (c) <= 'z') || ((c) >= 'A' && (c) <= 'Z'))
 #define Char8_IsAlnum(c) (Char8_IsAlpha(c) || Char8_IsDigit(c))
 #define Char8_IsPrint(c) ((c) >= 0x20 && (c) < 0x7f)
+B32 Char8_IsWhitespace(U8 c);
+U32 Char8_HexDigitValue(U8 c);
 
 // Construction
 String8 String8_Make(U8 *data, U64 len);

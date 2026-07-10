@@ -26,7 +26,11 @@ extern TestSuite suite_memmy_range;
 extern TestSuite suite_memmy_scan;
 extern TestSuite suite_memmy_context;
 extern TestSuite suite_memmy_process;
-extern TestSuite suite_memmy_ast;
+extern TestSuite suite_memmy_ast_expr;
+extern TestSuite suite_memmy_ast_postfix;
+extern TestSuite suite_memmy_ast_statement;
+extern TestSuite suite_memmy_ast_address_ops;
+extern TestSuite suite_memmy_ast_diagnostics;
 extern TestSuite suite_memmy_ast_disasm_x64;
 extern TestSuite suite_memmy_eval;
 extern TestSuite suite_memmy_eval_disasm_x64;
@@ -62,7 +66,11 @@ int main(int argc, char **argv)
         suite_memmy_scan,
         suite_memmy_context,
         suite_memmy_process,
-        suite_memmy_ast,
+        suite_memmy_ast_expr,
+        suite_memmy_ast_postfix,
+        suite_memmy_ast_statement,
+        suite_memmy_ast_address_ops,
+        suite_memmy_ast_diagnostics,
         suite_memmy_ast_disasm_x64,
         suite_memmy_eval,
         suite_memmy_eval_disasm_x64,

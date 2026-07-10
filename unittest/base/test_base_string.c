@@ -85,6 +85,17 @@ Test(Test_Str8TrimWhitespace)
     AssertEq(String8_TrimWhitespace(String8_Lit("   ")).len, 0);
 }
 
+Test(Test_Char8Helpers)
+{
+    AssertTrue(Char8_IsWhitespace(' '));
+    AssertTrue(Char8_IsWhitespace('\t'));
+    AssertTrue(!Char8_IsWhitespace('x'));
+    AssertEq(Char8_HexDigitValue('0'), 0);
+    AssertEq(Char8_HexDigitValue('a'), 10);
+    AssertEq(Char8_HexDigitValue('F'), 15);
+    AssertEq(Char8_HexDigitValue('g'), U32_MAX);
+}
+
 Test(Test_Str8StartsEndsWith)
 {
     String8 s = String8_Lit("hello world");
@@ -188,6 +199,7 @@ TestSuite suite_string = TestSuite_Make(
     "String", TestCase_Make(Test_Str8Eq), TestCase_Make(Test_Str8EqNocase), TestCase_Make(Test_Str8Cstr),
     TestCase_Make(Test_Str8FuzzyMatchNoCase), TestCase_Make(Test_Str8Copy), TestCase_Make(Test_Str8Pushf),
     TestCase_Make(Test_Str8PrefixSuffix), TestCase_Make(Test_Str8Substr), TestCase_Make(Test_Str8TrimWhitespace),
-    TestCase_Make(Test_Str8StartsEndsWith), TestCase_Make(Test_Str8ListJoin), TestCase_Make(Test_Str8ListJoinEmptySep),
-    TestCase_Make(Test_Str8ToU64), TestCase_Make(Test_Str8ToI64), TestCase_Make(Test_Str8ParseF64AcceptsValidNumbers),
-    TestCase_Make(Test_Str8ParseF64RejectsInvalidNumbers), TestCase_Make(Test_Str8ParseF64RejectsRangeErrors), );
+    TestCase_Make(Test_Char8Helpers), TestCase_Make(Test_Str8StartsEndsWith), TestCase_Make(Test_Str8ListJoin),
+    TestCase_Make(Test_Str8ListJoinEmptySep), TestCase_Make(Test_Str8ToU64), TestCase_Make(Test_Str8ToI64),
+    TestCase_Make(Test_Str8ParseF64AcceptsValidNumbers), TestCase_Make(Test_Str8ParseF64RejectsInvalidNumbers),
+    TestCase_Make(Test_Str8ParseF64RejectsRangeErrors), );

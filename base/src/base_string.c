@@ -150,9 +150,27 @@ String8 String8_Substr(String8 s, U64 offset, U64 len)
     return (String8){.data = s.data + offset, .len = clamped};
 }
 
-static B32 IsWhitespace(U8 c)
+B32 Char8_IsWhitespace(U8 c)
 {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+}
+
+U32 Char8_HexDigitValue(U8 c)
+{
+    U32 result = U32_MAX;
+    if (c >= '0' && c <= '9')
+    {
+        result = (U32)(c - '0');
+    }
+    else if (c >= 'a' && c <= 'f')
+    {
+        result = 10u + (U32)(c - 'a');
+    }
+    else if (c >= 'A' && c <= 'F')
+    {
+        result = 10u + (U32)(c - 'A');
+    }
+    return result;
 }
 
 String8 String8_TrimWhitespace(String8 s)
@@ -163,11 +181,11 @@ String8 String8_TrimWhitespace(String8 s)
     }
     U64 start = 0;
     U64 end = s.len;
-    while (start < end && IsWhitespace(s.data[start]))
+    while (start < end && Char8_IsWhitespace(s.data[start]))
     {
         start++;
     }
-    while (end > start && IsWhitespace(s.data[end - 1]))
+    while (end > start && Char8_IsWhitespace(s.data[end - 1]))
     {
         end--;
     }
