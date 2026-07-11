@@ -140,6 +140,55 @@ $matches[3]
 $hit = $matches[0] - 0xf
 ```
 
+## Transforming Lists With `=>`
+
+`=>` evaluates an expression once for every item in an address list or range
+list. Inside the expression on the right, bare `$` means the current item. The
+results are collected, in input order, into a new list.
+
+```txt
+$refs => $ + 4              add 4 to every address
+$refs => [$..+0x20]         make a 0x20-byte range at every address
+$xrefs => function $        find the containing function for every xref
+$hits => objectbase $       find the object base for every hit
+```
+
+For example, if `$refs` contains `@0x1000` and `@0x2000`, then:
+
+```txt
+$refs => $ + 4
+```
+
+produces an address list containing `@0x1004` and `@0x2004`. This is roughly a
+list `map`: `$refs` is the input list, `$ + 4` is the per-item expression, and
+`$` takes the value of each address in turn.
+
+The left side must evaluate to an address list or range list; a single address
+or range is not accepted. The right side must produce addresses, address lists,
+ranges, or range lists. If it produces a list, that list is flattened into the
+result. All items must produce the same category: addresses and ranges cannot be
+mixed in one result.
+
+Transforms chain from left to right, so the output of one becomes the input of
+the next:
+
+```txt
+$refs => [$..+0x20] => $ + 4
+```
+
+This first makes a range for each address, then transforms each range. In
+address arithmetic, a range contributes its start address, so the final result
+is an address list containing each original address plus 4.
+
+`=>` is distinct from `->`: `=>` transforms every item in a list, while `->`
+dereferences one address (or the start of one range).
+
+Transforms fail fast. Evaluation stops on the first item whose right-side
+expression fails—for example, when `function $` cannot find function metadata.
+An empty input list is also an error rather than an empty result. When an xref
+scan may include data-section hits, select the intended code hit first, for
+example `function $xrefs[0]`.
+
 ## Assignments
 
 Assignments evaluate immediately and bind the resulting value.
@@ -158,10 +207,6 @@ $foo = <client.dll>{aa bb ?? ?? 11 22}
 $fn = function $xref
 $fns = $xrefs => function $
 ```
-
-List transforms fail fast: `$xrefs => function $` stops if any item has no
-function metadata. When an xref scan may include data-section hits, select or
-filter the code hit first, for example `$fn = function $xrefs[0]`.
 
 ## Variables
 
@@ -222,6 +267,7 @@ address as T         typed read
 address as T = value typed write
 $name = expr         bind evaluated result
 $name[N]             index address list
+list => expr         transform each address/range item; `$` is the current item
 /attach process      select process and clear variables
 /detach              clear selected process and variables
 /command             control REPL
