@@ -12,7 +12,7 @@ default:
 
 # Configure via CMake (uses the system default generator/compiler).
 configure:
-    cmake -S . -B {{build_dir}}
+    cmake -S . -B {{build_dir}} -DCMAKE_BUILD_TYPE={{config}}
 
 # Build via CMake.
 build: configure
@@ -22,9 +22,13 @@ build: configure
 test: build
     ctest --test-dir {{build_dir}} -C {{config}} --output-on-failure
 
-# Format all C sources and headers
+# Check the formatting of all first-party C sources and headers
+fmt-check:
+    find base memmy memmy_ast memmy_eval memmy_cli cmd unittest -type f \( -name '*.c' -o -name '*.h' \) -print0 | xargs -0 "{{clang_format_bin}}" --dry-run --Werror
+
+# Format all first-party C sources and headers
 fmt:
-    find . -path './.*' -prune -o -type f \( -name '*.c' -o -name '*.h' \) -print0 | xargs -0 "{{clang_format_bin}}" -i
+    find base memmy memmy_ast memmy_eval memmy_cli cmd unittest -type f \( -name '*.c' -o -name '*.h' \) -print0 | xargs -0 "{{clang_format_bin}}" -i
 
 # Remove build artifacts
 clean:
