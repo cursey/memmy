@@ -1,3 +1,5 @@
+#include "base_memory.h"
+
 #include "test_memmy_ast_common.h"
 
 Test(Test_MemmyAstReportsPreciseDiagnosticOffsets)
