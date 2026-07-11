@@ -1,3 +1,5 @@
+#include "base_memory.h"
+
 #include "test_memmy_common.h"
 
 static void Test_MemmyProcess_WritePointer(Test_MemmyBackend *backend, Memmy_Addr address, Memmy_Addr value)
