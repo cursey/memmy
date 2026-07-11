@@ -1,0 +1,41 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  format:
+    name: clang-format
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@just
+      - run: just fmt-check
+
+  build:
+    name: ${{ matrix.compiler }} ${{ matrix.config }}
+    needs: format
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [msvc, clang, clang-cl]
+        config: [Debug, Release]
+        include:
+          - compiler: msvc
+            cc: cl
+          - compiler: clang
+            cc: clang
+          - compiler: clang-cl
+            cc: clang-cl
+    env:
+      CC: ${{ matrix.cc }}
+      CMAKE_GENERATOR: Ninja
+      CONFIG: ${{ matrix.config }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+      - uses: taiki-e/install-action@just
+      - run: just test
