@@ -2,10 +2,10 @@
 
 This repository is a C11 memory introspection toolkit.
 
-- `base/` is the shared foundation library. Prefer its arenas, strings, intrusive containers, filesystem/process helpers, hashing, sorting, regex, bitsets, AVL trees, and OS abstractions before adding new utility code. Use the base layer as much as possible instead of calling the C standard library directly; when the base layer has a gap, call it out so we can decide whether to add the missing capability there.
-- `memmy/` is the core Memmy library. Public project APIs use `Memmy_` names. Private/file-local helpers may use lowercase `memmy_` when a prefix is useful.
-- `cmd/memmy/` is the CLI executable. The CMake target is `cmd_memmy`; its output name is `memmy`.
-- `vendor/` contains third-party code. Avoid editing it unless the task is explicitly about vendored code.
+- The project is organized as a set of first-party libraries, command-line tooling, tests, and third-party dependencies. Consult the root CMake files for the current component layout rather than relying on this document as a directory inventory.
+- Prefer the shared base layer's data structures, allocation, strings, filesystem/process helpers, and OS abstractions before adding utility code or calling the C standard library directly. When it has a gap, call it out so we can decide whether the missing capability belongs there.
+- Keep public APIs within the naming root for their component. Private/file-local helpers may use a lowercase component prefix when useful.
+- Avoid editing third-party code unless the task is explicitly about a vendored dependency.
 
 ## Build
 
