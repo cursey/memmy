@@ -1,9 +1,9 @@
 #include "memmy_context.h"
 
 #if OS_WINDOWS
-#include "platform/win32/memmy_win32_backend.h"
+#include "platform/memmy_backend_win32.h"
 #elif OS_MACOS
-#include "platform/darwin/memmy_darwin_backend.h"
+#include "platform/memmy_backend_darwin.h"
 #endif
 
 static THREAD_LOCAL Memmy_Context *memmy_tls_context;
