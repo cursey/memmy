@@ -23,15 +23,15 @@ else()
     file(WRITE ${memmy_test_ctest_cases} "# Generated after memmy_test builds\n")
 endif()
 
-add_custom_command(
-    TARGET memmy_test
-    POST_BUILD
+add_custom_target(
+    memmy_test_discover ALL
     COMMAND
         ${CMAKE_COMMAND}
         -DTEST_EXECUTABLE=$<TARGET_FILE:memmy_test>
         -DWORKING_DIRECTORY=${CMAKE_SOURCE_DIR}
         -DOUTPUT_FILE=${memmy_test_ctest_cases}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/discover_memmy_tests.cmake
+    DEPENDS memmy_test
     VERBATIM
 )
 

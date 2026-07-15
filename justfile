@@ -10,9 +10,9 @@ clang_format_bin := if os() == "windows" { env_var_or_default("ClangForWindowsBa
 default:
     @just --list
 
-# Configure via CMake (uses the system default generator/compiler).
+# Configure via CMake with Ninja and emit compile_commands.json.
 configure:
-    cmake -S . -B {{build_dir}} -DCMAKE_BUILD_TYPE={{config}}
+    cmake -S . -B {{build_dir}} -G Ninja -DCMAKE_BUILD_TYPE={{config}} -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
 # Build via CMake.
 build: configure
