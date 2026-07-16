@@ -388,14 +388,21 @@ Memmy_Status MemmyEval_Value_ApplyBinary(MemmyAst_ConstOp op, MemmyEval_Value lh
 static Memmy_Status MemmyEval_Transform_Append(MemmyEval_Exec *exec, MemmyEval_Value value, List *addresses,
                                                List *ranges, MemmyEval_ValueKind *out_kind, Memmy_Error *error)
 {
-    MemmyEval_ValueKind value_kind = MemmyEval_ValueKind_Null;
+    if (value.kind == MemmyEval_ValueKind_Nil ||
+        (value.kind == MemmyEval_ValueKind_AddressList && value.address_count == 0) ||
+        (value.kind == MemmyEval_ValueKind_RangeList && value.range_count == 0))
+    {
+        return Memmy_Status_Ok;
+    }
+
+    MemmyEval_ValueKind value_kind = MemmyEval_ValueKind_Nil;
     Memmy_Status status = MemmyEval_Transform_ListKindForValue(value, &value_kind, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
     }
 
-    if (*out_kind == MemmyEval_ValueKind_Null)
+    if (*out_kind == MemmyEval_ValueKind_Nil)
     {
         *out_kind = value_kind;
     }
@@ -442,6 +449,11 @@ Memmy_Status MemmyEval_List_Transform(MemmyEval_Exec *exec, MemmyAst_Node const 
     {
         return status;
     }
+    if (list.kind == MemmyEval_ValueKind_Nil)
+    {
+        *out = (MemmyEval_Value){0};
+        return Memmy_Status_Ok;
+    }
     if (list.kind != MemmyEval_ValueKind_AddressList && list.kind != MemmyEval_ValueKind_RangeList)
     {
         MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("transform"),
@@ -452,14 +464,13 @@ Memmy_Status MemmyEval_List_Transform(MemmyEval_Exec *exec, MemmyAst_Node const 
     U64 count = list.kind == MemmyEval_ValueKind_AddressList ? list.address_count : list.range_count;
     if (count == 0)
     {
-        MemmyEval_Error_Set(error, Memmy_Status_NotFound, String8_Lit("transform"),
-                            String8_Lit("transform input list is empty"));
-        return Memmy_Status_NotFound;
+        *out = (MemmyEval_Value){0};
+        return Memmy_Status_Ok;
     }
 
     List addresses = {0}; // MemmyEval_AddressNode
     List ranges = {0};    // MemmyEval_RangeNode
-    MemmyEval_ValueKind out_kind = MemmyEval_ValueKind_Null;
+    MemmyEval_ValueKind out_kind = MemmyEval_ValueKind_Nil;
     B32 old_has_current_item = exec->has_current_item;
     MemmyEval_Value old_current_item = exec->current_item;
 
@@ -476,12 +487,11 @@ Memmy_Status MemmyEval_List_Transform(MemmyEval_Exec *exec, MemmyAst_Node const 
         }
 
         MemmyEval_Value item_result = {0};
-        status = MemmyEval_Expr_EvalWithContext(exec, expr->rhs, &item_result, error);
+        Memmy_Error item_error = {0};
+        status = MemmyEval_Expr_EvalWithContext(exec, expr->rhs, &item_result, &item_error);
         if (status != Memmy_Status_Ok)
         {
-            exec->has_current_item = old_has_current_item;
-            exec->current_item = old_current_item;
-            return status;
+            continue;
         }
         status = MemmyEval_Transform_Append(exec, item_result, &addresses, &ranges, &out_kind, error);
         if (status != Memmy_Status_Ok)
@@ -494,7 +504,11 @@ Memmy_Status MemmyEval_List_Transform(MemmyEval_Exec *exec, MemmyAst_Node const 
 
     exec->has_current_item = old_has_current_item;
     exec->current_item = old_current_item;
-    if (out_kind == MemmyEval_ValueKind_RangeList)
+    if (out_kind == MemmyEval_ValueKind_Nil)
+    {
+        *out = (MemmyEval_Value){0};
+    }
+    else if (out_kind == MemmyEval_ValueKind_RangeList)
     {
         *out = MemmyEval_RangeList_FromList(exec->out_arena, &ranges);
     }
@@ -530,6 +544,11 @@ Memmy_Status MemmyEval_Expr_EvalValue(MemmyEval_Exec *exec, MemmyAst_Node const 
 {
     MemmyEval_Env *env = exec->env;
     (void)env;
+    if (expr->kind == MemmyAst_NodeKind_Nil)
+    {
+        *out = (MemmyEval_Value){0};
+        return Memmy_Status_Ok;
+    }
     if (expr->kind == MemmyAst_NodeKind_ConstArithmetic)
     {
         if (expr->op == MemmyAst_ConstOp_None)
@@ -725,6 +744,12 @@ Memmy_Status MemmyEval_Expr_EvalValue(MemmyEval_Exec *exec, MemmyAst_Node const 
         if (status != Memmy_Status_Ok)
         {
             return status;
+        }
+        if (list.kind == MemmyEval_ValueKind_Nil)
+        {
+            MemmyEval_Error_Set(error, Memmy_Status_NotFound, String8_Lit("index"),
+                                String8_Lit("list index out of range"));
+            return Memmy_Status_NotFound;
         }
         if (list.kind != MemmyEval_ValueKind_AddressList && list.kind != MemmyEval_ValueKind_RangeList)
         {

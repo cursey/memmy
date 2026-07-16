@@ -4,6 +4,7 @@
 
 ```txt
 x                    constant integer/math expression
+nil                  type-neutral absence of a value
 @x                   absolute address
 [@a..@b]             explicit address range [a, b)
 [@a..+n]             sized address range [a, a+n)
@@ -13,6 +14,9 @@ function address     function range containing address
 objectbase address   best-effort object base containing address
 $name                variable
 ```
+
+`nil` is a reserved lowercase literal. It prints as `nil`; JSONL expression
+output represents it with kind `nil` and JSON value `null`.
 
 ## Targets
 
@@ -152,14 +156,15 @@ $address |> $ as u32                read a value through a piped address
 $ranges |> $                        pass a range list through unchanged
 ```
 
-`|>` accepts constants, typed values, addresses, ranges, address lists, range
-lists, and empty lists. The right side may ignore `$`; the left side is still
-evaluated first.
+`|>` accepts `nil`, constants, typed values, addresses, ranges, address lists,
+range lists, and empty lists. The right side may ignore `$`; the left side is
+still evaluated first. Piping `nil` binds `$` to `nil` normally.
 
 `=>` evaluates an expression once for every item in an address list or range
 list. Inside the expression on the right, bare `$` means the current flow input
-(the current list item). The results are collected, in input order, into a new
-list.
+(the current list item). Successful address and range results are collected in
+input order into a new list. Failed evaluations and successful `nil` results
+are omitted, making `=>` a filter-map rather than a cardinality-preserving map.
 
 ```txt
 $refs => $ + 4              add 4 to every address
@@ -174,15 +179,25 @@ For example, if `$refs` contains `@0x1000` and `@0x2000`, then:
 $refs => $ + 4
 ```
 
-produces an address list containing `@0x1004` and `@0x2004`. This is roughly a
-list `map`: `$refs` is the input list, `$ + 4` is the per-item expression, and
-`$` takes the value of each address in turn.
+produces an address list containing `@0x1004` and `@0x2004`. `$refs` is the
+input list, `$ + 4` is the per-item expression, and `$` takes the value of each
+address in turn.
 
-The left side must evaluate to an address list or range list; a single address
-or range is not accepted. The right side must produce addresses, address lists,
-ranges, or range lists. If it produces a list, that list is flattened into the
-result. All items must produce the same category: addresses and ranges cannot be
-mixed in one result.
+The left side must evaluate to an address list, range list, or `nil`; a single
+address or range is not accepted. The right side must produce `nil`, addresses,
+address lists, ranges, or range lists. If it produces a list, that list is
+flattened into the result. All produced items must have the same category:
+addresses and ranges cannot be mixed in one result.
+
+Every right-side failure status is suppressed for that item, including lookup,
+arithmetic, argument, and backend failures. Evaluation continues with the next
+item and produces no diagnostic for the omitted failure. Side effects completed
+before a right-side failure are not rolled back. A successful empty list also
+contributes no item.
+
+An empty input list returns `nil` without evaluating the right side. If every
+right-side evaluation fails, returns `nil`, or returns an empty list, the result
+is also `nil`. `nil => expr` returns `nil` without evaluating `expr`.
 
 `|>` and `=>` have the same lowest precedence and form one left-associative flow
 chain, so each result becomes the next stage's input:
@@ -207,11 +222,11 @@ $refs => (function $ |> $ - <client.dll>)
 `=>` is distinct from `->`: `=>` transforms every item in a list, while `->`
 dereferences one address (or the start of one range).
 
-Transforms fail fast. Evaluation stops on the first item whose right-side
-expression fails—for example, when `function $` cannot find function metadata.
-An empty input list is also an error rather than an empty result. When an xref
-scan may include data-section hits, select the intended code hit first, for
-example `function $xrefs[0]`.
+Transform-level structural errors remain fatal: the left side must be a list or
+`nil`, successful right-side values must be address/range values, and successful
+address and range categories cannot be mixed. Other operations reject `nil`
+unless documented otherwise. Indexing `nil`, such as `nil[0]`, reports the
+normal index-not-found error.
 
 ## Assignments
 
@@ -219,6 +234,7 @@ Assignments evaluate immediately and bind the resulting value.
 
 ```txt
 $foo = 42
+$foo = nil
 $foo = @0x1234
 $foo = <client.dll>
 $foo = [@0x1234..@0x5678]
@@ -275,6 +291,7 @@ $target = $anchor+7+($anchor+3 as i32)
 
 ```txt
 x                    constant
+nil                  type-neutral absence of a value
 @x                   address
 [@a..@b]             explicit address range
 [@a..+n]             sized address range
@@ -292,7 +309,7 @@ address as T = value typed write
 $name = expr         bind evaluated result
 $name[N]             index address list
 value |> expr        bind the complete value to `$` and evaluate expr once
-list => expr         transform each address/range item; `$` is the flow input
+list => expr         filter-map address/range items; failed/nil RHS values are omitted
 /attach process      select process and clear variables
 /detach              clear selected process and variables
 /command             control REPL

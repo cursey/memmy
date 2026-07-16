@@ -7,7 +7,7 @@
 typedef U32 MemmyEval_ValueKind;
 enum
 {
-    MemmyEval_ValueKind_Null,
+    MemmyEval_ValueKind_Nil,
     MemmyEval_ValueKind_Const,
     MemmyEval_ValueKind_Address,
     MemmyEval_ValueKind_Range,

@@ -422,8 +422,11 @@ Test(Test_MemmyEvalFunctionLookupErrors)
              Memmy_Status_Ok);
     Test_EvalParseExpr(arena, "$xrefs => function $", &expr);
     error = (Memmy_Error){0};
-    AssertEq(MemmyEval_Expr_Eval(env, expr, &value, &error), Memmy_Status_NotFound);
-    AssertStrEq(error.context, String8_Lit("function"));
+    AssertEq(MemmyEval_Expr_Eval(env, expr, &value, &error), Memmy_Status_Ok);
+    AssertEq(value.kind, MemmyEval_ValueKind_RangeList);
+    AssertEq(value.range_count, 1);
+    AssertEq(value.ranges[0].start, 0x1000);
+    AssertEq(value.ranges[0].end, 0x1050);
 
     Test_EvalParseExpr(arena, "function [@0x1000..@0x1050]", &expr);
     error = (Memmy_Error){0};

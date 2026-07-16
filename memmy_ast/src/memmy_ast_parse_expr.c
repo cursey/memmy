@@ -577,6 +577,13 @@ static MemmyAst_Status MemmyAst_Parser_ParseAddressUnary(MemmyAst_Parser *parser
 
 static MemmyAst_Status MemmyAst_Parser_ParseExprPrimary(MemmyAst_Parser *parser, MemmyAst_Node **out)
 {
+    if (MemmyAst_Token_IsIdentifier(parser->token, String8_Lit("nil")))
+    {
+        MemmyAst_Token token = parser->token;
+        *out = MemmyAst_Parser_PushNode(parser, MemmyAst_NodeKind_Nil, token);
+        return MemmyAst_Parser_Next(parser);
+    }
+
     if (MemmyAst_Token_IsIdentifier(parser->token, String8_Lit("function")))
     {
         return MemmyAst_Parser_ParseAddressUnary(parser, MemmyAst_NodeKind_Function, parser->token, out);

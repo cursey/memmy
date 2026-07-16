@@ -310,20 +310,18 @@ Test(Test_MemmyEvalListTransformErrors)
 
     Test_EvalParseExpr(arena, "$empty_refs => $ + 4", &expr);
     error = (Memmy_Error){0};
-    AssertEq(MemmyEval_Expr_Eval(env, expr, &value, &error), Memmy_Status_NotFound);
-    AssertStrEq(error.context, String8_Lit("transform"));
-    AssertStrEq(error.message, String8_Lit("transform input list is empty"));
+    AssertEq(MemmyEval_Expr_Eval(env, expr, &value, &error), Memmy_Status_Ok);
+    AssertEq(value.kind, MemmyEval_ValueKind_Nil);
 
     Test_EvalParseExpr(arena, "$empty_ranges => $ + 4", &expr);
     error = (Memmy_Error){0};
-    AssertEq(MemmyEval_Expr_Eval(env, expr, &value, &error), Memmy_Status_NotFound);
-    AssertStrEq(error.context, String8_Lit("transform"));
-    AssertStrEq(error.message, String8_Lit("transform input list is empty"));
+    AssertEq(MemmyEval_Expr_Eval(env, expr, &value, &error), Memmy_Status_Ok);
+    AssertEq(value.kind, MemmyEval_ValueKind_Nil);
 
     Test_EvalParseExpr(arena, "$refs => $ + 1", &expr);
     error = (Memmy_Error){0};
-    AssertEq(MemmyEval_Expr_Eval(env, expr, &value, &error), Memmy_Status_Overflow);
-    AssertStrEq(error.context, String8_Lit("address"));
+    AssertEq(MemmyEval_Expr_Eval(env, expr, &value, &error), Memmy_Status_Ok);
+    AssertEq(value.kind, MemmyEval_ValueKind_Nil);
 
     Memmy_Addr small_refs[] = {0x1000};
     AssertEq(MemmyEval_Env_Set(env, String8_Lit("refs"),
@@ -356,10 +354,87 @@ Test(Test_MemmyEvalEmptyListTransformDoesNotEvaluateRhsEffects)
     Test_EvalParseExpr(arena, "$empty_refs => (@0x1004 as u8 = 1)", &expr);
     MemmyEval_Value value = {0};
     Memmy_Error error = {0};
-    AssertEq(MemmyEval_Expr_Eval(env, expr, &value, &error), Memmy_Status_NotFound);
-    AssertStrEq(error.context, String8_Lit("transform"));
-    AssertStrEq(error.message, String8_Lit("transform input list is empty"));
+    AssertEq(MemmyEval_Expr_Eval(env, expr, &value, &error), Memmy_Status_Ok);
+    AssertEq(value.kind, MemmyEval_ValueKind_Nil);
     AssertEq(backend.memory[4], 4);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalNilLiteralAndComposition)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    MemmyEval_Env *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+
+    MemmyEval_Value value = {0};
+    Test_EvalExprText(env, arena, "nil", &value);
+    AssertEq(value.kind, MemmyEval_ValueKind_Nil);
+    Test_EvalStatementText(env, arena, "$x = nil");
+    AssertEq(MemmyEval_Env_Find(env, String8_Lit("x"), &value), Memmy_Status_Ok);
+    AssertEq(value.kind, MemmyEval_ValueKind_Nil);
+    Test_EvalExprText(env, arena, "nil |> $", &value);
+    AssertEq(value.kind, MemmyEval_ValueKind_Nil);
+    Test_EvalExprText(env, arena, "nil => (@0x1004 as u8 = 1)", &value);
+    AssertEq(value.kind, MemmyEval_ValueKind_Nil);
+    AssertEq(backend.memory[4], 4);
+
+    MemmyAst_Node *expr = 0;
+    Memmy_Error error = {0};
+    Test_EvalParseExpr(arena, "nil[0]", &expr);
+    AssertEq(MemmyEval_Expr_Eval(env, expr, &value, &error), Memmy_Status_NotFound);
+    AssertStrEq(error.context, String8_Lit("index"));
+    AssertStrEq(error.message, String8_Lit("list index out of range"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalListTransformFiltersFailuresAndNil)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    MemmyEval_Env *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+    Memmy_Addr refs[] = {0x1000, U64_MAX, 0x2000};
+    AssertEq(MemmyEval_Env_Set(env, String8_Lit("refs"),
+                               (MemmyEval_Value){.kind = MemmyEval_ValueKind_AddressList,
+                                                 .addresses = refs,
+                                                 .address_count = ArrayCount(refs)}),
+             Memmy_Status_Ok);
+
+    MemmyEval_Value value = {0};
+    Test_EvalExprText(env, arena, "$refs => $ + 1", &value);
+    AssertEq(value.kind, MemmyEval_ValueKind_AddressList);
+    AssertEq(value.address_count, 2);
+    AssertEq(value.addresses[0], 0x1001);
+    AssertEq(value.addresses[1], 0x2001);
+
+    Memmy_Addr range_starts[] = {0x1000, 0x2000, 0x1100};
+    AssertEq(MemmyEval_Env_Set(env, String8_Lit("range_starts"),
+                               (MemmyEval_Value){.kind = MemmyEval_ValueKind_AddressList,
+                                                 .addresses = range_starts,
+                                                 .address_count = ArrayCount(range_starts)}),
+             Memmy_Status_Ok);
+    Test_EvalExprText(env, arena, "$range_starts => [$..@0x1500]", &value);
+    AssertEq(value.kind, MemmyEval_ValueKind_RangeList);
+    AssertEq(value.range_count, 2);
+    AssertEq(value.ranges[0].start, 0x1000);
+    AssertEq(value.ranges[1].start, 0x1100);
+
+    Test_EvalExprText(env, arena, "$refs => nil", &value);
+    AssertEq(value.kind, MemmyEval_ValueKind_Nil);
+
+    AssertEq(MemmyEval_Env_Set(env, String8_Lit("empty"), (MemmyEval_Value){.kind = MemmyEval_ValueKind_AddressList}),
+             Memmy_Status_Ok);
+    Test_EvalExprText(env, arena, "$refs => $empty", &value);
+    AssertEq(value.kind, MemmyEval_ValueKind_Nil);
+
+    Test_MemmyBackend_SetReadStatus(&backend, Memmy_Status_AccessDenied);
+    Test_EvalExprText(env, arena, "$refs => $ as u8", &value);
+    AssertEq(value.kind, MemmyEval_ValueKind_Nil);
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -505,5 +580,7 @@ TestSuite suite_memmy_eval_scan_transform = TestSuite_Make(
     TestCase_Make(Test_MemmyEvalListTransformsAddressLists), TestCase_Make(Test_MemmyEvalListTransformsRangeLists),
     TestCase_Make(Test_MemmyEvalListTransformErrors),
     TestCase_Make(Test_MemmyEvalEmptyListTransformDoesNotEvaluateRhsEffects),
+    TestCase_Make(Test_MemmyEvalNilLiteralAndComposition),
+    TestCase_Make(Test_MemmyEvalListTransformFiltersFailuresAndNil),
     TestCase_Make(Test_MemmyEvalAnchorTargetExampleFlow), TestCase_Make(Test_MemmyEvalValuePipesPreserveValues),
     TestCase_Make(Test_MemmyEvalValuePipesTypedValuesAndScanLists), );

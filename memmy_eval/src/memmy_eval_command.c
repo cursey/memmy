@@ -184,6 +184,7 @@ Memmy_Status MemmyEval_Command_Eval(MemmyEval_Exec *exec, MemmyAst_Statement con
             .kind = MemmyEval_ResultKind_Help,
             .text = String8_Lit("Core values:\n"
                                 "  x                    constant integer/math expression\n"
+                                "  nil                  type-neutral absence of a value\n"
                                 "  @x                   absolute address\n"
                                 "  [@a..@b]             explicit address range [a, b)\n"
                                 "  [@a..+n]             sized address range [a, a+n)\n"
@@ -197,7 +198,8 @@ Memmy_Status MemmyEval_Command_Eval(MemmyEval_Exec *exec, MemmyAst_Statement con
                                 "Memory:\n"
                                 "  range refs <ptr|rel32|any> address\n"
                                 "  value |> expr        bind value to $ and evaluate expr once\n"
-                                "  list => expr         transform each address/range item\n"
+                                "  list => expr         filter-map address/range items\n"
+                                "                       failed and nil RHS results are omitted\n"
                                 "  $                    current flow input inside a flow RHS\n"
                                 "  Flows chain left-to-right; parentheses nest; inner $ shadows outer $\n"
                                 "  $matches |> $[0]\n"

@@ -573,6 +573,36 @@ Test(Test_MemmyCliVarsFormatsTextAndJsonl)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyCliNilFormatsTextJsonlAssignmentAndVars)
+{
+    Arena *arena = Arena_CreateDefault();
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *text_argv[] = {"memmy"};
+    char *jsonl_argv[] = {"memmy", "--jsonl"};
+
+    AssertEq(MemmyCli_Input_RunString(arena, (I32)ArrayCount(text_argv), text_argv,
+                                      String8_Lit("$x = nil\n"
+                                                  "nil\n"
+                                                  "/vars\n"),
+                                      &out, &error),
+             Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("nil\n"
+                                 "x nil\n"));
+
+    AssertEq(MemmyCli_Input_RunString(arena, (I32)ArrayCount(jsonl_argv), jsonl_argv,
+                                      String8_Lit("$x = nil\n"
+                                                  "nil\n"
+                                                  "/vars\n"),
+                                      &out, &error),
+             Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("{\"type\":\"assignment\",\"name\":\"x\",\"kind\":\"nil\"}\n"
+                                 "{\"type\":\"value\",\"kind\":\"nil\",\"value\":null}\n"
+                                 "{\"type\":\"variable\",\"name\":\"x\",\"kind\":\"nil\"}\n"));
+
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyCliJsonlScriptEmitsAssignmentsExpressionsAndExit)
 {
     Arena *arena = Arena_CreateDefault();
@@ -1213,7 +1243,7 @@ Test(Test_MemmyCliRangeListAssignmentAndVars)
     Arena_Destroy(arena);
 }
 
-Test(Test_MemmyCliExprEmptyScanTransformReturnsNotFound)
+Test(Test_MemmyCliExprEmptyScanTransformReturnsNil)
 {
     Arena *arena = Arena_CreateDefault();
     Test_MemmyBackend test_backend = {0};
@@ -1226,10 +1256,8 @@ Test(Test_MemmyCliExprEmptyScanTransformReturnsNotFound)
     Memmy_Error error = {0};
     char *argv[] = {"memmy", "--pid", "1234", "--expr", "[@0x1020..+0x20]{ff} => [$..+0x20]"};
 
-    AssertEq(MemmyCli_Argv_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_NotFound);
-    AssertStrEq(error.context, String8_Lit("transform"));
-    AssertStrEq(error.message, String8_Lit("transform input list is empty"));
-    AssertStrEq(out, String8_Lit(""));
+    AssertEq(MemmyCli_Argv_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("nil\n"));
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -1345,6 +1373,7 @@ TestSuite suite_memmy_cli_dsl = TestSuite_Make(
     TestCase_Make(Test_MemmyCliScriptDetachDoesNotFallBackToInitialPidSelector),
     TestCase_Make(Test_MemmyCliScriptPidSelectorRejectsProcessQualifiedTarget),
     TestCase_Make(Test_MemmyCliVarsFormatsTextAndJsonl),
+    TestCase_Make(Test_MemmyCliNilFormatsTextJsonlAssignmentAndVars),
     TestCase_Make(Test_MemmyCliJsonlScriptEmitsAssignmentsExpressionsAndExit),
     TestCase_Make(Test_MemmyCliHelpFormatsText), TestCase_Make(Test_MemmyCliExprRejectsScanTweakables),
     TestCase_Make(Test_MemmyCliExprParseErrorJsonlHasTypedFields), TestCase_Make(Test_MemmyCliExprRejectsOldSyntax),
@@ -1364,7 +1393,7 @@ TestSuite suite_memmy_cli_dsl = TestSuite_Make(
     TestCase_Make(Test_MemmyCliExprFormatsObjectBaseAddressTextAndJsonl),
     TestCase_Make(Test_MemmyCliExprFormatsFunctionRangeTextAndJsonl),
     TestCase_Make(Test_MemmyCliExprFormatsFunctionRangeListText),
-    TestCase_Make(Test_MemmyCliExprEmptyScanTransformReturnsNotFound),
+    TestCase_Make(Test_MemmyCliExprEmptyScanTransformReturnsNil),
     TestCase_Make(Test_MemmyCliExprJsonlScanWriterFailureStopsBeforeSummary),
     TestCase_Make(Test_MemmyCliExprScansWholeProcessValueWithRegions),
     TestCase_Make(Test_MemmyCliExprScanIndexFunctionPipelineTextAndJsonl), );

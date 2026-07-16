@@ -1,5 +1,27 @@
 #include "test_memmy_ast_common.h"
 
+Test(Test_MemmyAstParsesNilLiteral)
+{
+    Arena *arena = Arena_CreateDefault();
+
+    MemmyAst_Node *nil = 0;
+    Test_ParseAstExpr(arena, "nil", &nil);
+    AssertEq(nil->kind, MemmyAst_NodeKind_Nil);
+    AssertStrEq(nil->text, String8_Lit("nil"));
+
+    MemmyAst_Node *indexed = 0;
+    Test_ParseAstExpr(arena, "nil[0]", &indexed);
+    AssertEq(indexed->kind, MemmyAst_NodeKind_Index);
+    AssertEq(indexed->lhs->kind, MemmyAst_NodeKind_Nil);
+
+    MemmyAst_Node *transform = 0;
+    Test_ParseAstExpr(arena, "nil => $ + 1", &transform);
+    AssertEq(transform->kind, MemmyAst_NodeKind_ListTransform);
+    AssertEq(transform->lhs->kind, MemmyAst_NodeKind_Nil);
+
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyAstParsesFunctionLookup)
 {
     Arena *arena = Arena_CreateDefault();
@@ -162,7 +184,8 @@ Test(Test_MemmyAstRejectsObjectBaseWithoutOperand)
     Arena_Destroy(arena);
 }
 
-TestSuite suite_memmy_ast_address_ops = TestSuite_Make(
-    "Memmy AST Address Operations", TestCase_Make(Test_MemmyAstParsesFunctionLookup),
-    TestCase_Make(Test_MemmyAstParsesObjectBaseLookup), TestCase_Make(Test_MemmyAstRejectsFunctionWithoutOperand),
-    TestCase_Make(Test_MemmyAstRejectsObjectBaseWithoutOperand), );
+TestSuite suite_memmy_ast_address_ops =
+    TestSuite_Make("Memmy AST Address Operations", TestCase_Make(Test_MemmyAstParsesNilLiteral),
+                   TestCase_Make(Test_MemmyAstParsesFunctionLookup), TestCase_Make(Test_MemmyAstParsesObjectBaseLookup),
+                   TestCase_Make(Test_MemmyAstRejectsFunctionWithoutOperand),
+                   TestCase_Make(Test_MemmyAstRejectsObjectBaseWithoutOperand), );

@@ -94,6 +94,7 @@ static String8 MemmyCli_Dsl_Help(Arena *arena)
 {
     return String8_Copy(arena, String8_Lit("Core values:\n"
                                            "  x                    constant integer/math expression\n"
+                                           "  nil                  type-neutral absence of a value\n"
                                            "  @x                   absolute address\n"
                                            "  [@a..@b]             explicit address range [a, b)\n"
                                            "  [@a..+n]             sized address range [a, a+n)\n"
@@ -118,7 +119,8 @@ static String8 MemmyCli_Dsl_Help(Arena *arena)
                                            "  range refs any addr  ptr or rel32 reference scan -> address list\n"
                                            "  range disasm x64 {...} x64 disassembly scan -> address list\n"
                                            "  value |> expr        bind value to $ and evaluate expr once\n"
-                                           "  list => expr         transform each address/range item\n"
+                                           "  list => expr         filter-map address/range items\n"
+                                           "                       failed and nil RHS results are omitted\n"
                                            "  $                    current flow input inside a flow RHS\n"
                                            "  Flows chain left-to-right; parentheses nest; inner $ shadows outer $\n"
                                            "  $matches |> $[0]\n"
@@ -173,9 +175,9 @@ static String8 MemmyCli_EvalValue_KindString(MemmyEval_Value value)
     {
         return String8_Lit("typed_value");
     }
-    if (value.kind == MemmyEval_ValueKind_Null)
+    if (value.kind == MemmyEval_ValueKind_Nil)
     {
-        return String8_Lit("null");
+        return String8_Lit("nil");
     }
     return String8_Lit("unknown");
 }
@@ -457,9 +459,11 @@ static Memmy_Status MemmyCli_EvalResultWriter_WriteValue(MemmyCli_EvalResultWrit
 {
     Arena *arena = result_writer->arena;
     Memmy_PointerWidth pointer_width = MemmyCli_EvalResultWriter_PointerWidth(result_writer);
-    if (value.kind == MemmyEval_ValueKind_Null)
+    if (value.kind == MemmyEval_ValueKind_Nil)
     {
-        return Memmy_Status_Ok;
+        String8 line = result_writer->jsonl ? String8_Lit("{\"type\":\"value\",\"kind\":\"nil\",\"value\":null}\n")
+                                            : String8_Lit("nil\n");
+        return MemmyCli_EvalResultWriter_Write(result_writer, line);
     }
     if (value.kind == MemmyEval_ValueKind_Const)
     {

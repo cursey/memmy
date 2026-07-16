@@ -39,6 +39,12 @@ The example deliberately selects index `0` at two points. If several strings,
 references, functions, or instructions match, inspect the corresponding list
 before choosing the result appropriate for the target build.
 
+The `=>` operator is a filter-map: it evaluates its right side for each input
+address or range, preserves and flattens successful address/range results, and
+omits failed or `nil` results. If nothing is produced, the transform evaluates
+to the type-neutral `nil` value. This lets lookups such as `function $` ignore
+items without matching metadata while keeping the successful matches ordered.
+
 ## Build
 
 ```sh

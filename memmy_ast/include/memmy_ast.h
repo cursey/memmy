@@ -16,7 +16,7 @@ enum
 typedef U32 MemmyAst_NodeKind;
 enum
 {
-    MemmyAst_NodeKind_Null,
+    MemmyAst_NodeKind_Nil,
     MemmyAst_NodeKind_ConstArithmetic,
     MemmyAst_NodeKind_Variable,
     MemmyAst_NodeKind_CurrentItem,
