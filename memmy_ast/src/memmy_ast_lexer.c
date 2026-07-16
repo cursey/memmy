@@ -214,6 +214,11 @@ MemmyAst_Status MemmyAst_Parser_Next(MemmyAst_Parser *parser)
         parser->pos++;
         kind = MemmyAst_TokenKind_FatArrow;
     }
+    else if (c == '|' && MemmyAst_Parser_Peek(parser) == '>')
+    {
+        parser->pos++;
+        kind = MemmyAst_TokenKind_ValuePipe;
+    }
     else if (c == '{')
     {
         kind = MemmyAst_TokenKind_LBrace;
@@ -297,7 +302,7 @@ B32 MemmyAst_Node_MayBeAddressLike(MemmyAst_Node *node)
             node->kind == MemmyAst_NodeKind_ProcessRange || node->kind == MemmyAst_NodeKind_Target ||
             node->kind == MemmyAst_NodeKind_Deref || node->kind == MemmyAst_NodeKind_Function ||
             node->kind == MemmyAst_NodeKind_ObjectBase || node->kind == MemmyAst_NodeKind_Variable ||
-            node->kind == MemmyAst_NodeKind_CurrentItem)
+            node->kind == MemmyAst_NodeKind_CurrentItem || node->kind == MemmyAst_NodeKind_ValuePipe)
         {
             result = 1;
         }

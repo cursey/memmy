@@ -120,6 +120,8 @@ Memmy_Status MemmyEval_Value_ApplyBinary(MemmyAst_ConstOp op, MemmyEval_Value lh
                                          MemmyEval_Value *out, Memmy_Error *error);
 Memmy_Status MemmyEval_List_Transform(MemmyEval_Exec *exec, MemmyAst_Node const *expr, MemmyEval_Value *out,
                                       Memmy_Error *error);
+Memmy_Status MemmyEval_Value_Pipe(MemmyEval_Exec *exec, MemmyAst_Node const *expr, MemmyEval_Value *out,
+                                  Memmy_Error *error);
 Memmy_Status MemmyEval_Target_Eval(MemmyEval_Exec *exec, MemmyAst_Node const *target, MemmyEval_Value *out,
                                    Memmy_Error *error);
 Memmy_Status MemmyEval_Type_Parse(String8 type_name, Memmy_Type *out, Memmy_Error *error);

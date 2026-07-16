@@ -393,6 +393,108 @@ Test(Test_MemmyEvalAnchorTargetExampleFlow)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyEvalValuePipesPreserveValues)
+{
+    Arena *arena = Arena_CreateDefault();
+    MemmyEval_Env *env = MemmyEval_Env_Create(arena);
+    Memmy_Addr refs[] = {0x1000, 0x2000};
+    Memmy_Range ranges[] = {{.start = 0x3000, .end = 0x3020}};
+    AssertEq(MemmyEval_Env_Set(env, String8_Lit("refs"),
+                               (MemmyEval_Value){.kind = MemmyEval_ValueKind_AddressList,
+                                                 .addresses = refs,
+                                                 .address_count = ArrayCount(refs)}),
+             Memmy_Status_Ok);
+    AssertEq(MemmyEval_Env_Set(env, String8_Lit("ranges"),
+                               (MemmyEval_Value){.kind = MemmyEval_ValueKind_RangeList,
+                                                 .ranges = ranges,
+                                                 .range_count = ArrayCount(ranges)}),
+             Memmy_Status_Ok);
+    AssertEq(
+        MemmyEval_Env_Set(env, String8_Lit("empty_refs"), (MemmyEval_Value){.kind = MemmyEval_ValueKind_AddressList}),
+        Memmy_Status_Ok);
+    AssertEq(MemmyEval_Env_Set(env, String8_Lit("max"),
+                               (MemmyEval_Value){.kind = MemmyEval_ValueKind_Address, .address = U64_MAX}),
+             Memmy_Status_Ok);
+
+    MemmyEval_Value value = {0};
+    Test_EvalExprText(env, arena, "42 |> $", &value);
+    AssertEq(value.kind, MemmyEval_ValueKind_Const);
+    AssertEq(value.constant, 42);
+    Test_EvalExprText(env, arena, "@0x1234 |> $", &value);
+    AssertEq(value.kind, MemmyEval_ValueKind_Address);
+    AssertEq(value.address, 0x1234);
+    Test_EvalExprText(env, arena, "[@0x1234..+0x20] |> $", &value);
+    AssertEq(value.kind, MemmyEval_ValueKind_Range);
+    AssertEq(value.range.start, 0x1234);
+    AssertEq(value.range.end, 0x1254);
+    Test_EvalExprText(env, arena, "$refs |> $", &value);
+    AssertEq(value.kind, MemmyEval_ValueKind_AddressList);
+    AssertEq(value.address_count, 2);
+    AssertEq(value.addresses[1], 0x2000);
+    Test_EvalExprText(env, arena, "$ranges |> $", &value);
+    AssertEq(value.kind, MemmyEval_ValueKind_RangeList);
+    AssertEq(value.range_count, 1);
+    Test_EvalExprText(env, arena, "$empty_refs |> $", &value);
+    AssertEq(value.kind, MemmyEval_ValueKind_AddressList);
+    AssertEq(value.address_count, 0);
+    Test_EvalExprText(env, arena, "$refs |> 7", &value);
+    AssertEq(value.kind, MemmyEval_ValueKind_Const);
+    AssertEq(value.constant, 7);
+    Test_EvalExprText(env, arena, "$refs => $ + 4 |> $[0]", &value);
+    AssertEq(value.kind, MemmyEval_ValueKind_Address);
+    AssertEq(value.address, 0x1004);
+    Test_EvalExprText(env, arena, "$refs => ((7 |> $) + $)", &value);
+    AssertEq(value.kind, MemmyEval_ValueKind_AddressList);
+    AssertEq(value.addresses[0], 0x1007);
+    AssertEq(value.addresses[1], 0x2007);
+
+    MemmyAst_Node *expr = 0;
+    Memmy_Error error = {0};
+    Test_EvalParseExpr(arena, "1 |> $max + 1", &expr);
+    AssertEq(MemmyEval_Expr_Eval(env, expr, &value, &error), Memmy_Status_Overflow);
+    AssertStrEq(error.context, String8_Lit("address"));
+
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalValuePipesTypedValuesAndScanLists)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    MemmyEval_Env *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+    backend.memory[0x20] = 0x2a;
+    backend.memory[0x30] = 0x90;
+    Test_EvalWriteU64LE(backend.memory + 0x40, 0x1080);
+
+    MemmyEval_Value value = {0};
+    Test_EvalExprText(env, arena, "@0x1020 as u8 |> $", &value);
+    AssertEq(value.kind, MemmyEval_ValueKind_TypedValue);
+    AssertEq(value.constant, 0x2a);
+    Test_EvalExprText(env, arena, "[@0x1000..+0x40]{90} |> $", &value);
+    AssertEq(value.kind, MemmyEval_ValueKind_AddressList);
+    AssertEq(value.address_count, 1);
+    AssertEq(value.addresses[0], 0x1030);
+    U64 read_call_count = backend.read_call_count;
+    Test_EvalExprText(env, arena, "@0x1020 as u8 |> @0x1030 as u8", &value);
+    AssertEq(backend.read_call_count - read_call_count, 2);
+    Test_EvalExprText(env, arena, "(@0x1040 |> $)->", &value);
+    AssertEq(value.kind, MemmyEval_ValueKind_Address);
+    AssertEq(value.address, 0x1080);
+    Test_EvalExprText(env, arena, "([@0x1040..+0x8] |> $)->", &value);
+    AssertEq(value.kind, MemmyEval_ValueKind_Address);
+    AssertEq(value.address, 0x1080);
+
+    MemmyAst_Node *expr = 0;
+    Test_EvalParseExpr(arena, "(1 |> $)->", &expr);
+    Memmy_Error error = {0};
+    AssertEq(MemmyEval_Expr_Eval(env, expr, &value, &error), Memmy_Status_InvalidArgument);
+    AssertStrEq(error.context, String8_Lit("address"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
 TestSuite suite_memmy_eval_scan_transform = TestSuite_Make(
     "Memmy Eval Scan And Transform", TestCase_Make(Test_MemmyEvalPatternScanAssignmentMaterializesAddressList),
     TestCase_Make(Test_MemmyEvalValueScanAssignmentMaterializesAddressList),
@@ -403,4 +505,5 @@ TestSuite suite_memmy_eval_scan_transform = TestSuite_Make(
     TestCase_Make(Test_MemmyEvalListTransformsAddressLists), TestCase_Make(Test_MemmyEvalListTransformsRangeLists),
     TestCase_Make(Test_MemmyEvalListTransformErrors),
     TestCase_Make(Test_MemmyEvalEmptyListTransformDoesNotEvaluateRhsEffects),
-    TestCase_Make(Test_MemmyEvalAnchorTargetExampleFlow), );
+    TestCase_Make(Test_MemmyEvalAnchorTargetExampleFlow), TestCase_Make(Test_MemmyEvalValuePipesPreserveValues),
+    TestCase_Make(Test_MemmyEvalValuePipesTypedValuesAndScanLists), );

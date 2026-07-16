@@ -37,6 +37,7 @@ enum
     MemmyAst_NodeKind_DisasmScan,
     MemmyAst_NodeKind_Function,
     MemmyAst_NodeKind_ObjectBase,
+    MemmyAst_NodeKind_ValuePipe,
 };
 
 typedef U32 MemmyAst_DisasmArch;

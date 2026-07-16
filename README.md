@@ -21,8 +21,7 @@ $strings = <client.dll> as str == "IGameSystem::InitAllSystems"
 $string_xrefs = $strings => <client.dll> refs any $
 
 # Map each reference to its containing function, then select the first one.
-$init_all_game_systems_fns = $string_xrefs => function $
-$init_all_game_systems_fn = $init_all_game_systems_fns[0]
+$init_all_game_systems_fn = $string_xrefs => function $ |> $[0]
 
 # Scan the first 0x100 bytes of the function for RIP-relative mov instructions.
 $first_system_movs = [$init_all_game_systems_fn..+0x100] disasm x64 { mov reg, [rip+disp32] }

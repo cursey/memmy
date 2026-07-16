@@ -505,6 +505,26 @@ Memmy_Status MemmyEval_List_Transform(MemmyEval_Exec *exec, MemmyAst_Node const 
     return Memmy_Status_Ok;
 }
 
+Memmy_Status MemmyEval_Value_Pipe(MemmyEval_Exec *exec, MemmyAst_Node const *expr, MemmyEval_Value *out,
+                                  Memmy_Error *error)
+{
+    MemmyEval_Value input = {0};
+    Memmy_Status status = MemmyEval_Expr_EvalWithContext(exec, expr->lhs, &input, error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+
+    B32 old_has_current_item = exec->has_current_item;
+    MemmyEval_Value old_current_item = exec->current_item;
+    exec->has_current_item = 1;
+    exec->current_item = input;
+    status = MemmyEval_Expr_EvalWithContext(exec, expr->rhs, out, error);
+    exec->has_current_item = old_has_current_item;
+    exec->current_item = old_current_item;
+    return status;
+}
+
 Memmy_Status MemmyEval_Expr_EvalValue(MemmyEval_Exec *exec, MemmyAst_Node const *expr, MemmyEval_Value *out,
                                       Memmy_Error *error)
 {
@@ -558,8 +578,8 @@ Memmy_Status MemmyEval_Expr_EvalValue(MemmyEval_Exec *exec, MemmyAst_Node const 
     {
         if (!exec->has_current_item)
         {
-            MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("transform"),
-                                String8_Lit("current item is only available inside transforms"));
+            MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("flow"),
+                                String8_Lit("current flow input is only available inside flow expressions"));
             return Memmy_Status_InvalidArgument;
         }
         *out = exec->current_item;
@@ -568,6 +588,10 @@ Memmy_Status MemmyEval_Expr_EvalValue(MemmyEval_Exec *exec, MemmyAst_Node const 
     if (expr->kind == MemmyAst_NodeKind_ListTransform)
     {
         return MemmyEval_List_Transform(exec, expr, out, error);
+    }
+    if (expr->kind == MemmyAst_NodeKind_ValuePipe)
+    {
+        return MemmyEval_Value_Pipe(exec, expr, out, error);
     }
     if (expr->kind == MemmyAst_NodeKind_Address)
     {

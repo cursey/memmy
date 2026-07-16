@@ -127,7 +127,7 @@ static MemmyAst_Status MemmyAst_Parser_ParseConstPrimary(MemmyAst_Parser *parser
     {
         if (parser->current_item_scope_depth == 0)
         {
-            MemmyAst_Parser_SetError(parser, String8_Lit("bare '$' is only valid inside transform expressions"),
+            MemmyAst_Parser_SetError(parser, String8_Lit("bare '$' is only valid inside flow expressions"),
                                      parser->token.byte_offset, parser->token.byte_count);
             return MemmyAst_Status_ParseError;
         }
@@ -636,7 +636,8 @@ static B32 MemmyAst_Parser_TokenEndsExpr(MemmyAst_TokenKind kind)
 {
     return kind == MemmyAst_TokenKind_Eof || kind == MemmyAst_TokenKind_RBracket || kind == MemmyAst_TokenKind_RParen ||
            kind == MemmyAst_TokenKind_Equal || kind == MemmyAst_TokenKind_EqualEqual ||
-           kind == MemmyAst_TokenKind_LBrace || kind == MemmyAst_TokenKind_FatArrow;
+           kind == MemmyAst_TokenKind_LBrace || kind == MemmyAst_TokenKind_FatArrow ||
+           kind == MemmyAst_TokenKind_ValuePipe;
 }
 
 static MemmyAst_Status MemmyAst_Parser_ParseDerefChain(MemmyAst_Parser *parser, MemmyAst_Node **out)
@@ -749,7 +750,8 @@ static MemmyAst_Status MemmyAst_Parser_ParseExprNoTransform(MemmyAst_Parser *par
 static MemmyAst_Status MemmyAst_Parser_ParseExpr(MemmyAst_Parser *parser, MemmyAst_Node **out)
 {
     MemmyAst_Status status = MemmyAst_Parser_ParseExprNoTransform(parser, out);
-    while (status == MemmyAst_Status_Ok && parser->token.kind == MemmyAst_TokenKind_FatArrow)
+    while (status == MemmyAst_Status_Ok &&
+           (parser->token.kind == MemmyAst_TokenKind_FatArrow || parser->token.kind == MemmyAst_TokenKind_ValuePipe))
     {
         MemmyAst_Token op = parser->token;
         status = MemmyAst_Parser_Next(parser);
@@ -768,7 +770,9 @@ static MemmyAst_Status MemmyAst_Parser_ParseExpr(MemmyAst_Parser *parser, MemmyA
         }
 
         MemmyAst_Node *lhs = *out;
-        MemmyAst_Node *node = MemmyAst_Parser_PushNode(parser, MemmyAst_NodeKind_ListTransform, op);
+        MemmyAst_NodeKind kind =
+            op.kind == MemmyAst_TokenKind_FatArrow ? MemmyAst_NodeKind_ListTransform : MemmyAst_NodeKind_ValuePipe;
+        MemmyAst_Node *node = MemmyAst_Parser_PushNode(parser, kind, op);
         node->lhs = lhs;
         node->rhs = rhs;
         node->contains_variable = lhs->contains_variable || rhs->contains_variable;

@@ -63,6 +63,11 @@ static MemmyAst_Status MemmyAst_Parser_CaptureValueText(MemmyAst_Parser *parser,
             {
                 break;
             }
+            else if (pos + 1 < parser->input.len && ((c == '|' && parser->input.data[pos + 1] == '>') ||
+                                                     (c == '=' && parser->input.data[pos + 1] == '>')))
+            {
+                break;
+            }
         }
         pos++;
     }

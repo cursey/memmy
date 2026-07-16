@@ -36,6 +36,7 @@ enum
     MemmyAst_TokenKind_Percent,
     MemmyAst_TokenKind_Equal,
     MemmyAst_TokenKind_EqualEqual,
+    MemmyAst_TokenKind_ValuePipe,
 };
 
 typedef struct MemmyAst_Token MemmyAst_Token;

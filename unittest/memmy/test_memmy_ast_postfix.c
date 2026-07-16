@@ -251,10 +251,93 @@ Test(Test_MemmyAstRejectsInvalidListTransforms)
     Test_RejectAstExpr("[$..+0x20]");
 }
 
+Test(Test_MemmyAstParsesValuePipesAndMixedFlowChains)
+{
+    Arena *arena = Arena_CreateDefault();
+
+    MemmyAst_Node *pipe = 0;
+    Test_ParseAstExpr(arena, "1 |> $ |> $ + 2", &pipe);
+    AssertEq(pipe->kind, MemmyAst_NodeKind_ValuePipe);
+    AssertEq(pipe->byte_offset, 0);
+    AssertEq(pipe->byte_count, 15);
+    AssertEq(pipe->lhs->kind, MemmyAst_NodeKind_ValuePipe);
+    AssertEq(pipe->lhs->byte_offset, 0);
+    AssertEq(pipe->lhs->byte_count, 6);
+    AssertEq(pipe->lhs->rhs->kind, MemmyAst_NodeKind_CurrentItem);
+    AssertEq(pipe->rhs->kind, MemmyAst_NodeKind_ConstArithmetic);
+
+    MemmyAst_Node *mixed = 0;
+    Test_ParseAstExpr(arena, "$refs => function $ |> $[0]", &mixed);
+    AssertEq(mixed->kind, MemmyAst_NodeKind_ValuePipe);
+    AssertEq(mixed->lhs->kind, MemmyAst_NodeKind_ListTransform);
+    AssertEq(mixed->lhs->rhs->kind, MemmyAst_NodeKind_Function);
+    AssertEq(mixed->rhs->kind, MemmyAst_NodeKind_Index);
+
+    MemmyAst_Node *nested = 0;
+    Test_ParseAstExpr(arena, "$refs => (function $ |> $ - <client.dll>)", &nested);
+    AssertEq(nested->kind, MemmyAst_NodeKind_ListTransform);
+    AssertEq(nested->rhs->kind, MemmyAst_NodeKind_ValuePipe);
+    AssertEq(nested->rhs->lhs->kind, MemmyAst_NodeKind_Function);
+    AssertEq(nested->rhs->rhs->kind, MemmyAst_NodeKind_ConstArithmetic);
+
+    MemmyAst_Node *address_pipe_deref = 0;
+    Test_ParseAstExpr(arena, "(@0x1000 |> $)->", &address_pipe_deref);
+    AssertEq(address_pipe_deref->kind, MemmyAst_NodeKind_Deref);
+    AssertEq(address_pipe_deref->lhs->kind, MemmyAst_NodeKind_ValuePipe);
+
+    MemmyAst_Node *range_pipe_deref = 0;
+    Test_ParseAstExpr(arena, "([@0x1000..+0x20] |> $)->", &range_pipe_deref);
+    AssertEq(range_pipe_deref->kind, MemmyAst_NodeKind_Deref);
+    AssertEq(range_pipe_deref->lhs->kind, MemmyAst_NodeKind_ValuePipe);
+
+    char *stage_texts[] = {
+        "1 + 2 |> $",
+        "@0x1000 |> $",
+        "[@0x1000..+0x20] |> $",
+        "@0x1000-> |> $",
+        "@0x1000 as u8 |> $",
+        "[@0x1000..+0x20]{90} |> $",
+        "[@0x1000..+0x20] as u8 == 1 |> $",
+        "[0..] refs ptr @0x1000 |> $",
+        "function @0x1000 |> $",
+        "$refs |> $[0]",
+    };
+    for (U64 i = 0; i < ArrayCount(stage_texts); i++)
+    {
+        MemmyAst_Node *stage_pipe = 0;
+        Test_ParseAstExpr(arena, stage_texts[i], &stage_pipe);
+        AssertEq(stage_pipe->kind, MemmyAst_NodeKind_ValuePipe);
+        AssertEq(stage_pipe->rhs->kind,
+                 i == ArrayCount(stage_texts) - 1 ? MemmyAst_NodeKind_Index : MemmyAst_NodeKind_CurrentItem);
+    }
+
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyAstRejectsInvalidValuePipes)
+{
+    Test_RejectAstExpr("1 |>");
+    Test_RejectAstExpr("|> 1");
+    Test_RejectAstExpr("1 |> |> 2");
+    Test_RejectAstExpr("1 | 2");
+
+    Arena *arena = Arena_CreateDefault();
+    MemmyAst_Node *expr = 0;
+    MemmyAst_Diagnostic diagnostic = {0};
+    AssertEq(MemmyAst_Expr_Parse(arena, String8_Lit("1 |>"), &expr, &diagnostic), MemmyAst_Status_ParseError);
+    AssertEq(diagnostic.byte_offset, 4);
+    AssertStrEq(diagnostic.message, String8_Lit("expected expression"));
+    AssertEq(MemmyAst_Expr_Parse(arena, String8_Lit("$"), &expr, &diagnostic), MemmyAst_Status_ParseError);
+    AssertStrEq(diagnostic.message, String8_Lit("bare '$' is only valid inside flow expressions"));
+    Arena_Destroy(arena);
+}
+
 TestSuite suite_memmy_ast_postfix = TestSuite_Make(
     "Memmy AST Postfix", TestCase_Make(Test_MemmyAstParsesParenthesizedTypedReadsInArithmetic),
     TestCase_Make(Test_MemmyAstParsesPocketReferenceReads), TestCase_Make(Test_MemmyAstParsesPocketReferenceWrites),
     TestCase_Make(Test_MemmyAstParsesPocketReferenceAddressLists),
     TestCase_Make(Test_MemmyAstParsesPocketReferenceIndexingAddressLists),
     TestCase_Make(Test_MemmyAstRejectsInvalidReferenceScans), TestCase_Make(Test_MemmyAstParsesListTransforms),
-    TestCase_Make(Test_MemmyAstRejectsInvalidListTransforms), );
+    TestCase_Make(Test_MemmyAstRejectsInvalidListTransforms),
+    TestCase_Make(Test_MemmyAstParsesValuePipesAndMixedFlowChains),
+    TestCase_Make(Test_MemmyAstRejectsInvalidValuePipes), );

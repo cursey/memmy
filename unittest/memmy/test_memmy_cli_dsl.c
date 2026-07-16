@@ -1299,6 +1299,33 @@ Test(Test_MemmyCliExprScansWholeProcessValueWithRegions)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyCliExprScanIndexFunctionPipelineTextAndJsonl)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+    Test_MemmyBackend_AddFunction(&test_backend, 1234, 0x1000, 0x1050);
+    test_backend.memory[0x24] = 0xcc;
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy", "--pid", "1234", "--expr", "[@0x1020..+0x20]{cc} |> $[0] |> function $"};
+    AssertEq(MemmyCli_Argv_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("[0x0000000000001000..0x0000000000001050)\n"));
+
+    out = (String8){0};
+    char *jsonl_argv[] = {"memmy", "--jsonl", "--pid", "1234", "--expr", "[@0x1020..+0x20]{cc} |> $[0] |> function $"};
+    AssertEq(MemmyCli_Argv_RunToString(arena, (I32)ArrayCount(jsonl_argv), jsonl_argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("{\"type\":\"range\",\"start\":\"0x0000000000001000\","
+                                 "\"end\":\"0x0000000000001050\"}\n"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
 TestSuite suite_memmy_cli_dsl = TestSuite_Make(
     "Memmy CLI DSL", TestCase_Make(Test_MemmyCliExprResolvesModuleAddressByPid),
     TestCase_Make(Test_MemmyCliExprResolvesPointerChainByPid),
@@ -1339,4 +1366,5 @@ TestSuite suite_memmy_cli_dsl = TestSuite_Make(
     TestCase_Make(Test_MemmyCliExprFormatsFunctionRangeListText),
     TestCase_Make(Test_MemmyCliExprEmptyScanTransformReturnsNotFound),
     TestCase_Make(Test_MemmyCliExprJsonlScanWriterFailureStopsBeforeSummary),
-    TestCase_Make(Test_MemmyCliExprScansWholeProcessValueWithRegions), );
+    TestCase_Make(Test_MemmyCliExprScansWholeProcessValueWithRegions),
+    TestCase_Make(Test_MemmyCliExprScanIndexFunctionPipelineTextAndJsonl), );

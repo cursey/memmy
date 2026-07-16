@@ -100,6 +100,7 @@ Memmy_Status MemmyEval_Expr_EvalWithContext(MemmyEval_Exec *exec, MemmyAst_Node 
     case MemmyAst_NodeKind_Variable:
     case MemmyAst_NodeKind_CurrentItem:
     case MemmyAst_NodeKind_ListTransform:
+    case MemmyAst_NodeKind_ValuePipe:
     case MemmyAst_NodeKind_Address:
     case MemmyAst_NodeKind_Range:
     case MemmyAst_NodeKind_Index:

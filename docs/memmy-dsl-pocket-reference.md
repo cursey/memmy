@@ -140,11 +140,26 @@ $matches[3]
 $hit = $matches[0] - 0xf
 ```
 
-## Transforming Lists With `=>`
+## Flow Pipelines With `|>` And `=>`
+
+`|>` evaluates its left side once, binds that complete value to bare `$`, then
+evaluates its right side once. The right-side value is returned unchanged: the
+pipe adds no type restriction, conversion, flattening, or empty-list error.
+
+```txt
+$matches |> $[0]                    select the first match
+$address |> $ as u32                read a value through a piped address
+$ranges |> $                        pass a range list through unchanged
+```
+
+`|>` accepts constants, typed values, addresses, ranges, address lists, range
+lists, and empty lists. The right side may ignore `$`; the left side is still
+evaluated first.
 
 `=>` evaluates an expression once for every item in an address list or range
-list. Inside the expression on the right, bare `$` means the current item. The
-results are collected, in input order, into a new list.
+list. Inside the expression on the right, bare `$` means the current flow input
+(the current list item). The results are collected, in input order, into a new
+list.
 
 ```txt
 $refs => $ + 4              add 4 to every address
@@ -169,16 +184,25 @@ ranges, or range lists. If it produces a list, that list is flattened into the
 result. All items must produce the same category: addresses and ranges cannot be
 mixed in one result.
 
-Transforms chain from left to right, so the output of one becomes the input of
-the next:
+`|>` and `=>` have the same lowest precedence and form one left-associative flow
+chain, so each result becomes the next stage's input:
 
 ```txt
 $refs => [$..+0x20] => $ + 4
+$xrefs => function $ |> $[0]
 ```
 
 This first makes a range for each address, then transforms each range. In
 address arithmetic, a range contributes its start address, so the final result
 is an address list containing each original address plus 4.
+
+Parentheses create a nested flow chain. The innermost pipe or transform binding
+shadows `$`, and the outer binding is restored after the nested flow succeeds or
+fails. For example, this pipe runs separately inside every transform iteration:
+
+```txt
+$refs => (function $ |> $ - <client.dll>)
+```
 
 `=>` is distinct from `->`: `=>` transforms every item in a list, while `->`
 dereferences one address (or the start of one range).
@@ -267,7 +291,8 @@ address as T         typed read
 address as T = value typed write
 $name = expr         bind evaluated result
 $name[N]             index address list
-list => expr         transform each address/range item; `$` is the current item
+value |> expr        bind the complete value to `$` and evaluate expr once
+list => expr         transform each address/range item; `$` is the flow input
 /attach process      select process and clear variables
 /detach              clear selected process and variables
 /command             control REPL
