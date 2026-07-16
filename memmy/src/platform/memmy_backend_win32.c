@@ -4,7 +4,6 @@
 
 #include "memmy_backend_win32.h"
 
-
 #define WIN32_LEAN_AND_MEAN
 // clang-format off
 #include <windows.h>
