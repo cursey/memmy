@@ -2,9 +2,7 @@
 // BitSet tests
 // ===========================================================================
 
-#include "base_arena.h"
-#include "base_bitset.h"
-#include "base_core.h"
+#include "base.h"
 #include "test_framework.h"
 
 Test(Test_BitsetSetTestClear)

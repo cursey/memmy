@@ -1,7 +1,7 @@
 #ifndef TEST_MEMMY_EVAL_COMMON_H
 #define TEST_MEMMY_EVAL_COMMON_H
 
-#include "base_memory.h"
+#include "base.h"
 #include "memmy_eval.h"
 #include "test_framework.h"
 #include "test_memmy_backend.h"

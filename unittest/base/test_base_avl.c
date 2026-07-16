@@ -4,11 +4,7 @@
 
 #include <string.h>
 
-#include "base_arena.h"
-#include "base_avl.h"
-#include "base_core.h"
-#include "base_hash.h"
-#include "base_string.h"
+#include "base.h"
 #include "test_framework.h"
 
 static B32 avl_test__ok;

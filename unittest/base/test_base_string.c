@@ -2,9 +2,7 @@
 // String tests
 // ===========================================================================
 
-#include "base_arena.h"
-#include "base_core.h"
-#include "base_string.h"
+#include "base.h"
 #include "test_framework.h"
 
 Test(Test_Str8Eq)

@@ -1,6 +1,6 @@
 #include "memmy_value.h"
 
-#include "base_memory.h"
+#include "base.h"
 
 static B32 Memmy_Char_IsWhitespace(U8 c)
 {

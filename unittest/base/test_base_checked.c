@@ -2,8 +2,7 @@
 // Checked arithmetic tests
 // ===========================================================================
 
-#include "base_checked.h"
-#include "base_core.h"
+#include "base.h"
 #include "test_framework.h"
 
 Test(Test_AddU64Checked)

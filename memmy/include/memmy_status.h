@@ -1,7 +1,7 @@
 #ifndef MEMMY_STATUS_H
 #define MEMMY_STATUS_H
 
-#include "base_string.h"
+#include "base.h"
 
 typedef U32 Memmy_Status;
 enum

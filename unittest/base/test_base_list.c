@@ -2,9 +2,7 @@
 // List (doubly-linked, null-terminated) tests
 // ===========================================================================
 
-#include "base_arena.h"
-#include "base_core.h"
-#include "base_list.h"
+#include "base.h"
 #include "test_framework.h"
 
 typedef struct TestListNode TestListNode;

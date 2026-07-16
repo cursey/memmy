@@ -1,8 +1,7 @@
 #ifndef MEMMY_BACKEND_H
 #define MEMMY_BACKEND_H
 
-#include "base_arena.h"
-#include "base_string.h"
+#include "base.h"
 #include "memmy_status.h"
 #include "memmy_types.h"
 

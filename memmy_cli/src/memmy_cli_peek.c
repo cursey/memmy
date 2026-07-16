@@ -1,7 +1,6 @@
 #include "memmy_cli_internal.h"
 
-#include "base_math.h"
-#include "base_memory.h"
+#include "base.h"
 
 static U64 MemmyCli_Integer_ReadLE(String8 bytes)
 {

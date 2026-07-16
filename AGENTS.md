@@ -57,6 +57,10 @@ This repository is a C11 memory introspection toolkit.
 - Functions declared in a header have external linkage. Do not mark either the declaration or the `.c` definition `static`.
 - Helpers used only in one `.c` file are `static`.
 - Each `.c` file includes the headers it uses; each header includes its own dependencies.
+- Each library that exposes a public API has an umbrella header, such as `base.h` or `memmy.h`, that includes all of its
+  public headers. Outside that library, include its API through the umbrella header rather than including individual
+  public headers. Within the library, use sister headers and direct dependencies so every public header remains
+  self-contained. Add each new public header to its library's umbrella header.
 - Every header needs a guard.
 - Include order: sister header, external headers, local project headers. Use a blank line between groups.
 

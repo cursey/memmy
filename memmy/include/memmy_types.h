@@ -1,7 +1,7 @@
 #ifndef MEMMY_TYPES_H
 #define MEMMY_TYPES_H
 
-#include "base_core.h"
+#include "base.h"
 
 typedef U64 Memmy_Addr;
 typedef U64 Memmy_Size;

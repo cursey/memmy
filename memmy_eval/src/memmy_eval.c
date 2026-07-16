@@ -1,9 +1,6 @@
 #include "memmy_eval_internal.h"
 
-#include "base_checked.h"
-#include "base_hash.h"
-#include "base_list.h"
-#include "base_memory.h"
+#include "base.h"
 
 void MemmyEval_Error_Set(Memmy_Error *error, Memmy_Status status, String8 context, String8 message)
 {

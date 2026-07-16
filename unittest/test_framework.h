@@ -3,8 +3,7 @@
 
 #include <stdio.h>
 
-#include "base_core.h"
-#include "base_string.h"
+#include "base.h"
 
 // ---------------------------------------------------------------------------
 // Test framework

@@ -1,8 +1,7 @@
 #ifndef MEMMY_AST_H
 #define MEMMY_AST_H
 
-#include "base_arena.h"
-#include "base_string.h"
+#include "base.h"
 
 typedef U32 MemmyAst_Status;
 enum

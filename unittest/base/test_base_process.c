@@ -2,10 +2,7 @@
 // Process tests
 // ===========================================================================
 
-#include "base_arena.h"
-#include "base_core.h"
-#include "base_process.h"
-#include "base_string.h"
+#include "base.h"
 #include "test_framework.h"
 
 #if OS_WINDOWS

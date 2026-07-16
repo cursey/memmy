@@ -1,9 +1,6 @@
 #include "memmy_eval_internal.h"
 
-#include "base_checked.h"
-#include "base_hash.h"
-#include "base_list.h"
-#include "base_memory.h"
+#include "base.h"
 
 static Memmy_Status MemmyEval_Result_Push(MemmyEval_ResultSink const *sink, MemmyEval_Result const *result)
 {

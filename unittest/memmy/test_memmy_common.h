@@ -1,8 +1,7 @@
 #ifndef TEST_MEMMY_COMMON_H
 #define TEST_MEMMY_COMMON_H
 
-#include "base_list.h"
-#include "base_os.h"
+#include "base.h"
 #include "memmy.h"
 #include "memmy_cli.h"
 #include "test_framework.h"

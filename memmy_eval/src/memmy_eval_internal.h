@@ -3,9 +3,7 @@
 
 #include "memmy_eval.h"
 
-#include "base_hash.h"
-#include "base_hashmap.h"
-#include "base_list.h"
+#include "base.h"
 
 #define MEMMY_EVAL_STRING_READ_MAX 4096
 #define MEMMY_EVAL_STRING_READ_CHUNK_SIZE 256

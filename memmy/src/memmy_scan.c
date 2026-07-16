@@ -1,9 +1,6 @@
 #include "memmy_scan.h"
 
-#include "base_checked.h"
-#include "base_list.h"
-#include "base_memory.h"
-#include "base_sort.h"
+#include "base.h"
 #include "memmy_backend.h"
 
 static B32 Memmy_Pattern_MatchesAt(Memmy_Pattern pattern, U8 const *bytes)

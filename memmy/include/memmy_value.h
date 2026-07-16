@@ -1,8 +1,7 @@
 #ifndef MEMMY_VALUE_H
 #define MEMMY_VALUE_H
 
-#include "base_arena.h"
-#include "base_string.h"
+#include "base.h"
 #include "memmy_process.h"
 #include "memmy_status.h"
 

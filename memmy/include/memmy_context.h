@@ -1,7 +1,7 @@
 #ifndef MEMMY_CONTEXT_H
 #define MEMMY_CONTEXT_H
 
-#include "base_arena.h"
+#include "base.h"
 #include "memmy_backend.h"
 #include "memmy_status.h"
 

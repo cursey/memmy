@@ -1,4 +1,4 @@
-#include "base_memory.h"
+#include "base.h"
 #include "test_framework.h"
 
 Test(Test_MemoryCopy)

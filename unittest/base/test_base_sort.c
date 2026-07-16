@@ -2,9 +2,7 @@
 // Sort tests
 // ===========================================================================
 
-#include "base_arena.h"
-#include "base_core.h"
-#include "base_sort.h"
+#include "base.h"
 #include "test_framework.h"
 
 static I32 CmpU64(void *a, void *b, void *ctx)

@@ -1,4 +1,4 @@
-#include "base_math.h"
+#include "base.h"
 #include "test_framework.h"
 
 Test(Test_F32IsFinite)

@@ -2,10 +2,7 @@
 // Regex tests
 // ===========================================================================
 
-#include "base_arena.h"
-#include "base_core.h"
-#include "base_regex.h"
-#include "base_string.h"
+#include "base.h"
 #include "test_framework.h"
 
 static B32 Matches(Arena *a, const char *pat, const char *in)

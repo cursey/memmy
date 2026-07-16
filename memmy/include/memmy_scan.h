@@ -1,7 +1,7 @@
 #ifndef MEMMY_SCAN_H
 #define MEMMY_SCAN_H
 
-#include "base_arena.h"
+#include "base.h"
 #include "memmy_process.h"
 #include "memmy_value.h"
 

@@ -1,7 +1,7 @@
 #ifndef MEMMY_RANGE_H
 #define MEMMY_RANGE_H
 
-#include "base_string.h"
+#include "base.h"
 #include "memmy_status.h"
 #include "memmy_types.h"
 

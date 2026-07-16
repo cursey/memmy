@@ -1,6 +1,6 @@
 #include "test_memmy_common.h"
 
-#include "base_fs.h"
+#include "base.h"
 
 static void Test_MemmyCli_SetupInputBackend(Test_MemmyBackend *backend)
 {
