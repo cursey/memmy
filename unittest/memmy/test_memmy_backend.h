@@ -62,6 +62,8 @@ struct Test_MemmyBackend
     Memmy_Status read_status;
     U64 read_limit;
     U64 read_call_count;
+    void *first_read_buffer;
+    B32 read_buffer_changed;
     U64 open_call_count;
     U64 close_call_count;
     U32 last_open_pid;

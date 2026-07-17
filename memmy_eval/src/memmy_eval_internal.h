@@ -83,19 +83,14 @@ struct MemmyEval_RegionEmitter
 {
     MemmyEval_ResultSink const *sink;
 };
-typedef struct MemmyEval_OpenProcess MemmyEval_OpenProcess;
-struct MemmyEval_OpenProcess
-{
-    ListLink link;
-    Memmy_Process *process;
-};
 typedef struct MemmyEval_Exec MemmyEval_Exec;
 struct MemmyEval_Exec
 {
     MemmyEval_Env *env;
     Arena *out_arena;
     Arena *transient_arena;
-    List open_processes; // MemmyEval_OpenProcess
+    Arena *process_arena;
+    Memmy_Process *process;
     B32 has_current_item;
     MemmyEval_Value current_item;
 };

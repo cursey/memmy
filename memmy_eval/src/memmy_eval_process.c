@@ -9,9 +9,15 @@ void MemmyEval_Exec_Close(MemmyEval_Exec *exec)
         return;
     }
 
-    List_ForEach(MemmyEval_OpenProcess, node, &exec->open_processes, link)
+    if (exec->process != 0)
     {
-        Memmy_Process_Close(node->process);
+        Memmy_Process_Close(exec->process);
+        exec->process = 0;
+    }
+    if (exec->process_arena != 0)
+    {
+        Arena_Destroy(exec->process_arena);
+        exec->process_arena = 0;
     }
 }
 
@@ -24,26 +30,32 @@ Memmy_Status MemmyEval_Exec_OpenProcess(MemmyEval_Exec *exec, U32 pid, Memmy_Pro
         return Memmy_Status_InvalidArgument;
     }
 
-    List_ForEach(MemmyEval_OpenProcess, node, &exec->open_processes, link)
+    if (exec->process != 0)
     {
-        if (node->process != 0 && node->process->pid == pid)
+        if (exec->process->pid != pid)
         {
-            *out = node->process;
-            return Memmy_Status_Ok;
+            MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("process"),
+                                String8_Lit("evaluation requested more than one process"));
+            return Memmy_Status_InvalidArgument;
         }
+        *out = exec->process;
+        return Memmy_Status_Ok;
+    }
+
+    if (exec->process_arena == 0)
+    {
+        exec->process_arena = Arena_Create(Megabytes(1));
     }
 
     Memmy_Process *process = 0;
-    Arena *arena = exec->transient_arena != 0 ? exec->transient_arena : exec->env->arena;
-    Memmy_Status status = Memmy_Process_Open(arena, pid, &process, error);
+    Memmy_Status status = Memmy_Process_Open(exec->process_arena, pid, &process, error);
     if (status != Memmy_Status_Ok)
     {
+        Arena_Clear(exec->process_arena);
         return status;
     }
 
-    MemmyEval_OpenProcess *node = Arena_PushStruct(arena, MemmyEval_OpenProcess);
-    node->process = process;
-    List_PushBack(&exec->open_processes, &node->link);
+    exec->process = process;
     *out = process;
     return Memmy_Status_Ok;
 }

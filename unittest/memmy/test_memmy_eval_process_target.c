@@ -239,7 +239,7 @@ Test(Test_MemmyEvalRangeEndpointUsesAmbientProcess)
     Arena_Destroy(arena);
 }
 
-Test(Test_MemmyEvalTransientProcessOpenBookkeepingUsesStatementScratch)
+Test(Test_MemmyEvalProcessLifetimeIsScopedToStatement)
 {
     Arena *arena = Arena_CreateDefault();
     Test_MemmyBackend backend = {0};
@@ -528,7 +528,7 @@ TestSuite suite_memmy_eval_process_target = TestSuite_Make(
     TestCase_Make(Test_MemmyEvalAddressFromTypedValueUsesAmbientProcess),
     TestCase_Make(Test_MemmyEvalRangeEndpointsDoNotCarryProcessProvenance),
     TestCase_Make(Test_MemmyEvalRangeEndpointUsesAmbientProcess),
-    TestCase_Make(Test_MemmyEvalTransientProcessOpenBookkeepingUsesStatementScratch),
+    TestCase_Make(Test_MemmyEvalProcessLifetimeIsScopedToStatement),
     TestCase_Make(Test_MemmyEvalMissingProcessDiagnostics),
     TestCase_Make(Test_MemmyEvalReferenceScanRejectsMissingProcessWrongLhsAndTarget),
     TestCase_Make(Test_MemmyEvalFunctionLookup), TestCase_Make(Test_MemmyEvalFunctionLookupErrors),

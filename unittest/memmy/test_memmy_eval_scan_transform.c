@@ -570,6 +570,185 @@ Test(Test_MemmyEvalValuePipesTypedValuesAndScanLists)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyEvalListTransformReclaimsFailedScanAllocations)
+{
+    Arena *arena = Arena_CreateDefault();
+    Arena *out_arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    MemmyEval_Env *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+
+    Memmy_Addr refs[128] = {0};
+    for (U64 i = 0; i < ArrayCount(refs); i++)
+    {
+        refs[i] = 0x2000 + i;
+    }
+    AssertEq(MemmyEval_Env_Set(env, String8_Lit("refs"),
+                               (MemmyEval_Value){.kind = MemmyEval_ValueKind_AddressList,
+                                                 .addresses = refs,
+                                                 .address_count = ArrayCount(refs)}),
+             Memmy_Status_Ok);
+
+    MemmyAst_Node *expr = 0;
+    Test_EvalParseExpr(arena, "$refs => ([0..]{??})[999]", &expr);
+    U64 out_pos = Arena_Pos(out_arena);
+    MemmyEval_Value value = {0};
+    Memmy_Error error = {0};
+    AssertEq((MemmyEval_Expr_Eval)(out_arena, env, expr, &value, &error), Memmy_Status_Ok);
+    AssertEq(value.kind, MemmyEval_ValueKind_Nil);
+    AssertTrue(Arena_Pos(out_arena) - out_pos <= sizeof(refs) + 16);
+    AssertTrue(backend.first_read_buffer != 0);
+    AssertTrue(!backend.read_buffer_changed);
+    AssertEq(backend.open_call_count, 1);
+    AssertEq(backend.close_call_count, 1);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(out_arena);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalListTransformReclaimsSuccessfulScanIntermediates)
+{
+    Arena *arena = Arena_CreateDefault();
+    Arena *out_arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    MemmyEval_Env *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+
+    Memmy_Addr refs[64] = {0};
+    for (U64 i = 0; i < ArrayCount(refs); i++)
+    {
+        refs[i] = 0x2000 + i;
+    }
+    AssertEq(MemmyEval_Env_Set(env, String8_Lit("refs"),
+                               (MemmyEval_Value){.kind = MemmyEval_ValueKind_AddressList,
+                                                 .addresses = refs,
+                                                 .address_count = ArrayCount(refs)}),
+             Memmy_Status_Ok);
+
+    MemmyAst_Node *expr = 0;
+    Test_EvalParseExpr(arena, "$refs => (([0..]{??})[0] + ($ - @0x2000))", &expr);
+    U64 out_pos = Arena_Pos(out_arena);
+    MemmyEval_Value value = {0};
+    Memmy_Error error = {0};
+    AssertEq((MemmyEval_Expr_Eval)(out_arena, env, expr, &value, &error), Memmy_Status_Ok);
+    AssertEq(value.kind, MemmyEval_ValueKind_AddressList);
+    AssertEq(value.address_count, ArrayCount(refs));
+    for (U64 i = 0; i < value.address_count; i++)
+    {
+        AssertEq(value.addresses[i], 0x1000 + i);
+    }
+    AssertTrue(Arena_Pos(out_arena) - out_pos <= sizeof(refs) * 2 + 32);
+    AssertTrue(backend.first_read_buffer != 0);
+    AssertEq(backend.open_call_count, 1);
+    AssertEq(backend.close_call_count, 1);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(out_arena);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalNestedListTransformReclaimsFailedScanAllocations)
+{
+    Arena *arena = Arena_CreateDefault();
+    Arena *out_arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    MemmyEval_Env *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+
+    Memmy_Addr outer[] = {0x2000, 0x2001, 0x2002, 0x2003};
+    Memmy_Addr inner[] = {0x3000, 0x3001, 0x3002};
+    AssertEq(MemmyEval_Env_Set(env, String8_Lit("outer"),
+                               (MemmyEval_Value){.kind = MemmyEval_ValueKind_AddressList,
+                                                 .addresses = outer,
+                                                 .address_count = ArrayCount(outer)}),
+             Memmy_Status_Ok);
+    AssertEq(MemmyEval_Env_Set(env, String8_Lit("inner"),
+                               (MemmyEval_Value){.kind = MemmyEval_ValueKind_AddressList,
+                                                 .addresses = inner,
+                                                 .address_count = ArrayCount(inner)}),
+             Memmy_Status_Ok);
+
+    MemmyAst_Node *expr = 0;
+    Test_EvalParseExpr(arena, "$outer => ($inner => ([0..]{??})[999])", &expr);
+    U64 out_pos = Arena_Pos(out_arena);
+    MemmyEval_Value value = {0};
+    Memmy_Error error = {0};
+    AssertEq((MemmyEval_Expr_Eval)(out_arena, env, expr, &value, &error), Memmy_Status_Ok);
+    AssertEq(value.kind, MemmyEval_ValueKind_Nil);
+    AssertTrue(Arena_Pos(out_arena) - out_pos <= sizeof(outer) + 16);
+    AssertTrue(backend.first_read_buffer != 0);
+    AssertTrue(!backend.read_buffer_changed);
+    AssertEq(backend.open_call_count, 1);
+    AssertEq(backend.close_call_count, 1);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(out_arena);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalListTransformCleansUpScanBeforeStructuralError)
+{
+    Arena *arena = Arena_CreateDefault();
+    Arena *out_arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    MemmyEval_Env *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+
+    Memmy_Addr refs[] = {0x2000, 0x2001};
+    AssertEq(MemmyEval_Env_Set(env, String8_Lit("refs"),
+                               (MemmyEval_Value){.kind = MemmyEval_ValueKind_AddressList,
+                                                 .addresses = refs,
+                                                 .address_count = ArrayCount(refs)}),
+             Memmy_Status_Ok);
+
+    MemmyAst_Node *expr = 0;
+    Test_EvalParseExpr(arena, "$refs => (([0..]{??}) |> @0x1000 as u8)", &expr);
+    U64 out_pos = Arena_Pos(out_arena);
+    MemmyEval_Value value = {0};
+    Memmy_Error error = {0};
+    AssertEq((MemmyEval_Expr_Eval)(out_arena, env, expr, &value, &error), Memmy_Status_InvalidArgument);
+    AssertStrEq(error.context, String8_Lit("transform"));
+    AssertStrEq(error.message, String8_Lit("transform expression must produce address or range values"));
+    AssertTrue(Arena_Pos(out_arena) - out_pos <= sizeof(refs) + 16);
+    AssertEq(backend.open_call_count, 1);
+    AssertEq(backend.close_call_count, 1);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(out_arena);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalListTransformRewindPreservesWriteSideEffects)
+{
+    Arena *arena = Arena_CreateDefault();
+    Arena *out_arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    MemmyEval_Env *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+
+    Memmy_Addr refs[] = {0x2000};
+    AssertEq(MemmyEval_Env_Set(env, String8_Lit("refs"),
+                               (MemmyEval_Value){.kind = MemmyEval_ValueKind_AddressList,
+                                                 .addresses = refs,
+                                                 .address_count = ArrayCount(refs)}),
+             Memmy_Status_Ok);
+
+    MemmyAst_Node *expr = 0;
+    Test_EvalParseExpr(arena, "$refs => ((@0x1004 as u8 = 0xaa) |> ([0..]{??})[999])", &expr);
+    MemmyEval_Value value = {0};
+    Memmy_Error error = {0};
+    AssertEq((MemmyEval_Expr_Eval)(out_arena, env, expr, &value, &error), Memmy_Status_Ok);
+    AssertEq(value.kind, MemmyEval_ValueKind_Nil);
+    AssertEq(backend.memory[4], 0xaa);
+    AssertEq(backend.open_call_count, 1);
+    AssertEq(backend.close_call_count, 1);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(out_arena);
+    Arena_Destroy(arena);
+}
+
 TestSuite suite_memmy_eval_scan_transform = TestSuite_Make(
     "Memmy Eval Scan And Transform", TestCase_Make(Test_MemmyEvalPatternScanAssignmentMaterializesAddressList),
     TestCase_Make(Test_MemmyEvalValueScanAssignmentMaterializesAddressList),
@@ -583,4 +762,9 @@ TestSuite suite_memmy_eval_scan_transform = TestSuite_Make(
     TestCase_Make(Test_MemmyEvalNilLiteralAndComposition),
     TestCase_Make(Test_MemmyEvalListTransformFiltersFailuresAndNil),
     TestCase_Make(Test_MemmyEvalAnchorTargetExampleFlow), TestCase_Make(Test_MemmyEvalValuePipesPreserveValues),
-    TestCase_Make(Test_MemmyEvalValuePipesTypedValuesAndScanLists), );
+    TestCase_Make(Test_MemmyEvalValuePipesTypedValuesAndScanLists),
+    TestCase_Make(Test_MemmyEvalListTransformReclaimsFailedScanAllocations),
+    TestCase_Make(Test_MemmyEvalListTransformReclaimsSuccessfulScanIntermediates),
+    TestCase_Make(Test_MemmyEvalNestedListTransformReclaimsFailedScanAllocations),
+    TestCase_Make(Test_MemmyEvalListTransformCleansUpScanBeforeStructuralError),
+    TestCase_Make(Test_MemmyEvalListTransformRewindPreservesWriteSideEffects), );

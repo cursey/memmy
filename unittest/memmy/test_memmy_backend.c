@@ -81,6 +81,14 @@ static Memmy_Status Test_MemmyBackend_Read(Memmy_Process *process, Memmy_Addr ad
     Test_MemmyBackend *backend = (Test_MemmyBackend *)process->backend_data;
     *bytes_read = 0;
     backend->read_call_count++;
+    if (backend->first_read_buffer == 0)
+    {
+        backend->first_read_buffer = buffer;
+    }
+    else if (backend->first_read_buffer != buffer)
+    {
+        backend->read_buffer_changed = 1;
+    }
     backend->min_read_addr = backend->min_read_addr == 0 ? addr : Min(backend->min_read_addr, addr);
     backend->max_read_end = Max(backend->max_read_end, addr + size);
 

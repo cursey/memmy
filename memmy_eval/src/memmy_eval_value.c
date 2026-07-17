@@ -385,35 +385,35 @@ Memmy_Status MemmyEval_Value_ApplyBinary(MemmyAst_ConstOp op, MemmyEval_Value lh
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status MemmyEval_Transform_Append(MemmyEval_Exec *exec, MemmyEval_Value value, List *addresses,
-                                               List *ranges, MemmyEval_ValueKind *out_kind, Memmy_Error *error)
+static Memmy_Status MemmyEval_Transform_Classify(MemmyEval_Value value, MemmyEval_ValueKind out_kind,
+                                                 MemmyEval_ValueKind *value_kind, B32 *skip, Memmy_Error *error)
 {
     if (value.kind == MemmyEval_ValueKind_Nil ||
         (value.kind == MemmyEval_ValueKind_AddressList && value.address_count == 0) ||
         (value.kind == MemmyEval_ValueKind_RangeList && value.range_count == 0))
     {
+        *skip = 1;
         return Memmy_Status_Ok;
     }
 
-    MemmyEval_ValueKind value_kind = MemmyEval_ValueKind_Nil;
-    Memmy_Status status = MemmyEval_Transform_ListKindForValue(value, &value_kind, error);
+    Memmy_Status status = MemmyEval_Transform_ListKindForValue(value, value_kind, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
     }
 
-    if (*out_kind == MemmyEval_ValueKind_Nil)
-    {
-        *out_kind = value_kind;
-    }
-    else if (*out_kind != value_kind)
+    if (out_kind != MemmyEval_ValueKind_Nil && out_kind != *value_kind)
     {
         MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("transform"),
                             String8_Lit("transform expression produced mixed address and range values"));
         return Memmy_Status_InvalidArgument;
     }
 
-    Arena *arena = exec->transient_arena;
+    return Memmy_Status_Ok;
+}
+
+static void MemmyEval_Transform_Copy(Arena *arena, MemmyEval_Value value, List *addresses, List *ranges)
+{
     if (value.kind == MemmyEval_ValueKind_Address)
     {
         MemmyEval_AddressList_Push(arena, addresses, value.address);
@@ -436,43 +436,47 @@ static Memmy_Status MemmyEval_Transform_Append(MemmyEval_Exec *exec, MemmyEval_V
             MemmyEval_RangeList_Push(arena, ranges, value.ranges[i]);
         }
     }
-
-    return Memmy_Status_Ok;
 }
 
 Memmy_Status MemmyEval_List_Transform(MemmyEval_Exec *exec, MemmyAst_Node const *expr, MemmyEval_Value *out,
                                       Memmy_Error *error)
 {
+    B32 old_has_current_item = exec->has_current_item;
+    MemmyEval_Value old_current_item = exec->current_item;
+    U64 accumulator_pos = 0;
+    B32 has_accumulator = 0;
     MemmyEval_Value list = {0};
     Memmy_Status status = MemmyEval_Expr_EvalWithContext(exec, expr->lhs, &list, error);
     if (status != Memmy_Status_Ok)
     {
-        return status;
+        goto cleanup;
     }
+
+    accumulator_pos = Arena_Pos(exec->transient_arena);
+    has_accumulator = 1;
     if (list.kind == MemmyEval_ValueKind_Nil)
     {
         *out = (MemmyEval_Value){0};
-        return Memmy_Status_Ok;
+        goto cleanup;
     }
     if (list.kind != MemmyEval_ValueKind_AddressList && list.kind != MemmyEval_ValueKind_RangeList)
     {
         MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("transform"),
                             String8_Lit("expected address list or range list"));
-        return Memmy_Status_InvalidArgument;
+        status = Memmy_Status_InvalidArgument;
+        goto cleanup;
     }
 
     U64 count = list.kind == MemmyEval_ValueKind_AddressList ? list.address_count : list.range_count;
     if (count == 0)
     {
         *out = (MemmyEval_Value){0};
-        return Memmy_Status_Ok;
+        goto cleanup;
     }
 
     List addresses = {0}; // MemmyEval_AddressNode
     List ranges = {0};    // MemmyEval_RangeNode
     MemmyEval_ValueKind out_kind = MemmyEval_ValueKind_Nil;
-    B32 old_has_current_item = exec->has_current_item;
-    MemmyEval_Value old_current_item = exec->current_item;
 
     for (U64 i = 0; i < count; i++)
     {
@@ -486,24 +490,41 @@ Memmy_Status MemmyEval_List_Transform(MemmyEval_Exec *exec, MemmyAst_Node const 
             exec->current_item = (MemmyEval_Value){.kind = MemmyEval_ValueKind_Range, .range = list.ranges[i]};
         }
 
+        U64 item_out_pos = Arena_Pos(exec->out_arena);
+        U64 item_transient_pos = Arena_Pos(exec->transient_arena);
         MemmyEval_Value item_result = {0};
         Memmy_Error item_error = {0};
         status = MemmyEval_Expr_EvalWithContext(exec, expr->rhs, &item_result, &item_error);
         if (status != Memmy_Status_Ok)
         {
+            Arena_PopTo(exec->transient_arena, item_transient_pos);
+            Arena_PopTo(exec->out_arena, item_out_pos);
+            status = Memmy_Status_Ok;
             continue;
         }
-        status = MemmyEval_Transform_Append(exec, item_result, &addresses, &ranges, &out_kind, error);
+
+        MemmyEval_ValueKind value_kind = MemmyEval_ValueKind_Nil;
+        B32 skip = 0;
+        status = MemmyEval_Transform_Classify(item_result, out_kind, &value_kind, &skip, error);
         if (status != Memmy_Status_Ok)
         {
-            exec->has_current_item = old_has_current_item;
-            exec->current_item = old_current_item;
-            return status;
+            Arena_PopTo(exec->transient_arena, item_transient_pos);
+            Arena_PopTo(exec->out_arena, item_out_pos);
+            goto cleanup;
         }
+        if (skip)
+        {
+            Arena_PopTo(exec->transient_arena, item_transient_pos);
+            Arena_PopTo(exec->out_arena, item_out_pos);
+            continue;
+        }
+
+        Arena_PopTo(exec->transient_arena, item_transient_pos);
+        MemmyEval_Transform_Copy(exec->transient_arena, item_result, &addresses, &ranges);
+        Arena_PopTo(exec->out_arena, item_out_pos);
+        out_kind = value_kind;
     }
 
-    exec->has_current_item = old_has_current_item;
-    exec->current_item = old_current_item;
     if (out_kind == MemmyEval_ValueKind_Nil)
     {
         *out = (MemmyEval_Value){0};
@@ -516,7 +537,15 @@ Memmy_Status MemmyEval_List_Transform(MemmyEval_Exec *exec, MemmyAst_Node const 
     {
         *out = MemmyEval_AddressList_FromList(exec->out_arena, &addresses);
     }
-    return Memmy_Status_Ok;
+
+cleanup:
+    exec->has_current_item = old_has_current_item;
+    exec->current_item = old_current_item;
+    if (has_accumulator)
+    {
+        Arena_PopTo(exec->transient_arena, accumulator_pos);
+    }
+    return status;
 }
 
 Memmy_Status MemmyEval_Value_Pipe(MemmyEval_Exec *exec, MemmyAst_Node const *expr, MemmyEval_Value *out,
