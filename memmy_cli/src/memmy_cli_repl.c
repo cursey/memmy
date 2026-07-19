@@ -31,7 +31,8 @@ static Memmy_Status MemmyCli_ReplStringWriter_Write(void *user_data, String8 tex
 }
 
 static Memmy_Status MemmyCli_Repl_RunLineWithEnv(Arena *arena, MemmyEval_Env *env, MemmyCli_Options *base_options,
-                                                 String8 line, String8 *out, B32 *out_exit, Memmy_Error *error);
+                                                 String8 line, String8 *out, B32 *out_exit,
+                                                 MemmyEval_ResultSink const *observer, Memmy_Error *error);
 static Memmy_Status MemmyCli_ReplSession_RunLineWithOptions(Arena *arena, MemmyCli_ReplSession *session,
                                                             MemmyCli_Options *base_options, String8 line, String8 *out,
                                                             B32 *out_exit, Memmy_Error *error);
@@ -228,8 +229,28 @@ static String8 MemmyCli_TextError_Format(Arena *arena, Memmy_Status status, Memm
     return String8_PushF(arena, "memmy: %s\n", Memmy_Status_Name(status));
 }
 
+static String8 MemmyCli_Repl_AppendTutorialText(Arena *arena, String8 ordinary, String8 tutorial)
+{
+    if (tutorial.len == 0)
+    {
+        return ordinary;
+    }
+    if (ordinary.len == 0)
+    {
+        return tutorial;
+    }
+
+    String8 separator = ordinary.data[ordinary.len - 1] == '\n' ? String8_Lit("\n") : String8_Lit("\n\n");
+    String8List parts = {0};
+    String8List_Push(arena, &parts, ordinary);
+    String8List_Push(arena, &parts, separator);
+    String8List_Push(arena, &parts, tutorial);
+    return String8List_Join(arena, &parts, (String8){0});
+}
+
 static Memmy_Status MemmyCli_Repl_RunLineWithEnv(Arena *arena, MemmyEval_Env *env, MemmyCli_Options *base_options,
-                                                 String8 line, String8 *out, B32 *out_exit, Memmy_Error *error)
+                                                 String8 line, String8 *out, B32 *out_exit,
+                                                 MemmyEval_ResultSink const *observer, Memmy_Error *error)
 {
     if (arena == 0 || out == 0)
     {
@@ -257,7 +278,7 @@ static Memmy_Status MemmyCli_Repl_RunLineWithEnv(Arena *arena, MemmyEval_Env *en
         .user_data = &string_writer,
     };
     Memmy_Status status =
-        MemmyCli_Statement_RunToWriterWithEnv(arena, env, &options, statement, writer, out_exit, error);
+        MemmyCli_Statement_RunToWriterWithEnv(arena, env, &options, statement, writer, out_exit, observer, error);
     *out = String8List_Join(arena, &string_writer.list, (String8){0});
     return status;
 }
@@ -309,9 +330,9 @@ static Memmy_Status MemmyCli_ReplSession_RunLineWithOptions(Arena *arena, MemmyC
     MemmyCli_Options options = base_options != 0 ? *base_options : (MemmyCli_Options){0};
 
     String8 statement_text = String8_TrimWhitespace(line);
+    MemmyAst_Statement statement = {0};
     if (statement_text.len != 0)
     {
-        MemmyAst_Statement statement = {0};
         MemmyAst_Diagnostic diagnostic = {0};
         MemmyAst_Status ast_status = MemmyAst_Statement_Parse(arena, statement_text, &statement, &diagnostic);
         if (ast_status != MemmyAst_Status_Ok)
@@ -355,9 +376,12 @@ static Memmy_Status MemmyCli_ReplSession_RunLineWithOptions(Arena *arena, MemmyC
                 return status;
             }
             MemmyCli_ReplSession_SetAttachedProcess(session, info);
+            String8 tutorial_out = MemmyCli_Tutorial_Statement_End(arena, session->tutorial, &statement,
+                                                                   Memmy_Status_Ok, session->has_attached_process,
+                                                                   session->attached_process.pid, session->env);
             if (out != 0)
             {
-                *out = (String8){0};
+                *out = tutorial_out;
             }
             if (out_exit != 0)
             {
@@ -368,15 +392,47 @@ static Memmy_Status MemmyCli_ReplSession_RunLineWithOptions(Arena *arena, MemmyC
         if (statement.kind == MemmyAst_NodeKind_Command && statement.command_kind == MemmyAst_CommandKind_Detach)
         {
             MemmyCli_ReplSession_ClearAttachedProcess(session);
+            String8 tutorial_out = MemmyCli_Tutorial_Statement_End(
+                arena, session->tutorial, &statement, Memmy_Status_Ok, session->has_attached_process, 0, session->env);
             if (out != 0)
             {
-                *out = (String8){0};
+                *out = tutorial_out;
             }
             if (out_exit != 0)
             {
                 *out_exit = 0;
             }
             return Memmy_Status_Ok;
+        }
+        if (statement.kind == MemmyAst_NodeKind_Command && statement.command_kind == MemmyAst_CommandKind_Tutorial)
+        {
+            if (options.jsonl)
+            {
+                if (out != 0)
+                {
+                    *out = (String8){0};
+                }
+                if (out_exit != 0)
+                {
+                    *out_exit = 0;
+                }
+                Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("tutorial"),
+                                String8_Lit("tutorial is not available with --jsonl"));
+                if (error != 0)
+                {
+                    error->input = statement.text;
+                }
+                return Memmy_Status_InvalidArgument;
+            }
+            if (session->tutorial == 0)
+            {
+                session->tutorial = MemmyCli_Tutorial_Create(session->arena);
+            }
+            if (out_exit != 0)
+            {
+                *out_exit = 0;
+            }
+            return MemmyCli_Tutorial_Command_Run(arena, session->tutorial, statement.command_arg, out, error);
         }
 
         if (session->has_attached_process)
@@ -388,7 +444,19 @@ static Memmy_Status MemmyCli_ReplSession_RunLineWithOptions(Arena *arena, MemmyC
         }
     }
 
-    Memmy_Status status = MemmyCli_Repl_RunLineWithEnv(arena, session->env, &options, line, out, out_exit, error);
+    MemmyEval_ResultSink const *observer = MemmyCli_Tutorial_Statement_Begin(session->tutorial);
+    Memmy_Status status =
+        MemmyCli_Repl_RunLineWithEnv(arena, session->env, &options, line, out, out_exit, observer, error);
+    if (statement_text.len != 0)
+    {
+        String8 tutorial_out = MemmyCli_Tutorial_Statement_End(
+            arena, session->tutorial, &statement, status, session->has_attached_process,
+            session->has_attached_process ? session->attached_process.pid : 0, session->env);
+        if (out != 0)
+        {
+            *out = MemmyCli_Repl_AppendTutorialText(arena, *out, tutorial_out);
+        }
+    }
     return status;
 }
 
@@ -449,6 +517,10 @@ Memmy_Status MemmyCli_Repl_RunStringWithOptions(Arena *arena, MemmyCli_Options *
         }
         else
         {
+            if (line_error.status == Memmy_Status_Ok)
+            {
+                line_error.status = status;
+            }
             if (result == Memmy_Status_Ok)
             {
                 result = status;
@@ -457,7 +529,9 @@ Memmy_Status MemmyCli_Repl_RunStringWithOptions(Arena *arena, MemmyCli_Options *
                     *error = line_error;
                 }
             }
-            String8List_Push(arena, &parts, MemmyCli_TextError_Format(arena, status, &line_error));
+            String8 formatted_error = line_options.jsonl ? MemmyCli_JsonlError_Format(arena, &line_error)
+                                                         : MemmyCli_TextError_Format(arena, status, &line_error);
+            String8List_Push(arena, &parts, formatted_error);
         }
         if (should_exit)
         {

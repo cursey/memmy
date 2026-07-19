@@ -112,6 +112,7 @@ enum
     MemmyAst_CommandKind_Unset,
     MemmyAst_CommandKind_Clear,
     MemmyAst_CommandKind_Help,
+    MemmyAst_CommandKind_Tutorial,
     MemmyAst_CommandKind_Exit,
     MemmyAst_CommandKind_Quit,
 };

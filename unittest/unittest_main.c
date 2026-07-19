@@ -42,6 +42,7 @@ extern TestSuite suite_memmy_cli;
 extern TestSuite suite_memmy_cli_dsl;
 extern TestSuite suite_memmy_cli_disasm_x64;
 extern TestSuite suite_memmy_cli_repl;
+extern TestSuite suite_memmy_cli_tutorial;
 extern TestSuite suite_memmy_default_backend;
 
 int main(int argc, char **argv)
@@ -86,6 +87,7 @@ int main(int argc, char **argv)
         suite_memmy_cli_dsl,
         suite_memmy_cli_disasm_x64,
         suite_memmy_cli_repl,
+        suite_memmy_cli_tutorial,
         suite_memmy_default_backend,
     };
 

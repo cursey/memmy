@@ -71,7 +71,7 @@ Memmy_Status MemmyCli_Expr_RunToWriterWithEnv(Arena *arena, MemmyEval_Env *env, 
                                               MemmyCli_OutputWriter writer, Memmy_Error *error);
 Memmy_Status MemmyCli_Statement_RunToWriterWithEnv(Arena *arena, MemmyEval_Env *env, MemmyCli_Options *options,
                                                    String8 text, MemmyCli_OutputWriter writer, B32 *out_exit,
-                                                   Memmy_Error *error);
+                                                   MemmyEval_ResultSink const *observer, Memmy_Error *error);
 Memmy_Status MemmyCli_ProcessInfo_Resolve(Arena *arena, B32 has_pid, U32 pid, B32 has_name, String8 name,
                                           Memmy_ProcessInfo *out, Memmy_Error *error);
 Memmy_Status MemmyCli_Pid_ResolveOrOpenTransient(Arena *arena, U32 pid, Memmy_ProcessInfo *out, Memmy_Error *error);
@@ -87,5 +87,13 @@ Memmy_Status MemmyCli_ScanOutput_Begin(MemmyCli_ScanOutput *output, Arena *arena
                                        Memmy_PointerWidth pointer_width, B32 jsonl);
 Memmy_Status MemmyCli_ScanOutput_PushMatch(void *user_data, Memmy_Addr address);
 Memmy_Status MemmyCli_ScanOutput_End(MemmyCli_ScanOutput *output);
+
+MemmyCli_Tutorial *MemmyCli_Tutorial_Create(Arena *arena);
+Memmy_Status MemmyCli_Tutorial_Command_Run(Arena *arena, MemmyCli_Tutorial *tutorial, String8 argument, String8 *out,
+                                           Memmy_Error *error);
+MemmyEval_ResultSink const *MemmyCli_Tutorial_Statement_Begin(MemmyCli_Tutorial *tutorial);
+String8 MemmyCli_Tutorial_Statement_End(Arena *arena, MemmyCli_Tutorial *tutorial, MemmyAst_Statement const *statement,
+                                        Memmy_Status status, B32 has_attached_process, U32 attached_pid,
+                                        MemmyEval_Env *env);
 
 #endif // MEMMY_CLI_INTERNAL_H

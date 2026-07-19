@@ -25,6 +25,7 @@ struct MemmyCli_EvalResultWriter
     B32 suppress_value_result;
     B32 saw_exit;
     String8 assignment_name;
+    MemmyEval_ResultSink const *observer;
     MemmyCli_ScanOutput scan_output;
 };
 
@@ -141,6 +142,7 @@ static String8 MemmyCli_Dsl_Help(Arena *arena)
                                            "  /unset $var\n"
                                            "  /clear\n"
                                            "  /help\n"
+                                           "  /tutorial [hint|restart|stop]\n"
                                            "  /exit\n"
                                            "  /quit\n"));
 }
@@ -597,6 +599,14 @@ static Memmy_Status MemmyCli_EvalResultWriter_Push(void *user_data, MemmyEval_Re
     {
         return result_writer->status;
     }
+    if (result_writer->observer != 0 && result_writer->observer->callback != 0)
+    {
+        result_writer->status = result_writer->observer->callback(result_writer->observer->user_data, result);
+        if (result_writer->status != Memmy_Status_Ok)
+        {
+            return result_writer->status;
+        }
+    }
 
     Arena *arena = result_writer->arena;
     if (result_writer->suppress_value_result &&
@@ -741,12 +751,12 @@ Memmy_Status MemmyCli_Expr_RunToWriterWithEnv(Arena *arena, MemmyEval_Env *env, 
         Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("cli"), String8_Lit("missing options"));
         return Memmy_Status_InvalidArgument;
     }
-    return MemmyCli_Statement_RunToWriterWithEnv(arena, env, options, options->expr_text, writer, 0, error);
+    return MemmyCli_Statement_RunToWriterWithEnv(arena, env, options, options->expr_text, writer, 0, 0, error);
 }
 
 Memmy_Status MemmyCli_Statement_RunToWriterWithEnv(Arena *arena, MemmyEval_Env *env, MemmyCli_Options *options,
                                                    String8 text, MemmyCli_OutputWriter writer, B32 *out_exit,
-                                                   Memmy_Error *error)
+                                                   MemmyEval_ResultSink const *observer, Memmy_Error *error)
 {
     if (arena == 0 || env == 0 || options == 0 || writer.write == 0)
     {
@@ -769,7 +779,8 @@ Memmy_Status MemmyCli_Statement_RunToWriterWithEnv(Arena *arena, MemmyEval_Env *
         return status;
     }
     if (statement.kind == MemmyAst_NodeKind_Command && (statement.command_kind == MemmyAst_CommandKind_Attach ||
-                                                        statement.command_kind == MemmyAst_CommandKind_Detach))
+                                                        statement.command_kind == MemmyAst_CommandKind_Detach ||
+                                                        statement.command_kind == MemmyAst_CommandKind_Tutorial))
     {
         Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("cli"),
                         String8_Lit("command is only available in a REPL session"));
@@ -795,6 +806,7 @@ Memmy_Status MemmyCli_Statement_RunToWriterWithEnv(Arena *arena, MemmyEval_Env *
         .jsonl = options->jsonl,
         .suppress_value_result = statement.kind == MemmyAst_NodeKind_Assignment,
         .assignment_name = statement.assignment_name,
+        .observer = observer,
     };
     MemmyEval_ResultSink sink = {
         .callback = MemmyCli_EvalResultWriter_Push,

@@ -219,6 +219,7 @@ Memmy_Status MemmyEval_Command_Eval(MemmyEval_Exec *exec, MemmyAst_Statement con
                                 "  /unset $var\n"
                                 "  /clear\n"
                                 "  /help\n"
+                                "  /tutorial [hint|restart|stop]\n"
                                 "  /exit\n"
                                 "  /quit\n"),
         };

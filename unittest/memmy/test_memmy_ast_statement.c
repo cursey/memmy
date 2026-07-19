@@ -124,6 +124,14 @@ Test(Test_MemmyAstParsesPocketReferenceCommands)
     Test_ParseAstStatement(arena, "/help", &statement);
     AssertEq(statement.command_kind, MemmyAst_CommandKind_Help);
 
+    Test_ParseAstStatement(arena, "/tutorial", &statement);
+    AssertEq(statement.command_kind, MemmyAst_CommandKind_Tutorial);
+    AssertStrEq(statement.command_arg, String8_Lit(""));
+
+    Test_ParseAstStatement(arena, "/tutorial hint for this step", &statement);
+    AssertEq(statement.command_kind, MemmyAst_CommandKind_Tutorial);
+    AssertStrEq(statement.command_arg, String8_Lit("hint for this step"));
+
     Test_ParseAstStatement(arena, "/exit", &statement);
     AssertEq(statement.command_kind, MemmyAst_CommandKind_Exit);
 

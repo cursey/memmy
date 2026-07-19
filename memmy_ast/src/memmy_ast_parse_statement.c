@@ -39,6 +39,10 @@ static MemmyAst_CommandKind MemmyAst_Parser_CommandKind(String8 text)
     {
         return MemmyAst_CommandKind_Help;
     }
+    if (String8_Eq(name, String8_Lit("tutorial")))
+    {
+        return MemmyAst_CommandKind_Tutorial;
+    }
     if (String8_Eq(name, String8_Lit("exit")))
     {
         return MemmyAst_CommandKind_Exit;
@@ -68,7 +72,8 @@ static MemmyAst_Status MemmyAst_Parser_ParseCommandStatement(MemmyAst_Parser *pa
 
     out->kind = MemmyAst_NodeKind_Command;
     out->command_kind = kind;
-    if (kind == MemmyAst_CommandKind_Procs || kind == MemmyAst_CommandKind_Mods || kind == MemmyAst_CommandKind_Attach)
+    if (kind == MemmyAst_CommandKind_Procs || kind == MemmyAst_CommandKind_Mods ||
+        kind == MemmyAst_CommandKind_Attach || kind == MemmyAst_CommandKind_Tutorial)
     {
         U64 start = command.byte_offset + command.byte_count;
         out->command_arg = String8_TrimWhitespace(String8_Substr(parser->input, start, parser->input.len - start));

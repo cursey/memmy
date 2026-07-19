@@ -657,6 +657,7 @@ Test(Test_MemmyCliHelpFormatsText)
     AssertTrue(String8_Find(out, String8_Lit("objectbase address"), 0) != STRING8_NPOS);
     AssertTrue(String8_Find(out, String8_Lit("$hits => objectbase $"), 0) != STRING8_NPOS);
     AssertTrue(String8_Find(out, String8_Lit("/procs [filter]"), 0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("/tutorial [hint|restart|stop]"), 0) != STRING8_NPOS);
     AssertTrue(String8_Find(out, String8_Lit("/exit"), 0) != STRING8_NPOS);
 
     Arena_Destroy(arena);

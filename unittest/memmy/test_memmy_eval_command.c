@@ -91,6 +91,7 @@ Test(Test_MemmyEvalHelpAndExitCommandsEmitControlResults)
     AssertEq(capture.count, 1);
     AssertEq(capture.results[0].kind, MemmyEval_ResultKind_Help);
     AssertTrue(String8_Find(capture.results[0].text, String8_Lit("/mods [filter]"), 0) != STRING8_NPOS);
+    AssertTrue(String8_Find(capture.results[0].text, String8_Lit("/tutorial [hint|restart|stop]"), 0) != STRING8_NPOS);
 
     Test_EvalParseStatement(arena, "/exit", &statement);
     capture = (Test_EvalResultCapture){0};

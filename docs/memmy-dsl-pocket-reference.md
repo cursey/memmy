@@ -274,9 +274,16 @@ formatting a stored address uses the current selected process.
 /unset $var          remove variable
 /clear               clear variables
 /help                show help
+/tutorial            start or repeat the interactive tutorial
+/tutorial hint       show a hint for the current lesson
+/tutorial restart    reset and restart the tutorial
+/tutorial stop       stop the tutorial
 /exit                exit
 /quit                exit
 ```
+
+The interactive tutorial is text-only. `/tutorial` returns `invalid_argument`
+when `--jsonl` output is selected.
 
 ## Example Flow
 
@@ -312,5 +319,6 @@ value |> expr        bind the complete value to `$` and evaluate expr once
 list => expr         filter-map address/range items; failed/nil RHS values are omitted
 /attach process      select process and clear variables
 /detach              clear selected process and variables
+/tutorial            start or control the interactive, read-only tutorial
 /command             control REPL
 ```

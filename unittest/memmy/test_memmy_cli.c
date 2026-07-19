@@ -215,6 +215,20 @@ Test(Test_MemmyCliInvalidOptions)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyCliTutorialIsRejectedOutsideReplSession)
+{
+    Arena *arena = Arena_CreateDefault();
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy", "--expr", "/tutorial"};
+
+    AssertEq(MemmyCli_Argv_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_InvalidArgument);
+    AssertStrEq(error.context, String8_Lit("cli"));
+    AssertStrEq(error.message, String8_Lit("command is only available in a REPL session"));
+
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyCliExitCodeMapping)
 {
     AssertEq(MemmyCli_ExitCode_FromStatus(Memmy_Status_Ok), 0);
@@ -237,4 +251,5 @@ TestSuite suite_memmy_cli = TestSuite_Make(
     TestCase_Make(Test_MemmyCliInputStringEvaluatesWithOptions),
     TestCase_Make(Test_MemmyCliFileInputEvaluatesReplString),
     TestCase_Make(Test_MemmyCliFormerSubcommandNamesAreFilePaths), TestCase_Make(Test_MemmyCliJsonlHelpers),
-    TestCase_Make(Test_MemmyCliInvalidOptions), TestCase_Make(Test_MemmyCliExitCodeMapping), );
+    TestCase_Make(Test_MemmyCliInvalidOptions), TestCase_Make(Test_MemmyCliTutorialIsRejectedOutsideReplSession),
+    TestCase_Make(Test_MemmyCliExitCodeMapping), );
