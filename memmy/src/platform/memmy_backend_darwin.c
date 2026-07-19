@@ -12,6 +12,7 @@
 #include <mach-o/loader.h>
 #include <mach/mach.h>
 #include <mach/mach_vm.h>
+#include <mach/vm_param.h>
 
 typedef struct Memmy_DarwinBackend Memmy_DarwinBackend;
 struct Memmy_DarwinBackend
@@ -201,6 +202,18 @@ static void Memmy_DarwinBackend_CloseProcess(Memmy_Process *process)
         data->task = MACH_PORT_NULL;
     }
     process->backend_data = 0;
+}
+
+static Memmy_Status Memmy_DarwinBackend_GetAddressRange(Memmy_Process *process, Memmy_Range *out, Memmy_Error *error)
+{
+    Unused(process);
+    Unused(error);
+
+    *out = (Memmy_Range){
+        .start = (Memmy_Addr)MACH_VM_MIN_ADDRESS,
+        .end = (Memmy_Addr)MACH_VM_MAX_ADDRESS,
+    };
+    return Memmy_Status_Ok;
 }
 
 static Memmy_Status Memmy_DarwinBackend_Read(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size,
@@ -957,6 +970,7 @@ Memmy_Backend *Memmy_DarwinBackend_Create(Arena *arena)
         .close_process = Memmy_DarwinBackend_CloseProcess,
         .read = Memmy_DarwinBackend_Read,
         .write = Memmy_DarwinBackend_Write,
+        .get_address_range = Memmy_DarwinBackend_GetAddressRange,
         .enumerate_modules = Memmy_DarwinBackend_EnumerateModules,
         .enumerate_regions = Memmy_DarwinBackend_EnumerateRegions,
         .find_function = Memmy_DarwinBackend_FindFunction,

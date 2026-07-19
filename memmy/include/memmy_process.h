@@ -66,6 +66,14 @@ struct Memmy_Region
     Memmy_RegionState state;
 };
 
+typedef Memmy_Status Memmy_RangeSinkFn(void *user_data, Memmy_Range range);
+typedef struct Memmy_RangeSink Memmy_RangeSink;
+struct Memmy_RangeSink
+{
+    Memmy_RangeSinkFn *callback;
+    void *user_data;
+};
+
 typedef U32 Memmy_ObjectBaseConfidence;
 enum
 {
@@ -101,6 +109,12 @@ Memmy_Status Memmy_Process_EnumerateModules(Arena *arena, Memmy_Process *process
                                             Memmy_Error *error);
 Memmy_Status Memmy_Process_EnumerateRegions(Arena *arena, Memmy_Process *process, Memmy_RegionSink sink,
                                             Memmy_Error *error);
+// Address ranges are concrete, half-open, and start at zero.
+Memmy_Status Memmy_Process_GetAddressRange(Memmy_Process *process, Memmy_Range *out, Memmy_Error *error);
+// Qualifying regions are clipped, sorted, and merged into ordered maximal ranges.
+Memmy_Status Memmy_Process_EnumerateAccessibleRanges(Arena *arena, Memmy_Process *process, Memmy_Range bounds,
+                                                     Memmy_RegionAccess required_access, Memmy_RangeSink sink,
+                                                     Memmy_Error *error);
 // Find outputs are initialized before validation. Any returned strings belong to arena.
 Memmy_Status Memmy_Process_FindFunction(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Range *out,
                                         Memmy_Error *error);

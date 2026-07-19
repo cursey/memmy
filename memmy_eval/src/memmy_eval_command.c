@@ -189,7 +189,7 @@ Memmy_Status MemmyEval_Command_Eval(MemmyEval_Exec *exec, MemmyAst_Statement con
                                 "  [@a..@b]             explicit address range [a, b)\n"
                                 "  [@a..+n]             sized address range [a, a+n)\n"
                                 "  <module>             module range in selected process\n"
-                                "  [0..]                selected process readable regions\n"
+                                "  [0..]                selected process address-space range\n"
                                 "  function address     function range containing address\n"
                                 "  objectbase address   best-effort object base containing address\n"
                                 "  $name                variable\n"

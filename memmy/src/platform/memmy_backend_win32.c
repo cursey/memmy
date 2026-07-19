@@ -198,6 +198,36 @@ static void Memmy_Win32Backend_CloseProcess(Memmy_Process *process)
     process->backend_data = 0;
 }
 
+static Memmy_Status Memmy_Win32Backend_GetAddressRange(Memmy_Process *process, Memmy_Range *out, Memmy_Error *error)
+{
+    Memmy_Addr end = 0;
+    if (process->pointer_width == Memmy_PointerWidth_32)
+    {
+        end = 0x100000000ull;
+    }
+    else if (process->pointer_width == Memmy_PointerWidth_64)
+    {
+        SYSTEM_INFO sys_info = {0};
+        GetNativeSystemInfo(&sys_info);
+        Memmy_Addr maximum = (Memmy_Addr)(uintptr_t)sys_info.lpMaximumApplicationAddress;
+        if (!AddU64Checked(maximum, 1, &end))
+        {
+            Memmy_Error_Set(error, Memmy_Status_Overflow, String8_Lit("win32"),
+                            String8_Lit("maximum application address overflow"));
+            return Memmy_Status_Overflow;
+        }
+    }
+    else
+    {
+        Memmy_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("win32"),
+                        String8_Lit("target pointer width is unknown"));
+        return Memmy_Status_Unsupported;
+    }
+
+    *out = (Memmy_Range){.start = 0, .end = end};
+    return Memmy_Status_Ok;
+}
+
 static Memmy_Status Memmy_Win32Backend_Read(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size,
                                             U64 *bytes_read, Memmy_Error *error)
 {
@@ -843,6 +873,7 @@ Memmy_Backend *Memmy_Win32Backend_Create(Arena *arena)
         .close_process = Memmy_Win32Backend_CloseProcess,
         .read = Memmy_Win32Backend_Read,
         .write = Memmy_Win32Backend_Write,
+        .get_address_range = Memmy_Win32Backend_GetAddressRange,
         .enumerate_modules = Memmy_Win32Backend_EnumerateModules,
         .enumerate_regions = Memmy_Win32Backend_EnumerateRegions,
         .find_function = Memmy_Win32Backend_FindFunction,

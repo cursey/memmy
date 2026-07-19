@@ -16,6 +16,13 @@ static void Test_WriteU64LE(U8 *dst, U64 value)
     }
 }
 
+static B32 Test_ScanCustom_Match(void *user_data, Memmy_Addr address, U8 const *bytes, U64 available)
+{
+    Unused(user_data);
+    Unused(address);
+    return available != 0 && bytes[0] == 0xcc;
+}
+
 Test(Test_MemmyScanFindsBeginningMiddleAndEnd)
 {
     Arena *arena = Arena_CreateDefault();
@@ -159,7 +166,7 @@ Test(Test_MemmyReferenceScanChunkLimitRegionsUnreadableAndInvalidArguments)
     Test_MemmyBackend_AddUnreadableRange(&test_backend, 0x1020, 0x1040);
     AssertEq(Memmy_Process_ScanReferences(arena, process, &options, Memmy_ReferenceScanMode_Ptr, 0x1122334455667788,
                                           Test_ScanSink(&results, arena), &error),
-             Memmy_Status_Unreadable);
+             Memmy_Status_Unsupported);
 
     test_backend.processes[0].pointer_width = Memmy_PointerWidth_Unknown;
     Test_OpenProcess(arena, &process);
@@ -388,7 +395,7 @@ Test(Test_MemmyScanFindsPatternAcrossAdjacentReadableRegions)
     Arena_Destroy(arena);
 }
 
-Test(Test_MemmyScanDirectReadsWithoutRegionEnumeration)
+Test(Test_MemmyScanRequiresRegionEnumeration)
 {
     Arena *arena = Arena_CreateDefault();
     Test_MemmyBackend test_backend = {0};
@@ -409,9 +416,19 @@ Test(Test_MemmyScanDirectReadsWithoutRegionEnumeration)
     Memmy_Error error = {0};
 
     AssertEq(Memmy_Process_ScanPattern(arena, process, &options, pattern, Test_ScanSink(&results, arena), &error),
-             Memmy_Status_Ok);
-    Memmy_Addr expected[] = {0x1010, 0x1022};
-    Test_AssertScanAddresses(&results, expected, ArrayCount(expected));
+             Memmy_Status_Unsupported);
+    AssertEq(results.list.count, 0);
+
+    Memmy_Value value = {0};
+    Test_ParseValue(arena, "u8", Memmy_PointerWidth_64, "204", &value);
+    AssertEq(Memmy_Process_ScanValue(arena, process, &options, value, Test_ScanSink(&results, arena), &error),
+             Memmy_Status_Unsupported);
+    AssertEq(Memmy_Process_ScanReferences(arena, process, &options, Memmy_ReferenceScanMode_Ptr, 0x1000,
+                                          Test_ScanSink(&results, arena), &error),
+             Memmy_Status_Unsupported);
+    AssertEq(Memmy_Process_ScanCustom(arena, process, &options, 1, 1, Test_ScanCustom_Match, 0,
+                                      Test_ScanSink(&results, arena), &error),
+             Memmy_Status_Unsupported);
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -422,7 +439,6 @@ Test(Test_MemmyScanSkipsUnreadableHolesAndReportsFullyUnreadableRange)
     Arena *arena = Arena_CreateDefault();
     Test_MemmyBackend test_backend = {0};
     Test_MemmyBackend_Init(&test_backend);
-    Test_DisableEnumerateRegions(&test_backend);
     Test_MemmyBackend_AddUnreadableRange(&test_backend, 0x1040, 0x1050);
     test_backend.memory[0x32] = 0xab;
     test_backend.memory[0x52] = 0xab;
@@ -456,7 +472,6 @@ Test(Test_MemmyScanScansPartialReads)
     Arena *arena = Arena_CreateDefault();
     Test_MemmyBackend test_backend = {0};
     Test_MemmyBackend_Init(&test_backend);
-    Test_DisableEnumerateRegions(&test_backend);
     Test_MemmyBackend_SetReadLimit(&test_backend, 3);
     U8 bytes[] = {0x80, 0x81};
     memcpy(test_backend.memory + 1, bytes, sizeof(bytes));
@@ -670,18 +685,20 @@ Test(Test_MemmyValueScanRangeChunkLimitRegionAndReadErrors)
     Memmy_Addr region_expected[] = {0x1030};
     Test_AssertScanAddresses(&results, region_expected, ArrayCount(region_expected));
 
+    Memmy_Status (*enumerate_regions)(Arena *, Memmy_Process *, Memmy_RegionSink, Memmy_Error *) =
+        test_backend.backend.enumerate_regions;
     Test_DisableEnumerateRegions(&test_backend);
     Test_MemmyBackend_AddUnreadableRange(&test_backend, 0x1028, 0x1030);
     AssertEq(Memmy_Process_ScanValue(arena, process, &options, value, Test_ScanSink(&results, arena), &error),
-             Memmy_Status_Ok);
-    Memmy_Addr hole_expected[] = {0x1020, 0x1030};
-    Test_AssertScanAddresses(&results, hole_expected, ArrayCount(hole_expected));
+             Memmy_Status_Unsupported);
+    AssertEq(results.list.count, 0);
 
+    test_backend.backend.enumerate_regions = enumerate_regions;
     test_backend.unreadable_range_count = 0;
     Test_MemmyBackend_SetReadLimit(&test_backend, 4);
     AssertEq(Memmy_Process_ScanValue(arena, process, &options, value, Test_ScanSink(&results, arena), &error),
              Memmy_Status_Ok);
-    Test_AssertScanAddresses(&results, hole_expected, ArrayCount(hole_expected));
+    Test_AssertScanAddresses(&results, region_expected, ArrayCount(region_expected));
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -729,7 +746,7 @@ TestSuite suite_memmy_scan = TestSuite_Make(
     TestCase_Make(Test_MemmyScanFindsChunkBoundaryMatchesAndHonorsLimit),
     TestCase_Make(Test_MemmyScanUsesRegionIntersectionWhenAvailable),
     TestCase_Make(Test_MemmyScanFindsPatternAcrossAdjacentReadableRegions),
-    TestCase_Make(Test_MemmyScanDirectReadsWithoutRegionEnumeration),
+    TestCase_Make(Test_MemmyScanRequiresRegionEnumeration),
     TestCase_Make(Test_MemmyScanSkipsUnreadableHolesAndReportsFullyUnreadableRange),
     TestCase_Make(Test_MemmyScanScansPartialReads), TestCase_Make(Test_MemmyScanSkipsNonReadableRegions),
     TestCase_Make(Test_MemmyValueScanFindsScalarValuesAtMultipleAlignments),

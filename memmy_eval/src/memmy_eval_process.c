@@ -195,8 +195,15 @@ Memmy_Status MemmyEval_Expr_EvalProcess(MemmyEval_Exec *exec, MemmyAst_Node cons
         {
             return status;
         }
-        (void)process;
-        *out = (MemmyEval_Value){.kind = MemmyEval_ValueKind_ProcessRange};
+
+        Memmy_Range range = {0};
+        status = Memmy_Process_GetAddressRange(process, &range, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+
+        *out = (MemmyEval_Value){.kind = MemmyEval_ValueKind_Range, .range = range};
         return Memmy_Status_Ok;
     }
     if (expr->kind == MemmyAst_NodeKind_Function)

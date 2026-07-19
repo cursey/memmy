@@ -23,7 +23,6 @@ struct Memmy_ScanOptions
     Memmy_Range range;
     U64 limit;
     U64 chunk_size;
-    B32 scan_readable_regions;
 };
 
 typedef U32 Memmy_ReferenceScanMode;

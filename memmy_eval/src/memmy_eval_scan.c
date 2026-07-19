@@ -61,7 +61,7 @@ Memmy_Status MemmyEval_Expr_EvalScan(MemmyEval_Exec *exec, MemmyAst_Node const *
         {
             return status;
         }
-        if (range_value.kind != MemmyEval_ValueKind_Range && range_value.kind != MemmyEval_ValueKind_ProcessRange)
+        if (range_value.kind != MemmyEval_ValueKind_Range)
         {
             MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("scan"),
                                 String8_Lit("expected scan range"));
@@ -85,7 +85,6 @@ Memmy_Status MemmyEval_Expr_EvalScan(MemmyEval_Exec *exec, MemmyAst_Node const *
             .range = range_value.range,
             .limit = 0,
             .chunk_size = 0,
-            .scan_readable_regions = range_value.kind == MemmyEval_ValueKind_ProcessRange,
         };
         status = Memmy_Process_ScanPattern(exec->transient_arena, process, &options, pattern, sink, error);
         if (status != Memmy_Status_Ok)
@@ -110,7 +109,7 @@ Memmy_Status MemmyEval_Expr_EvalScan(MemmyEval_Exec *exec, MemmyAst_Node const *
         {
             return status;
         }
-        if (range_value.kind != MemmyEval_ValueKind_Range && range_value.kind != MemmyEval_ValueKind_ProcessRange)
+        if (range_value.kind != MemmyEval_ValueKind_Range)
         {
             MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("scan"),
                                 String8_Lit("expected scan range"));
@@ -140,7 +139,6 @@ Memmy_Status MemmyEval_Expr_EvalScan(MemmyEval_Exec *exec, MemmyAst_Node const *
             .range = range_value.range,
             .limit = 0,
             .chunk_size = 0,
-            .scan_readable_regions = range_value.kind == MemmyEval_ValueKind_ProcessRange,
         };
         status = Memmy_Process_ScanValue(exec->transient_arena, process, &options, value, sink, error);
         if (status != Memmy_Status_Ok)
@@ -165,7 +163,7 @@ Memmy_Status MemmyEval_Expr_EvalScan(MemmyEval_Exec *exec, MemmyAst_Node const *
         {
             return status;
         }
-        if (range_value.kind != MemmyEval_ValueKind_Range && range_value.kind != MemmyEval_ValueKind_ProcessRange)
+        if (range_value.kind != MemmyEval_ValueKind_Range)
         {
             MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("scan"),
                                 String8_Lit("expected scan range"));
@@ -194,7 +192,6 @@ Memmy_Status MemmyEval_Expr_EvalScan(MemmyEval_Exec *exec, MemmyAst_Node const *
             .range = range_value.range,
             .limit = 0,
             .chunk_size = 0,
-            .scan_readable_regions = range_value.kind == MemmyEval_ValueKind_ProcessRange,
         };
         status = Memmy_Process_ScanReferences(exec->transient_arena, process, &options,
                                               MemmyEval_ReferenceScanMode(expr->reference_mode), target, sink, error);
@@ -220,7 +217,7 @@ Memmy_Status MemmyEval_Expr_EvalScan(MemmyEval_Exec *exec, MemmyAst_Node const *
         {
             return status;
         }
-        if (range_value.kind != MemmyEval_ValueKind_Range && range_value.kind != MemmyEval_ValueKind_ProcessRange)
+        if (range_value.kind != MemmyEval_ValueKind_Range)
         {
             MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("disasm"),
                                 String8_Lit("expected scan range"));
@@ -236,7 +233,6 @@ Memmy_Status MemmyEval_Expr_EvalScan(MemmyEval_Exec *exec, MemmyAst_Node const *
             .range = range_value.range,
             .limit = 0,
             .chunk_size = 0,
-            .scan_readable_regions = range_value.kind == MemmyEval_ValueKind_ProcessRange,
         };
         status = MemmyEval_DisasmX64_Scan(exec->transient_arena, process, &options, expr->disasm_pattern, sink, error);
         if (status != Memmy_Status_Ok)

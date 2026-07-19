@@ -1,7 +1,6 @@
 #include "memmy_scan.h"
 
 #include "base.h"
-#include "memmy_backend.h"
 
 static B32 Memmy_Pattern_MatchesAt(Memmy_Pattern pattern, U8 const *bytes)
 {
@@ -120,87 +119,6 @@ static B32 Memmy_ReferenceScan_MatchesAt(void *user_data, Memmy_Addr address, U8
     return 0;
 }
 
-static B32 Memmy_Scan_IsReadableRegion(Memmy_Region const *region)
-{
-    return region->state == Memmy_RegionState_Committed && (region->access & Memmy_RegionAccess_Read) != 0 &&
-           (region->access & Memmy_RegionAccess_Guard) == 0;
-}
-
-static I32 Memmy_ScanRange_Cmp(void *a, void *b, void *ctx)
-{
-    Unused(ctx);
-
-    Memmy_Range *range_a = (Memmy_Range *)a;
-    Memmy_Range *range_b = (Memmy_Range *)b;
-    if (range_a->start < range_b->start)
-    {
-        return -1;
-    }
-    if (range_a->start > range_b->start)
-    {
-        return 1;
-    }
-    if (range_a->end < range_b->end)
-    {
-        return -1;
-    }
-    if (range_a->end > range_b->end)
-    {
-        return 1;
-    }
-    return 0;
-}
-
-typedef struct Memmy_ScanRangeNode Memmy_ScanRangeNode;
-struct Memmy_ScanRangeNode
-{
-    ListLink link;
-    Memmy_Range range;
-};
-
-typedef struct Memmy_ScanRegionCollector Memmy_ScanRegionCollector;
-struct Memmy_ScanRegionCollector
-{
-    Arena *arena;
-    Memmy_ScanOptions const *options;
-    List ranges; // Memmy_ScanRangeNode
-    Memmy_Error *error;
-};
-
-static Memmy_Status Memmy_ScanRegionCollector_Push(void *user_data, Memmy_Region const *region)
-{
-    Memmy_ScanRegionCollector *collector = (Memmy_ScanRegionCollector *)user_data;
-    if (!Memmy_Scan_IsReadableRegion(region))
-    {
-        return Memmy_Status_Ok;
-    }
-
-    Memmy_Addr region_end = 0;
-    if (!AddU64Checked(region->base, region->size, &region_end))
-    {
-        return Memmy_Status_Ok;
-    }
-
-    Memmy_Range scan_range = {
-        .start = region->base,
-        .end = region_end,
-    };
-    if (!collector->options->scan_readable_regions)
-    {
-        scan_range.start = Max(collector->options->range.start, region->base);
-        scan_range.end = Min(collector->options->range.end, region_end);
-    }
-    if (scan_range.end <= scan_range.start)
-    {
-        return Memmy_Status_Ok;
-    }
-
-    Memmy_ScanRangeNode *node = Arena_PushStruct(collector->arena, Memmy_ScanRangeNode);
-    node->range = scan_range;
-    List_PushBack(&collector->ranges, &node->link);
-    return Memmy_Status_Ok;
-}
-
 static Memmy_Status Memmy_Scan_EmitMatch(Memmy_ScanSink sink, Memmy_Addr address, Memmy_ScanOptions const *options,
                                          U64 *match_count, B32 *out_stop)
 {
@@ -314,6 +232,35 @@ static Memmy_Status Memmy_Process_ScanRange(Arena *arena, Memmy_Process *process
     return Memmy_Status_Ok;
 }
 
+typedef struct Memmy_ScanRangeTraversal Memmy_ScanRangeTraversal;
+struct Memmy_ScanRangeTraversal
+{
+    Arena *arena;
+    Memmy_Process *process;
+    Memmy_ScanOptions const *options;
+    Memmy_ScanNeedle needle;
+    Memmy_ScanSink sink;
+    U64 match_count;
+    B32 any_read;
+    B32 stop;
+    Memmy_Addr last_match;
+    B32 has_last_match;
+    Memmy_Error *error;
+};
+
+static Memmy_Status Memmy_ScanRangeTraversal_Scan(void *user_data, Memmy_Range range)
+{
+    Memmy_ScanRangeTraversal *traversal = (Memmy_ScanRangeTraversal *)user_data;
+    if (traversal->stop)
+    {
+        return Memmy_Status_Ok;
+    }
+
+    return Memmy_Process_ScanRange(traversal->arena, traversal->process, range, traversal->options, traversal->needle,
+                                   traversal->sink, &traversal->match_count, &traversal->any_read, &traversal->stop,
+                                   &traversal->last_match, &traversal->has_last_match, traversal->error);
+}
+
 static Memmy_Status Memmy_Process_ScanNeedle(Arena *arena, Memmy_Process *process, Memmy_ScanOptions const *options,
                                              Memmy_ScanNeedle needle, Memmy_ScanSink sink, Memmy_Error *error)
 {
@@ -322,14 +269,14 @@ static Memmy_Status Memmy_Process_ScanNeedle(Arena *arena, Memmy_Process *proces
         Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("scan"), String8_Lit("missing scan argument"));
         return Memmy_Status_InvalidArgument;
     }
-    if (!options->scan_readable_regions && options->range.end < options->range.start)
+    if (options->range.end < options->range.start)
     {
         Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("scan"),
                         String8_Lit("scan range end is before start"));
         return Memmy_Status_InvalidArgument;
     }
 
-    if (!options->scan_readable_regions && options->range.end == options->range.start)
+    if (options->range.end == options->range.start)
     {
         return Memmy_Status_Ok;
     }
@@ -339,87 +286,25 @@ static Memmy_Status Memmy_Process_ScanNeedle(Arena *arena, Memmy_Process *proces
         return Memmy_Status_InvalidArgument;
     }
 
-    B32 any_read = 0;
-    B32 stop = 0;
-    U64 match_count = 0;
-    Memmy_Addr last_match = 0;
-    B32 has_last_match = 0;
-    Memmy_Backend *backend = process->backend;
-    if (backend != 0 && backend->enumerate_regions != 0)
-    {
-        Scratch scratch = Scratch_Begin(&arena, 1);
-        Memmy_ScanRegionCollector collector = {
-            .arena = scratch.arena,
-            .options = options,
-            .error = error,
-        };
-        Memmy_RegionSink region_sink = {
-            .callback = Memmy_ScanRegionCollector_Push,
-            .user_data = &collector,
-        };
-        Memmy_Status status = Memmy_Process_EnumerateRegions(scratch.arena, process, region_sink, error);
-        if (status == Memmy_Status_Unsupported)
-        {
-            Scratch_End(scratch);
-        }
-        else if (status != Memmy_Status_Ok)
-        {
-            Scratch_End(scratch);
-            return status;
-        }
-        else
-        {
-            Memmy_Range *scan_ranges = Arena_PushArrayNoZero(scratch.arena, Memmy_Range, collector.ranges.count);
-            U64 scan_range_count = 0;
-            List_ForEach(Memmy_ScanRangeNode, node, &collector.ranges, link)
-            {
-                scan_ranges[scan_range_count++] = node->range;
-            }
-
-            Sort(scan_ranges, scan_range_count, sizeof(scan_ranges[0]), Memmy_ScanRange_Cmp, 0);
-            for (U64 i = 0; i < scan_range_count && !stop;)
-            {
-                Memmy_Range merged_range = scan_ranges[i++];
-                while (i < scan_range_count && scan_ranges[i].start <= merged_range.end)
-                {
-                    merged_range.end = Max(merged_range.end, scan_ranges[i].end);
-                    i++;
-                }
-
-                status = Memmy_Process_ScanRange(arena, process, merged_range, options, needle, sink, &match_count,
-                                                 &any_read, &stop, &last_match, &has_last_match, error);
-                if (status != Memmy_Status_Ok || stop)
-                {
-                    Scratch_End(scratch);
-                    return status;
-                }
-            }
-
-            Scratch_End(scratch);
-            if (!any_read)
-            {
-                Memmy_Error_Set(error, Memmy_Status_Unreadable, String8_Lit("scan"),
-                                String8_Lit("scan range is unreadable"));
-                return Memmy_Status_Unreadable;
-            }
-            return Memmy_Status_Ok;
-        }
-    }
-
-    if (options->scan_readable_regions)
-    {
-        Memmy_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("scan"),
-                        String8_Lit("backend cannot list regions"));
-        return Memmy_Status_Unsupported;
-    }
-
-    Memmy_Status status = Memmy_Process_ScanRange(arena, process, options->range, options, needle, sink, &match_count,
-                                                  &any_read, &stop, &last_match, &has_last_match, error);
+    Memmy_ScanRangeTraversal traversal = {
+        .arena = arena,
+        .process = process,
+        .options = options,
+        .needle = needle,
+        .sink = sink,
+        .error = error,
+    };
+    Memmy_RangeSink range_sink = {
+        .callback = Memmy_ScanRangeTraversal_Scan,
+        .user_data = &traversal,
+    };
+    Memmy_Status status = Memmy_Process_EnumerateAccessibleRanges(arena, process, options->range,
+                                                                  Memmy_RegionAccess_Read, range_sink, error);
     if (status != Memmy_Status_Ok)
     {
         return status;
     }
-    if (!any_read)
+    if (!traversal.any_read)
     {
         Memmy_Error_Set(error, Memmy_Status_Unreadable, String8_Lit("scan"), String8_Lit("scan range is unreadable"));
         return Memmy_Status_Unreadable;

@@ -9,7 +9,7 @@ nil                  type-neutral absence of a value
 [@a..@b]             explicit address range [a, b)
 [@a..+n]             sized address range [a, a+n)
 <module>             module range in attached/selected process
-[0..]                readable regions of attached/selected process
+[0..]                concrete address-space range of attached/selected process
 function address     function range containing address
 objectbase address   best-effort object base containing address
 $name                variable
@@ -44,10 +44,20 @@ All memory operations use the current selected process: module targets,
 [@0x1234..@0x5678]   explicit address range: [0x1234, 0x5678)
 [@0x1234..+0x5678]  sized address range:    [0x1234, 0x68ac)
 
-[0..]                attached process readable regions
+[0..]                attached process address-space range
 <client.dll>         attached process module range
 function @0x1234     function range containing address
 ```
+
+`[0..]` resolves on each evaluation to an ordinary, concrete half-open range
+covering the selected process's virtual address space. Assignments store that
+range value without process provenance.
+
+All range-based memory scans automatically traverse only the intersections with
+committed, non-guard regions that are readable. This applies equally to `[0..]`,
+explicit ranges, module ranges, and function ranges. Exact reads and writes are
+strict: they never skip inaccessible holes or silently continue in another
+region.
 
 ## Addresses
 
@@ -303,7 +313,7 @@ nil                  type-neutral absence of a value
 [@a..@b]             explicit address range
 [@a..+n]             sized address range
 <module>             attached/selected process module range
-[0..]                attached/selected process readable regions
+[0..]                attached/selected process address-space range
 range{pattern}       pattern scan -> address list
 range as T == value  value scan -> address list
 range refs ptr addr  pointer reference scan -> address list

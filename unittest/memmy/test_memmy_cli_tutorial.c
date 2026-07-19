@@ -200,6 +200,12 @@ Test(Test_MemmyCliTutorialSemanticTranscriptAndRecovery)
     AssertEq(Test_MemmyCliTutorial_Run(arena, &session, String8_Lit("/tutorial"), &out, &error), Memmy_Status_Ok);
     AssertTrue(String8_Find(out, String8_Lit("Tutorial 8/9"), 0) != STRING8_NPOS);
 
+    AssertEq(Test_MemmyCliTutorial_Run(arena, &session, String8_Lit("$hits = 42"), &out, &error), Memmy_Status_Ok);
+    AssertTrue(String8_Find(out, String8_Lit("cleared or changed"), 0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("Returning to the scan lesson"), 0) != STRING8_NPOS);
+    AssertEq(Test_MemmyCliTutorial_Run(arena, &session, scan, &out, &error), Memmy_Status_Ok);
+    AssertTrue(String8_Find(out, String8_Lit("Tutorial 8/9"), 0) != STRING8_NPOS);
+
     AssertEq(Test_MemmyCliTutorial_Run(arena, &session, String8_Lit("/unset $hits"), &out, &error), Memmy_Status_Ok);
     AssertTrue(String8_Find(out, String8_Lit("Returning to the scan lesson"), 0) != STRING8_NPOS);
     AssertEq(Test_MemmyCliTutorial_Run(arena, &session, scan, &out, &error), Memmy_Status_Ok);
@@ -207,6 +213,17 @@ Test(Test_MemmyCliTutorialSemanticTranscriptAndRecovery)
 
     AssertEq(Test_MemmyCliTutorial_Run(arena, &session, String8_Lit("$hits[1 - 1]"), &out, &error), Memmy_Status_Ok);
     AssertTrue(String8_Find(out, String8_Lit("Tutorial 9/9"), 0) != STRING8_NPOS);
+
+    String8 unrelated_scan =
+        String8_PushF(arena, "$hits = [@0x%llx..+0x40]{0b 30 55 7a 9f c4 e9 0e}", (unsigned long long)fixture);
+    AssertEq(Test_MemmyCliTutorial_Run(arena, &session, unrelated_scan, &out, &error), Memmy_Status_Ok);
+    AssertTrue(String8_Find(out, String8_Lit("cleared or changed"), 0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("Returning to the scan lesson"), 0) != STRING8_NPOS);
+    AssertEq(Test_MemmyCliTutorial_Run(arena, &session, scan, &out, &error), Memmy_Status_Ok);
+    AssertTrue(String8_Find(out, String8_Lit("Tutorial 8/9"), 0) != STRING8_NPOS);
+    AssertEq(Test_MemmyCliTutorial_Run(arena, &session, String8_Lit("$hits[0]"), &out, &error), Memmy_Status_Ok);
+    AssertTrue(String8_Find(out, String8_Lit("Tutorial 9/9"), 0) != STRING8_NPOS);
+
     AssertEq(Test_MemmyCliTutorial_Run(arena, &session, String8_Lit("$hits |> $[0]"), &out, &error), Memmy_Status_Ok);
     AssertTrue(String8_Find(out, String8_Lit("Tutorial complete"), 0) != STRING8_NPOS);
     AssertTrue(Memory_Equals(fixture_snapshot, test_backend.memory, sizeof(fixture_snapshot)));

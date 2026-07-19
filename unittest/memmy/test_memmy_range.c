@@ -93,10 +93,46 @@ Test(Test_MemmyRangeFromStartLengthAllowsZeroAndRejectsOverflow)
     AssertStrEq(error.context, String8_Lit("range"));
 }
 
-TestSuite suite_memmy_range =
-    TestSuite_Make("Memmy Range", TestCase_Make(Test_MemmyParseAddressAcceptsUnsignedTokens),
-                   TestCase_Make(Test_MemmyParseAddressRejectsExpressionsAndNames),
-                   TestCase_Make(Test_MemmyParseAddressRejectsOverflow),
-                   TestCase_Make(Test_MemmyParseSizeAcceptsDecimalAndHexAndRejectsOverflow),
-                   TestCase_Make(Test_MemmyRangeFromStartEndValidatesOrder),
-                   TestCase_Make(Test_MemmyRangeFromStartLengthAllowsZeroAndRejectsOverflow), );
+Test(Test_MemmyRangeEmptyAndIntersection)
+{
+    AssertTrue(Memmy_Range_IsEmpty((Memmy_Range){0}));
+    AssertTrue(Memmy_Range_IsEmpty((Memmy_Range){.start = 2, .end = 2}));
+    AssertTrue(Memmy_Range_IsEmpty((Memmy_Range){.start = 3, .end = 2}));
+    AssertTrue(!Memmy_Range_IsEmpty((Memmy_Range){.start = 2, .end = 3}));
+
+    Memmy_Range out = {.start = 99, .end = 100};
+    AssertTrue(
+        !Memmy_Range_Intersect((Memmy_Range){.start = 0, .end = 10}, (Memmy_Range){.start = 10, .end = 20}, &out));
+    AssertEq(out.start, 0);
+    AssertEq(out.end, 0);
+
+    out = (Memmy_Range){.start = 99, .end = 100};
+    AssertTrue(
+        !Memmy_Range_Intersect((Memmy_Range){.start = 20, .end = 10}, (Memmy_Range){.start = 0, .end = 30}, &out));
+    AssertEq(out.start, 0);
+    AssertEq(out.end, 0);
+
+    AssertTrue(
+        Memmy_Range_Intersect((Memmy_Range){.start = 10, .end = 30}, (Memmy_Range){.start = 20, .end = 40}, &out));
+    AssertEq(out.start, 20);
+    AssertEq(out.end, 30);
+
+    AssertTrue(
+        Memmy_Range_Intersect((Memmy_Range){.start = 10, .end = 50}, (Memmy_Range){.start = 20, .end = 30}, &out));
+    AssertEq(out.start, 20);
+    AssertEq(out.end, 30);
+
+    AssertTrue(
+        Memmy_Range_Intersect((Memmy_Range){.start = 10, .end = 30}, (Memmy_Range){.start = 10, .end = 30}, &out));
+    AssertEq(out.start, 10);
+    AssertEq(out.end, 30);
+    AssertTrue(!Memmy_Range_Intersect((Memmy_Range){0}, (Memmy_Range){0}, 0));
+}
+
+TestSuite suite_memmy_range = TestSuite_Make("Memmy Range", TestCase_Make(Test_MemmyParseAddressAcceptsUnsignedTokens),
+                                             TestCase_Make(Test_MemmyParseAddressRejectsExpressionsAndNames),
+                                             TestCase_Make(Test_MemmyParseAddressRejectsOverflow),
+                                             TestCase_Make(Test_MemmyParseSizeAcceptsDecimalAndHexAndRejectsOverflow),
+                                             TestCase_Make(Test_MemmyRangeFromStartEndValidatesOrder),
+                                             TestCase_Make(Test_MemmyRangeFromStartLengthAllowsZeroAndRejectsOverflow),
+                                             TestCase_Make(Test_MemmyRangeEmptyAndIntersection), );

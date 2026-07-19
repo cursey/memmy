@@ -49,6 +49,7 @@ struct Memmy_Backend
                          Memmy_Error *error);
     Memmy_Status (*write)(Memmy_Process *process, Memmy_Addr address, void const *buffer, U64 size, U64 *bytes_written,
                           Memmy_Error *error);
+    Memmy_Status (*get_address_range)(Memmy_Process *process, Memmy_Range *out, Memmy_Error *error);
     Memmy_Status (*enumerate_modules)(Arena *arena, Memmy_Process *process, Memmy_ModuleSink sink, Memmy_Error *error);
     Memmy_Status (*enumerate_regions)(Arena *arena, Memmy_Process *process, Memmy_RegionSink sink, Memmy_Error *error);
     Memmy_Status (*find_function)(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Range *out,

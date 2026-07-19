@@ -189,7 +189,7 @@ Test(Test_MemmyCliReplSessionUsesAttachedProcessRange)
              Memmy_Status_Ok);
     AssertEq(MemmyCli_ReplSession_RunLine(arena, &session, String8_Lit("[0..]\n"), &out, &should_exit, &error),
              Memmy_Status_Ok);
-    AssertStrEq(out, String8_Lit("[0..]\n"));
+    AssertStrEq(out, String8_Lit("[0x0000000000000000..0x0000000000001100)\n"));
     AssertStrEq(MemmyCli_ReplSession_Prompt(arena, &session), String8_Lit("[test-process:4242]> "));
 
     AssertEq(MemmyCli_ReplSession_RunLine(arena, &session, String8_Lit("@0x1020 as u8\n"), &out, &should_exit, &error),

@@ -554,19 +554,24 @@ Test(Test_MemmyCliVarsFormatsTextAndJsonl)
     AssertEq(MemmyCli_Input_RunString(arena, (I32)ArrayCount(text_argv), text_argv,
                                       String8_Lit("/attach 1234\n"
                                                   "$addr = <client.dll>+0\n"
+                                                  "$whole = [0..]\n"
                                                   "/vars\n"),
                                       &out, &error),
              Memmy_Status_Ok);
-    AssertStrEq(out, String8_Lit("addr address\n"));
+    AssertStrEq(out, String8_Lit("whole range\n"
+                                 "addr address\n"));
 
     error = (Memmy_Error){0};
     AssertEq(MemmyCli_Input_RunString(arena, (I32)ArrayCount(jsonl_argv), jsonl_argv,
                                       String8_Lit("/attach 1234\n"
                                                   "$addr = <client.dll>+0\n"
+                                                  "$whole = [0..]\n"
                                                   "/vars\n"),
                                       &out, &error),
              Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("{\"type\":\"assignment\",\"name\":\"addr\",\"kind\":\"address\"}\n"
+                                 "{\"type\":\"assignment\",\"name\":\"whole\",\"kind\":\"range\"}\n"
+                                 "{\"type\":\"variable\",\"name\":\"whole\",\"kind\":\"range\"}\n"
                                  "{\"type\":\"variable\",\"name\":\"addr\",\"kind\":\"address\"}\n"));
 
     Memmy_Context_Set(0);
@@ -711,6 +716,30 @@ Test(Test_MemmyCliExprFormatsFunctionRangeTextAndJsonl)
     AssertEq(MemmyCli_Argv_RunToString(arena, (I32)ArrayCount(jsonl_argv), jsonl_argv, &out, &error), Memmy_Status_Ok);
     AssertStrEq(out, String8_Lit("{\"type\":\"range\",\"start\":\"0x0000000000001000\","
                                  "\"end\":\"0x0000000000001050\"}\n"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyCliExprFormatsProcessRangeTextAndJsonl)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyCliExpr_SetupBackend(&test_backend);
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *argv[] = {"memmy", "--pid", "1234", "--expr", "[0..]"};
+    AssertEq(MemmyCli_Argv_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("[0x0000000000000000..0x0000000000001100)\n"));
+
+    out = (String8){0};
+    char *jsonl_argv[] = {"memmy", "--jsonl", "--pid", "1234", "--expr", "[0..]"};
+    AssertEq(MemmyCli_Argv_RunToString(arena, (I32)ArrayCount(jsonl_argv), jsonl_argv, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("{\"type\":\"range\",\"start\":\"0x0000000000000000\","
+                                 "\"end\":\"0x0000000000001100\"}\n"));
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -1393,6 +1422,7 @@ TestSuite suite_memmy_cli_dsl = TestSuite_Make(
     TestCase_Make(Test_MemmyCliExprFormatsRangeListJsonl), TestCase_Make(Test_MemmyCliRangeListAssignmentAndVars),
     TestCase_Make(Test_MemmyCliExprFormatsObjectBaseAddressTextAndJsonl),
     TestCase_Make(Test_MemmyCliExprFormatsFunctionRangeTextAndJsonl),
+    TestCase_Make(Test_MemmyCliExprFormatsProcessRangeTextAndJsonl),
     TestCase_Make(Test_MemmyCliExprFormatsFunctionRangeListText),
     TestCase_Make(Test_MemmyCliExprEmptyScanTransformReturnsNil),
     TestCase_Make(Test_MemmyCliExprJsonlScanWriterFailureStopsBeforeSummary),

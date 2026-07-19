@@ -104,6 +104,37 @@ Memmy_Status Memmy_Size_Parse(String8 text, Memmy_Size *out, Memmy_Error *error)
     return Memmy_UnsignedToken_Parse(text, String8_Lit("range"), out, error);
 }
 
+B32 Memmy_Range_IsEmpty(Memmy_Range range)
+{
+    return range.end <= range.start;
+}
+
+B32 Memmy_Range_Intersect(Memmy_Range a, Memmy_Range b, Memmy_Range *out)
+{
+    if (out == 0)
+    {
+        return 0;
+    }
+
+    *out = (Memmy_Range){0};
+    if (a.end < a.start || b.end < b.start)
+    {
+        return 0;
+    }
+
+    Memmy_Range intersection = {
+        .start = Max(a.start, b.start),
+        .end = Min(a.end, b.end),
+    };
+    if (Memmy_Range_IsEmpty(intersection))
+    {
+        return 0;
+    }
+
+    *out = intersection;
+    return 1;
+}
+
 Memmy_Status Memmy_Range_FromStartEnd(Memmy_Addr start, Memmy_Addr end, Memmy_Range *out, Memmy_Error *error)
 {
     if (out == 0)

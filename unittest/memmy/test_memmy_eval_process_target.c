@@ -20,7 +20,48 @@ Test(Test_MemmyEvalModuleTargetAndProcessRangeResolve)
 
     MemmyEval_Value process_range = {0};
     Test_EvalExprText(env, arena, "[0..]", &process_range);
-    AssertEq(process_range.kind, MemmyEval_ValueKind_ProcessRange);
+    AssertEq(process_range.kind, MemmyEval_ValueKind_Range);
+    AssertEq(process_range.range.start, 0);
+    AssertEq(process_range.range.end, 0x1100);
+
+    Test_EvalStatementText(env, arena, "$whole = [0..]");
+    MemmyEval_Value stored = {0};
+    AssertEq(MemmyEval_Env_Find(env, String8_Lit("whole"), &stored), Memmy_Status_Ok);
+    AssertEq(stored.kind, MemmyEval_ValueKind_Range);
+    AssertEq(stored.range.start, 0);
+    AssertEq(stored.range.end, 0x1100);
+
+    MemmyEval_Value piped = {0};
+    Test_EvalExprText(env, arena, "[0..] |> $", &piped);
+    AssertEq(piped.kind, MemmyEval_ValueKind_Range);
+    AssertEq(piped.range.end, 0x1100);
+
+    MemmyEval_Value address = {0};
+    Test_EvalExprText(env, arena, "[0..] + 4", &address);
+    AssertEq(address.kind, MemmyEval_ValueKind_Address);
+    AssertEq(address.address, 4);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalProcessRangeRequiresAddressRangeSupport)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyBackend_Init(&backend);
+    backend.backend.get_address_range = 0;
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&backend)};
+    Memmy_Context_Set(&ctx);
+
+    MemmyEval_Env *env = MemmyEval_Env_Create(arena);
+    MemmyEval_Env_SetDefaultProcess(env, 4242, Memmy_PointerWidth_64);
+    MemmyAst_Node *expr = 0;
+    Test_EvalParseExpr(arena, "[0..]", &expr);
+    MemmyEval_Value value = {0};
+    Memmy_Error error = {0};
+    AssertEq(MemmyEval_Expr_Eval(env, expr, &value, &error), Memmy_Status_Unsupported);
+    AssertEq(value.kind, MemmyEval_ValueKind_Nil);
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -522,6 +563,7 @@ Test(Test_MemmyEvalObjectBaseLookupErrors)
 
 TestSuite suite_memmy_eval_process_target = TestSuite_Make(
     "Memmy Eval Process And Target", TestCase_Make(Test_MemmyEvalModuleTargetAndProcessRangeResolve),
+    TestCase_Make(Test_MemmyEvalProcessRangeRequiresAddressRangeSupport),
     TestCase_Make(Test_MemmyEvalModuleTargetVariableStoresPlainAddress),
     TestCase_Make(Test_MemmyEvalModuleAddressArithmetic),
     TestCase_Make(Test_MemmyEvalStoredAddressReadUsesCurrentSelectedProcess),

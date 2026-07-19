@@ -23,6 +23,7 @@ Test(Test_MemmyDefaultBackendReadWriteCallbacks)
     AssertTrue(ctx.backend != 0);
     AssertTrue(ctx.backend->read != 0);
     AssertTrue(ctx.backend->write != 0);
+    AssertTrue(ctx.backend->get_address_range != 0);
 #if OS_MACOS
     AssertTrue(ctx.backend->find_function != 0);
 #endif
@@ -90,6 +91,17 @@ Test(Test_MemmyDefaultBackendSelfProcessInventoryAndScan)
     Memmy_Process *process = 0;
     AssertEq(Memmy_Process_Open(arena, Os_GetProcessId(), &process, &error), Memmy_Status_Ok);
     AssertTrue(process->pointer_width == Memmy_PointerWidth_32 || process->pointer_width == Memmy_PointerWidth_64);
+
+    Memmy_Range address_range = {0};
+    AssertEq(Memmy_Process_GetAddressRange(process, &address_range, &error), Memmy_Status_Ok);
+    AssertEq(address_range.start, 0);
+    AssertTrue(address_range.end > (Memmy_Addr)(uintptr_t)fixture);
+#if OS_WINDOWS
+    if (process->pointer_width == Memmy_PointerWidth_32)
+    {
+        AssertEq(address_range.end, 0x100000000ull);
+    }
+#endif
 
     Test_ModuleList modules = {0};
     AssertEq(Memmy_Process_EnumerateModules(arena, process, Test_ModuleSink(&modules, arena), &error), Memmy_Status_Ok);

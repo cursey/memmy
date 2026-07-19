@@ -362,13 +362,15 @@ static B32 MemmyCli_Tutorial_ScanRange_IsFixture(Arena *arena, MemmyCli_Tutorial
     return result;
 }
 
-static B32 MemmyCli_Tutorial_ScanVariable_Exists(Arena *arena, MemmyCli_Tutorial const *tutorial, MemmyEval_Env *env)
+static B32 MemmyCli_Tutorial_ScanVariable_IsValid(Arena *arena, MemmyCli_Tutorial const *tutorial, MemmyEval_Env *env)
 {
     Arena *conflicts[] = {arena, tutorial->arena};
     Scratch scratch = Scratch_Begin(conflicts, ArrayCount(conflicts));
     MemmyEval_Value value = {0};
     B32 result = tutorial->scan_variable.len != 0 &&
-                 MemmyEval_Env_Find(scratch.arena, env, tutorial->scan_variable, &value) == Memmy_Status_Ok;
+                 MemmyEval_Env_Find(scratch.arena, env, tutorial->scan_variable, &value) == Memmy_Status_Ok &&
+                 value.kind == MemmyEval_ValueKind_AddressList && value.address_count == 1 && value.addresses != 0 &&
+                 value.addresses[0] == MemmyCli_Tutorial_MarkerAddress(tutorial);
     Scratch_End(scratch);
     return result;
 }
@@ -453,12 +455,13 @@ String8 MemmyCli_Tutorial_Statement_End(Arena *arena, MemmyCli_Tutorial *tutoria
     }
 
     if ((tutorial->step == MemmyCli_TutorialStep_Index || tutorial->step == MemmyCli_TutorialStep_ValuePipe) &&
-        !MemmyCli_Tutorial_ScanVariable_Exists(arena, tutorial, env))
+        !MemmyCli_Tutorial_ScanVariable_IsValid(arena, tutorial, env))
     {
         tutorial->step = MemmyCli_TutorialStep_PatternScan;
         tutorial->scan_variable = (String8){0};
         String8 instruction = MemmyCli_Tutorial_Instruction(arena, tutorial);
-        return String8_PushF(arena, "The saved scan variable was cleared. Returning to the scan lesson.\n\n%.*s",
+        return String8_PushF(arena,
+                             "The saved scan variable was cleared or changed. Returning to the scan lesson.\n\n%.*s",
                              (int)instruction.len, (char *)instruction.data);
     }
 

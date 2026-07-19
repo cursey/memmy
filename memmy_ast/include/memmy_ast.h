@@ -23,6 +23,7 @@ enum
     MemmyAst_NodeKind_Target,
     MemmyAst_NodeKind_Address,
     MemmyAst_NodeKind_Range,
+    // Specialized process-dependent syntax that evaluates to an ordinary range value.
     MemmyAst_NodeKind_ProcessRange,
     MemmyAst_NodeKind_Deref,
     MemmyAst_NodeKind_TypedRead,

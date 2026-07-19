@@ -7,6 +7,8 @@
 
 Memmy_Status Memmy_Address_Parse(String8 text, Memmy_Addr *out, Memmy_Error *error);
 Memmy_Status Memmy_Size_Parse(String8 text, Memmy_Size *out, Memmy_Error *error);
+B32 Memmy_Range_IsEmpty(Memmy_Range range);
+B32 Memmy_Range_Intersect(Memmy_Range a, Memmy_Range b, Memmy_Range *out);
 Memmy_Status Memmy_Range_FromStartEnd(Memmy_Addr start, Memmy_Addr end, Memmy_Range *out, Memmy_Error *error);
 Memmy_Status Memmy_Range_FromStartLength(Memmy_Addr start, Memmy_Size length, Memmy_Range *out, Memmy_Error *error);
 

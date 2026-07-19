@@ -9,6 +9,41 @@ static void Test_MemmyProcess_WritePointer(Test_MemmyBackend *backend, Memmy_Add
     memcpy(backend->memory + offset, &raw, sizeof(raw));
 }
 
+typedef struct Test_MemmyRangeCapture Test_MemmyRangeCapture;
+struct Test_MemmyRangeCapture
+{
+    Memmy_Range ranges[16];
+    U64 count;
+    Memmy_Status status;
+};
+
+static Memmy_Status Test_MemmyRangeCapture_Push(void *user_data, Memmy_Range range)
+{
+    Test_MemmyRangeCapture *capture = (Test_MemmyRangeCapture *)user_data;
+    if (capture->count < ArrayCount(capture->ranges))
+    {
+        capture->ranges[capture->count] = range;
+    }
+    capture->count++;
+    return capture->status;
+}
+
+static Memmy_RangeSink Test_MemmyRangeCapture_Sink(Test_MemmyRangeCapture *capture)
+{
+    return (Memmy_RangeSink){
+        .callback = Test_MemmyRangeCapture_Push,
+        .user_data = capture,
+    };
+}
+
+static Memmy_Status Test_MemmyProcess_InvalidAddressRange(Memmy_Process *process, Memmy_Range *out, Memmy_Error *error)
+{
+    Unused(process);
+    Unused(error);
+    *out = (Memmy_Range){.start = 1, .end = 2};
+    return Memmy_Status_Ok;
+}
+
 Test(Test_MemmyTestBackendReadWrite)
 {
     Arena *arena = Arena_CreateDefault();
@@ -99,6 +134,12 @@ Test(Test_MemmyProcessMissingBackendCallbacksReturnUnsupported)
     AssertEq(Memmy_Process_EnumerateRegions(arena, process, Test_RegionSink(&regions, arena), &error),
              Memmy_Status_Unsupported);
 
+    Memmy_Range address_range = {.start = 1, .end = 2};
+    test_backend.backend.get_address_range = 0;
+    AssertEq(Memmy_Process_GetAddressRange(process, &address_range, &error), Memmy_Status_Unsupported);
+    AssertEq(address_range.start, 0);
+    AssertEq(address_range.end, 0);
+
     Memmy_Range function = {0};
     test_backend.backend.find_function = 0;
     AssertEq(Memmy_Process_FindFunction(arena, process, test_backend.memory_base, &function, &error),
@@ -110,6 +151,154 @@ Test(Test_MemmyProcessMissingBackendCallbacksReturnUnsupported)
     AssertEq(Memmy_Process_FindObjectBase(arena, process, test_backend.memory_base, 0, &object_base, &error),
              Memmy_Status_Unsupported);
     AssertStrEq(error.context, String8_Lit("backend"));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyProcessAddressRangeValidationAndOverflow)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+
+    Memmy_Process *process = 0;
+    Memmy_Error error = {0};
+    AssertEq(Memmy_Process_Open(arena, 4242, &process, &error), Memmy_Status_Ok);
+
+    Memmy_Range range = {0};
+    AssertEq(Memmy_Process_GetAddressRange(process, &range, &error), Memmy_Status_Ok);
+    AssertEq(range.start, 0);
+    AssertEq(range.end, 0x1100);
+
+    test_backend.backend.get_address_range = Test_MemmyProcess_InvalidAddressRange;
+    range = (Memmy_Range){.start = 3, .end = 4};
+    AssertEq(Memmy_Process_GetAddressRange(process, &range, &error), Memmy_Status_PlatformError);
+    AssertEq(range.start, 0);
+    AssertEq(range.end, 0);
+
+    Test_MemmyBackend_Init(&test_backend);
+    process->backend = &test_backend.backend;
+    process->backend_data = &test_backend;
+    Test_MemmyBackend_SetMemoryBase(&test_backend, U64_MAX);
+    range = (Memmy_Range){.start = 3, .end = 4};
+    AssertEq(Memmy_Process_GetAddressRange(process, &range, &error), Memmy_Status_Overflow);
+    AssertEq(range.start, 0);
+    AssertEq(range.end, 0);
+
+    AssertEq(Memmy_Process_GetAddressRange(process, 0, &error), Memmy_Status_InvalidArgument);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyProcessAccessibleRangesNormalizeAndFilter)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    test_backend.region_count = 0;
+    Test_MemmyBackend_AddRegion(&test_backend, 4242, 0x1090, 0x100, Memmy_RegionAccess_Read,
+                                Memmy_RegionState_Committed);
+    Test_MemmyBackend_AddRegion(&test_backend, 4242, 0x1040, 0x40, Memmy_RegionAccess_Read | Memmy_RegionAccess_Write,
+                                Memmy_RegionState_Committed);
+    Test_MemmyBackend_AddRegion(&test_backend, 4242, 0x1000, 0x40, Memmy_RegionAccess_Read,
+                                Memmy_RegionState_Committed);
+    Test_MemmyBackend_AddRegion(&test_backend, 4242, 0x1120, 0x40, Memmy_RegionAccess_Read,
+                                Memmy_RegionState_Committed);
+    Test_MemmyBackend_AddRegion(&test_backend, 4242, 0x1010, 0x20, Memmy_RegionAccess_Read,
+                                Memmy_RegionState_Committed);
+    Test_MemmyBackend_AddRegion(&test_backend, 4242, 0x1160, 0x10, Memmy_RegionAccess_Read, Memmy_RegionState_Free);
+    Test_MemmyBackend_AddRegion(&test_backend, 4242, 0x1170, 0x10, Memmy_RegionAccess_Read, Memmy_RegionState_Reserved);
+    Test_MemmyBackend_AddRegion(&test_backend, 4242, 0x1180, 0x10, Memmy_RegionAccess_Read | Memmy_RegionAccess_Guard,
+                                Memmy_RegionState_Committed);
+    Test_MemmyBackend_AddRegion(&test_backend, 4242, 0x1190, 0x10, Memmy_RegionAccess_Write,
+                                Memmy_RegionState_Committed);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+    Memmy_Process *process = 0;
+    AssertEq(Memmy_Process_Open(arena, 4242, &process, 0), Memmy_Status_Ok);
+
+    Memmy_Error error = {0};
+    Test_MemmyRangeCapture readable = {0};
+    AssertEq(Memmy_Process_EnumerateAccessibleRanges(arena, process, (Memmy_Range){.start = 0x1020, .end = 0x1150},
+                                                     Memmy_RegionAccess_Read, Test_MemmyRangeCapture_Sink(&readable),
+                                                     &error),
+             Memmy_Status_Ok);
+    AssertEq(readable.count, 2);
+    AssertEq(readable.ranges[0].start, 0x1020);
+    AssertEq(readable.ranges[0].end, 0x1080);
+    AssertEq(readable.ranges[1].start, 0x1090);
+    AssertEq(readable.ranges[1].end, 0x1150);
+
+    Test_MemmyRangeCapture writable = {0};
+    AssertEq(Memmy_Process_EnumerateAccessibleRanges(arena, process, (Memmy_Range){.start = 0x1000, .end = 0x1200},
+                                                     Memmy_RegionAccess_Write, Test_MemmyRangeCapture_Sink(&writable),
+                                                     &error),
+             Memmy_Status_Ok);
+    AssertEq(writable.count, 2);
+    AssertEq(writable.ranges[0].start, 0x1040);
+    AssertEq(writable.ranges[0].end, 0x1080);
+    AssertEq(writable.ranges[1].start, 0x1190);
+    AssertEq(writable.ranges[1].end, 0x11a0);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyProcessAccessibleRangesErrorsAndEmptyResults)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+    Memmy_Process *process = 0;
+    AssertEq(Memmy_Process_Open(arena, 4242, &process, 0), Memmy_Status_Ok);
+
+    Memmy_Error error = {0};
+    Test_MemmyRangeCapture capture = {.status = Memmy_Status_AccessDenied};
+    AssertEq(Memmy_Process_EnumerateAccessibleRanges(arena, process, (Memmy_Range){.start = 0x1000, .end = 0x1100},
+                                                     Memmy_RegionAccess_Read, Test_MemmyRangeCapture_Sink(&capture),
+                                                     &error),
+             Memmy_Status_AccessDenied);
+    AssertEq(capture.count, 1);
+
+    capture = (Test_MemmyRangeCapture){0};
+    AssertEq(Memmy_Process_EnumerateAccessibleRanges(arena, process, (Memmy_Range){.start = 0x1100, .end = 0x1000},
+                                                     Memmy_RegionAccess_Read, Test_MemmyRangeCapture_Sink(&capture),
+                                                     &error),
+             Memmy_Status_InvalidArgument);
+
+    capture = (Test_MemmyRangeCapture){0};
+    AssertEq(Memmy_Process_EnumerateAccessibleRanges(arena, process, (Memmy_Range){.start = 0x1000, .end = 0x1100},
+                                                     Memmy_RegionAccess_Execute, Test_MemmyRangeCapture_Sink(&capture),
+                                                     &error),
+             Memmy_Status_Ok);
+    AssertEq(capture.count, 0);
+
+    test_backend.backend.enumerate_regions = 0;
+    AssertEq(Memmy_Process_EnumerateAccessibleRanges(arena, process, (Memmy_Range){.start = 0x1000, .end = 0x1100},
+                                                     Memmy_RegionAccess_Read, Test_MemmyRangeCapture_Sink(&capture),
+                                                     &error),
+             Memmy_Status_Unsupported);
+    AssertEq(Memmy_Process_EnumerateAccessibleRanges(arena, process, (Memmy_Range){.start = 0x1000, .end = 0x1000},
+                                                     Memmy_RegionAccess_Read, Test_MemmyRangeCapture_Sink(&capture),
+                                                     &error),
+             Memmy_Status_Ok);
+
+    Test_MemmyBackend_Init(&test_backend);
+    process->backend = &test_backend.backend;
+    process->backend_data = &test_backend;
+    test_backend.region_count = 0;
+    Test_MemmyBackend_AddRegion(&test_backend, 4242, U64_MAX, 2, Memmy_RegionAccess_Read, Memmy_RegionState_Committed);
+    AssertEq(
+        Memmy_Process_EnumerateAccessibleRanges(arena, process, (Memmy_Range){.start = U64_MAX - 1, .end = U64_MAX},
+                                                Memmy_RegionAccess_Read, Test_MemmyRangeCapture_Sink(&capture), &error),
+        Memmy_Status_Overflow);
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -494,6 +683,9 @@ Test(Test_MemmyProcessFindObjectBaseAmbiguous)
 }
 TestSuite suite_memmy_process = TestSuite_Make("Memmy Process", TestCase_Make(Test_MemmyTestBackendReadWrite),
                                                TestCase_Make(Test_MemmyProcessMissingBackendCallbacksReturnUnsupported),
+                                               TestCase_Make(Test_MemmyProcessAddressRangeValidationAndOverflow),
+                                               TestCase_Make(Test_MemmyProcessAccessibleRangesNormalizeAndFilter),
+                                               TestCase_Make(Test_MemmyProcessAccessibleRangesErrorsAndEmptyResults),
                                                TestCase_Make(Test_MemmyProcessReadDispatchAndFailureMapping),
                                                TestCase_Make(Test_MemmyProcessWriteDispatchAndFailureMapping),
                                                TestCase_Make(Test_MemmyProcessEnumerationPreservesCallbackOrder),

@@ -100,7 +100,7 @@ static String8 MemmyCli_Dsl_Help(Arena *arena)
                                            "  [@a..@b]             explicit address range [a, b)\n"
                                            "  [@a..+n]             sized address range [a, a+n)\n"
                                            "  <module>             module range in selected process\n"
-                                           "  [0..]                selected process readable regions\n"
+                                           "  [0..]                selected process address-space range\n"
                                            "  function address     function range containing address\n"
                                            "  objectbase address   best-effort object base containing address\n"
                                            "  $name                variable\n"
@@ -160,10 +160,6 @@ static String8 MemmyCli_EvalValue_KindString(MemmyEval_Value value)
     if (value.kind == MemmyEval_ValueKind_Range)
     {
         return String8_Lit("range");
-    }
-    if (value.kind == MemmyEval_ValueKind_ProcessRange)
-    {
-        return String8_Lit("process_range");
     }
     if (value.kind == MemmyEval_ValueKind_AddressList)
     {
@@ -494,13 +490,6 @@ static Memmy_Status MemmyCli_EvalResultWriter_WriteValue(MemmyCli_EvalResultWrit
                                            (int)start.len, (char *)start.data, (int)end.len, (char *)end.data)
                            : String8_PushF(arena, "[%.*s..%.*s)\n", (int)start.len, (char *)start.data, (int)end.len,
                                            (char *)end.data);
-        return MemmyCli_EvalResultWriter_Write(result_writer, line);
-    }
-    if (value.kind == MemmyEval_ValueKind_ProcessRange)
-    {
-        String8 line = result_writer->jsonl
-                           ? String8_Lit("{\"type\":\"process_range\",\"range\":\"readable_regions\"}\n")
-                           : String8_Lit("[0..]\n");
         return MemmyCli_EvalResultWriter_Write(result_writer, line);
     }
     if (value.kind == MemmyEval_ValueKind_RangeList)

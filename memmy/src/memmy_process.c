@@ -1,6 +1,79 @@
 #include "memmy_process.h"
 
 #include "memmy_context.h"
+#include "memmy_range.h"
+
+typedef struct Memmy_AccessibleRangeNode Memmy_AccessibleRangeNode;
+struct Memmy_AccessibleRangeNode
+{
+    ListLink link;
+    Memmy_Range range;
+};
+
+typedef struct Memmy_AccessibleRangeCollector Memmy_AccessibleRangeCollector;
+struct Memmy_AccessibleRangeCollector
+{
+    Arena *arena;
+    Memmy_Range bounds;
+    Memmy_RegionAccess required_access;
+    List ranges; // Memmy_AccessibleRangeNode
+    Memmy_Error *error;
+};
+
+static I32 Memmy_AccessibleRange_Cmp(void *a, void *b, void *ctx)
+{
+    Unused(ctx);
+
+    Memmy_Range *range_a = (Memmy_Range *)a;
+    Memmy_Range *range_b = (Memmy_Range *)b;
+    if (range_a->start < range_b->start)
+    {
+        return -1;
+    }
+    if (range_a->start > range_b->start)
+    {
+        return 1;
+    }
+    if (range_a->end < range_b->end)
+    {
+        return -1;
+    }
+    if (range_a->end > range_b->end)
+    {
+        return 1;
+    }
+    return 0;
+}
+
+static Memmy_Status Memmy_AccessibleRangeCollector_Push(void *user_data, Memmy_Region const *region)
+{
+    Memmy_AccessibleRangeCollector *collector = (Memmy_AccessibleRangeCollector *)user_data;
+    if (region->state != Memmy_RegionState_Committed || (region->access & Memmy_RegionAccess_Guard) != 0 ||
+        (region->access & collector->required_access) != collector->required_access)
+    {
+        return Memmy_Status_Ok;
+    }
+
+    Memmy_Addr region_end = 0;
+    if (!AddU64Checked(region->base, region->size, &region_end))
+    {
+        Memmy_Error_Set(collector->error, Memmy_Status_Overflow, String8_Lit("region"),
+                        String8_Lit("region end overflow"));
+        return Memmy_Status_Overflow;
+    }
+
+    Memmy_Range intersection = {0};
+    Memmy_Range region_range = {.start = region->base, .end = region_end};
+    if (!Memmy_Range_Intersect(collector->bounds, region_range, &intersection))
+    {
+        return Memmy_Status_Ok;
+    }
+
+    Memmy_AccessibleRangeNode *node = Arena_PushStruct(collector->arena, Memmy_AccessibleRangeNode);
+    node->range = intersection;
+    List_PushBack(&collector->ranges, &node->link);
+    return Memmy_Status_Ok;
+}
 
 static Memmy_Status memmy_RequireContextBackend(Memmy_Backend **out_backend, Memmy_Error *error)
 {
@@ -154,6 +227,124 @@ Memmy_Status Memmy_Process_EnumerateRegions(Arena *arena, Memmy_Process *process
     }
 
     return backend->enumerate_regions(arena, process, sink, error);
+}
+
+Memmy_Status Memmy_Process_GetAddressRange(Memmy_Process *process, Memmy_Range *out, Memmy_Error *error)
+{
+    if (out != 0)
+    {
+        *out = (Memmy_Range){0};
+    }
+    if (out == 0)
+    {
+        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("backend"),
+                        String8_Lit("missing address range output"));
+        return Memmy_Status_InvalidArgument;
+    }
+
+    Memmy_Backend *backend = 0;
+    Memmy_Status status = memmy_RequireProcessBackend(process, &backend, error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+    if (backend->get_address_range == 0)
+    {
+        return memmy_Unsupported(error, "backend cannot get the process address range");
+    }
+
+    Memmy_Range range = {0};
+    status = backend->get_address_range(process, &range, error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+    if (range.start != 0 || range.end < range.start)
+    {
+        Memmy_Error_Set(error, Memmy_Status_PlatformError, String8_Lit("backend"),
+                        String8_Lit("backend returned an invalid process address range"));
+        return Memmy_Status_PlatformError;
+    }
+
+    *out = range;
+    return Memmy_Status_Ok;
+}
+
+Memmy_Status Memmy_Process_EnumerateAccessibleRanges(Arena *arena, Memmy_Process *process, Memmy_Range bounds,
+                                                     Memmy_RegionAccess required_access, Memmy_RangeSink sink,
+                                                     Memmy_Error *error)
+{
+    if (arena == 0 || process == 0 || sink.callback == 0)
+    {
+        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("region"),
+                        String8_Lit("missing accessible-range argument"));
+        return Memmy_Status_InvalidArgument;
+    }
+    if (bounds.end < bounds.start)
+    {
+        Memmy_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("region"),
+                        String8_Lit("range end is before start"));
+        return Memmy_Status_InvalidArgument;
+    }
+
+    Memmy_Backend *backend = 0;
+    Memmy_Status status = memmy_RequireProcessBackend(process, &backend, error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
+    Unused(backend);
+
+    if (Memmy_Range_IsEmpty(bounds))
+    {
+        return Memmy_Status_Ok;
+    }
+
+    Scratch scratch = Scratch_Begin(&arena, 1);
+    Memmy_AccessibleRangeCollector collector = {
+        .arena = scratch.arena,
+        .bounds = bounds,
+        .required_access = required_access,
+        .error = error,
+    };
+    Memmy_RegionSink region_sink = {
+        .callback = Memmy_AccessibleRangeCollector_Push,
+        .user_data = &collector,
+    };
+    status = Memmy_Process_EnumerateRegions(scratch.arena, process, region_sink, error);
+    if (status != Memmy_Status_Ok)
+    {
+        Scratch_End(scratch);
+        return status;
+    }
+
+    Memmy_Range *ranges = Arena_PushArrayNoZero(scratch.arena, Memmy_Range, collector.ranges.count);
+    U64 range_count = 0;
+    List_ForEach(Memmy_AccessibleRangeNode, node, &collector.ranges, link)
+    {
+        ranges[range_count++] = node->range;
+    }
+
+    Sort(ranges, range_count, sizeof(ranges[0]), Memmy_AccessibleRange_Cmp, 0);
+    for (U64 i = 0; i < range_count;)
+    {
+        Memmy_Range merged = ranges[i++];
+        while (i < range_count && ranges[i].start <= merged.end)
+        {
+            merged.end = Max(merged.end, ranges[i].end);
+            i++;
+        }
+
+        status = sink.callback(sink.user_data, merged);
+        if (status != Memmy_Status_Ok)
+        {
+            Scratch_End(scratch);
+            return status;
+        }
+    }
+
+    Scratch_End(scratch);
+    return Memmy_Status_Ok;
 }
 
 Memmy_Status Memmy_Process_FindFunction(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Range *out,

@@ -75,6 +75,21 @@ static void Test_MemmyBackend_CloseProcess(Memmy_Process *process)
     process->backend_data = 0;
 }
 
+static Memmy_Status Test_MemmyBackend_GetAddressRange(Memmy_Process *process, Memmy_Range *out, Memmy_Error *error)
+{
+    Test_MemmyBackend *backend = (Test_MemmyBackend *)process->backend_data;
+    Memmy_Addr end = 0;
+    if (!AddU64Checked(backend->memory_base, TEST_MEMMY_BACKEND_MEMORY_SIZE, &end))
+    {
+        Memmy_Error_Set(error, Memmy_Status_Overflow, String8_Lit("backend"),
+                        String8_Lit("test address range overflow"));
+        return Memmy_Status_Overflow;
+    }
+
+    *out = (Memmy_Range){.start = 0, .end = end};
+    return Memmy_Status_Ok;
+}
+
 static Memmy_Status Test_MemmyBackend_Read(Memmy_Process *process, Memmy_Addr addr, void *buffer, U64 size,
                                            U64 *bytes_read, Memmy_Error *error)
 {
@@ -435,6 +450,7 @@ void Test_MemmyBackend_Init(Test_MemmyBackend *backend)
                 .close_process = Test_MemmyBackend_CloseProcess,
                 .read = Test_MemmyBackend_Read,
                 .write = Test_MemmyBackend_Write,
+                .get_address_range = Test_MemmyBackend_GetAddressRange,
                 .enumerate_modules = Test_MemmyBackend_EnumerateModules,
                 .enumerate_regions = Test_MemmyBackend_EnumerateRegions,
                 .find_function = Test_MemmyBackend_FindFunction,

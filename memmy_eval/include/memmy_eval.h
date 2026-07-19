@@ -11,7 +11,6 @@ enum
     MemmyEval_ValueKind_Const,
     MemmyEval_ValueKind_Address,
     MemmyEval_ValueKind_Range,
-    MemmyEval_ValueKind_ProcessRange,
     MemmyEval_ValueKind_AddressList,
     MemmyEval_ValueKind_RangeList,
     MemmyEval_ValueKind_TypedValue,
