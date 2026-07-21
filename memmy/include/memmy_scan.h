@@ -35,7 +35,7 @@ enum
 
 // Options are borrowed and never modified. Match bytes are valid only during the match callback.
 Memmy_Status Memmy_Process_ScanValue(Arena *arena, Memmy_Process *process, Memmy_ScanOptions const *options,
-                                     Memmy_Value value, Memmy_ScanSink sink, Memmy_Error *error);
+                                     Memmy_EncodedValue value, Memmy_ScanSink sink, Memmy_Error *error);
 Memmy_Status Memmy_Process_ScanPattern(Arena *arena, Memmy_Process *process, Memmy_ScanOptions const *options,
                                        Memmy_Pattern pattern, Memmy_ScanSink sink, Memmy_Error *error);
 Memmy_Status Memmy_Process_ScanReferences(Arena *arena, Memmy_Process *process, Memmy_ScanOptions const *options,

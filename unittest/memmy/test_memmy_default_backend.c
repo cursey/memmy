@@ -163,8 +163,8 @@ Test(Test_MemmyDefaultBackendSelfProcessInventoryAndScan)
     Memmy_Addr expected[] = {fixture_addr};
     Test_AssertScanAddresses(&results, expected, ArrayCount(expected));
 
-    Memmy_Value value = {
-        .type = {.kind = Memmy_TypeKind_Bytes},
+    Memmy_EncodedValue value = {
+        .type = Memmy_Type_U16,
         .bytes = String8_Make(pattern_bytes, ArrayCount(pattern_bytes)),
     };
     AssertEq(Memmy_Process_ScanValue(arena, process, &options, value, Test_ScanSink(&results, arena), &error),
@@ -237,8 +237,7 @@ Test(Test_MemmyDefaultBackendCliSelfProcessSmoke)
     char *peek_expr = String8_ToCStr(arena, String8_PushF(arena, "@0x%llx as u32", poke_addr));
     char *poke_expr = String8_ToCStr(arena, String8_PushF(arena, "@0x%llx as u32 = 0x55667788", poke_addr));
     char *pscan_expr = String8_ToCStr(arena, String8_PushF(arena, "[@0x%llx..+0x10]{de ad be ef}", scan_start));
-    char *scan_expr =
-        String8_ToCStr(arena, String8_PushF(arena, "[@0x%llx..+0x10] as bytes == de ad be ef", scan_start));
+    char *scan_expr = String8_ToCStr(arena, String8_PushF(arena, "[@0x%llx..+0x10] as u32 == 0xefbeadde", scan_start));
     char *function_expr = String8_ToCStr(arena, String8_PushF(arena, "function @0x%llx", function_addr));
     char *peek_argv[] = {"memmy", "--pid", pid_text, "--expr", peek_expr};
     char *poke_argv[] = {"memmy", "--pid", pid_text, "--expr", poke_expr};

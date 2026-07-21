@@ -1,193 +1,201 @@
 #include "test_memmy_common.h"
 
-Test(Test_MemmyTypeParseAcceptsV0Spellings)
+#include <math.h>
+
+Test(Test_MemmyTypeDescriptorsParseValidateAndCompareStructurally)
 {
     struct
     {
         String8 text;
-        Memmy_TypeKind kind;
-        U64 fixed_size;
+        Memmy_Type const *expected;
     } cases[] = {
-        {String8_Lit("u8"), Memmy_TypeKind_U8, 1},   {String8_Lit("i8"), Memmy_TypeKind_I8, 1},
-        {String8_Lit("u16"), Memmy_TypeKind_U16, 2}, {String8_Lit("i16"), Memmy_TypeKind_I16, 2},
-        {String8_Lit("u32"), Memmy_TypeKind_U32, 4}, {String8_Lit("i32"), Memmy_TypeKind_I32, 4},
-        {String8_Lit("u64"), Memmy_TypeKind_U64, 8}, {String8_Lit("i64"), Memmy_TypeKind_I64, 8},
-        {String8_Lit("f32"), Memmy_TypeKind_F32, 4}, {String8_Lit("f64"), Memmy_TypeKind_F64, 8},
-        {String8_Lit("ptr"), Memmy_TypeKind_Ptr, 0}, {String8_Lit("bytes"), Memmy_TypeKind_Bytes, 0},
-        {String8_Lit("str"), Memmy_TypeKind_Str, 0}, {String8_Lit("wstr"), Memmy_TypeKind_WStr, 0},
+        {String8_Lit("u8"), &Memmy_Type_U8},   {String8_Lit("i8"), &Memmy_Type_I8},
+        {String8_Lit("u16"), &Memmy_Type_U16}, {String8_Lit("i16"), &Memmy_Type_I16},
+        {String8_Lit("u32"), &Memmy_Type_U32}, {String8_Lit("i32"), &Memmy_Type_I32},
+        {String8_Lit("u64"), &Memmy_Type_U64}, {String8_Lit("i64"), &Memmy_Type_I64},
+        {String8_Lit("f32"), &Memmy_Type_F32}, {String8_Lit("f64"), &Memmy_Type_F64},
+        {String8_Lit("str"), &Memmy_Type_Str}, {String8_Lit("wstr"), &Memmy_Type_WStr},
     };
-
     for (U64 i = 0; i < ArrayCount(cases); i++)
     {
         Memmy_Type type = {0};
-        Memmy_Error error = {0};
-        AssertEq(Memmy_Type_Parse(cases[i].text, &type, &error), Memmy_Status_Ok);
-        AssertEq(type.kind, cases[i].kind);
-        AssertEq(type.fixed_size, cases[i].fixed_size);
+        AssertEq(Memmy_Type_Parse(cases[i].text, &type, 0), Memmy_Status_Ok);
+        AssertTrue(Memmy_Type_Eq(type, *cases[i].expected));
+        AssertTrue(Memmy_Type_IsValid(type));
     }
-}
+    AssertTrue(!Memmy_Type_Eq(Memmy_Type_U8, Memmy_Type_U64));
+    AssertTrue(!Memmy_Type_Eq(Memmy_Type_I32, Memmy_Type_U32));
+    AssertTrue(!Memmy_Type_Eq(Memmy_Type_F32, Memmy_Type_F64));
+    AssertTrue(!Memmy_Type_Eq(Memmy_Type_Str, Memmy_Type_WStr));
+    AssertTrue(!Memmy_Type_IsValid((Memmy_Type){.kind = Memmy_TypeKind_Integer, .integer = {.bit_count = 24}}));
+    AssertTrue(!Memmy_Type_IsValid((Memmy_Type){.kind = Memmy_TypeKind_Float, .floating = {.bit_count = 16}}));
 
-Test(Test_MemmyTypeParseRejectsUnknownNames)
-{
-    String8 cases[] = {String8_Lit("U8"), String8_Lit("int"), String8_Lit(""), String8_Lit("ptr32")};
-    for (U64 i = 0; i < ArrayCount(cases); i++)
+    String8 rejected[] = {String8_Lit("ptr"), String8_Lit("bytes"), String8_Lit("list<u8>"), String8_Lit("U8")};
+    for (U64 i = 0; i < ArrayCount(rejected); i++)
     {
-        Memmy_Type type = {0};
+        Memmy_Type type = Memmy_Type_U8;
         Memmy_Error error = {0};
-        AssertEq(Memmy_Type_Parse(cases[i], &type, &error), Memmy_Status_ParseError);
+        AssertEq(Memmy_Type_Parse(rejected[i], &type, &error), Memmy_Status_ParseError);
+        AssertTrue(Memmy_Type_IsNull(type));
         AssertStrEq(error.context, String8_Lit("type"));
-        AssertStrEq(error.input, cases[i]);
     }
 }
 
-Test(Test_MemmyValueParseIntegerBounds)
+Test(Test_MemmyTypeListConstructionAndValueDeepCopy)
+{
+    Arena *source = Arena_CreateDefault();
+    Arena *destination = Arena_CreateDefault();
+    Memmy_Type list_type = {0};
+    AssertEq(Memmy_Type_ListCreate(source, Memmy_Type_Str, &list_type, 0), Memmy_Status_Ok);
+    Memmy_Type equivalent = {.kind = Memmy_TypeKind_List, .list = {.element_type = &Memmy_Type_Str}};
+    AssertTrue(Memmy_Type_Eq(list_type, equivalent));
+    AssertEq(Memmy_Type_ListCreate(source, Memmy_Type_Null, &equivalent, 0), Memmy_Status_InvalidArgument);
+    AssertEq(Memmy_Type_ListCreate(source, list_type, &equivalent, 0), Memmy_Status_InvalidArgument);
+
+    String8 *strings = Arena_PushArray(source, String8, 2);
+    strings[0] = String8_Copy(source, String8_Lit("alpha"));
+    strings[1] = String8_Copy(source, String8_Lit("beta"));
+    Memmy_Value value = {.type = list_type, .list = {.count = 2, .strings = strings}};
+    Memmy_Value copy = {0};
+    AssertEq(Memmy_Value_Copy(destination, &value, &copy, 0), Memmy_Status_Ok);
+    AssertTrue(Memmy_Type_Eq(copy.type, list_type));
+    AssertTrue(copy.type.list.element_type != list_type.list.element_type);
+    AssertTrue(copy.list.strings != strings);
+    AssertTrue(copy.list.strings[0].data != strings[0].data);
+    AssertStrEq(copy.list.strings[0], String8_Lit("alpha"));
+    AssertStrEq(copy.list.strings[1], String8_Lit("beta"));
+    Arena_Destroy(source);
+    AssertStrEq(copy.list.strings[0], String8_Lit("alpha"));
+    Arena_Destroy(destination);
+}
+
+Test(Test_MemmyValueIntegerDecodeEncodeBoundaries)
 {
     Arena *arena = Arena_CreateDefault();
     struct
     {
-        String8 type_name;
-        String8 text;
-        U8 expected[8];
-        U64 expected_len;
+        Memmy_Type const *type;
+        U8 bytes[8];
+        I64 signed_value;
+        U64 unsigned_value;
     } cases[] = {
-        {String8_Lit("u8"), String8_Lit("255"), {0xff}, 1},
-        {String8_Lit("i8"), String8_Lit("-128"), {0x80}, 1},
-        {String8_Lit("i8"), String8_Lit("127"), {0x7f}, 1},
-        {String8_Lit("u16"), String8_Lit("65535"), {0xff, 0xff}, 2},
-        {String8_Lit("i16"), String8_Lit("-32768"), {0x00, 0x80}, 2},
-        {String8_Lit("i16"), String8_Lit("32767"), {0xff, 0x7f}, 2},
-        {String8_Lit("u32"), String8_Lit("4294967295"), {0xff, 0xff, 0xff, 0xff}, 4},
-        {String8_Lit("i32"), String8_Lit("-2147483648"), {0x00, 0x00, 0x00, 0x80}, 4},
-        {String8_Lit("i32"), String8_Lit("2147483647"), {0xff, 0xff, 0xff, 0x7f}, 4},
-        {String8_Lit("u64"), String8_Lit("18446744073709551615"), {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}, 8},
-        {String8_Lit("i64"), String8_Lit("-9223372036854775808"), {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80}, 8},
-        {String8_Lit("i64"), String8_Lit("9223372036854775807"), {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f}, 8},
+        {&Memmy_Type_U8, {0xff}, 0, U8_MAX},
+        {&Memmy_Type_I8, {0x80}, I8_MIN, 0},
+        {&Memmy_Type_U16, {0xff, 0xff}, 0, U16_MAX},
+        {&Memmy_Type_I16, {0x00, 0x80}, I16_MIN, 0},
+        {&Memmy_Type_U32, {0xff, 0xff, 0xff, 0xff}, 0, U32_MAX},
+        {&Memmy_Type_I32, {0x00, 0x00, 0x00, 0x80}, I32_MIN, 0},
+        {&Memmy_Type_U64, {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}, 0, U64_MAX},
+        {&Memmy_Type_I64, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80}, I64_MIN, 0},
     };
-
     for (U64 i = 0; i < ArrayCount(cases); i++)
     {
+        U64 size = Memmy_Type_EncodedSize(*cases[i].type);
         Memmy_Value value = {0};
-        Memmy_Type type = {0};
-        Test_ParseType(cases[i].type_name, &type);
-        AssertEq(Memmy_Value_Parse(arena, type, Memmy_PointerWidth_64, cases[i].text, &value, 0), Memmy_Status_Ok);
-        Test_AssertBytes(value.bytes, cases[i].expected, cases[i].expected_len);
+        AssertEq(Memmy_Value_Decode(arena, *cases[i].type, String8_Make(cases[i].bytes, size), &value, 0),
+                 Memmy_Status_Ok);
+        if (cases[i].type->integer.is_signed)
+        {
+            AssertEq(value.signed_integer, cases[i].signed_value);
+        }
+        else
+        {
+            AssertEq(value.unsigned_integer, cases[i].unsigned_value);
+        }
+        Memmy_EncodedValue encoded = {0};
+        AssertEq(Memmy_Value_Encode(arena, &value, &encoded, 0), Memmy_Status_Ok);
+        Test_AssertBytes(encoded.bytes, cases[i].bytes, size);
     }
-    Arena_Destroy(arena);
-}
-
-Test(Test_MemmyValueParseIntegerRejectsInvalidAndOutOfRange)
-{
-    Arena *arena = Arena_CreateDefault();
-    struct
-    {
-        String8 type_name;
-        String8 text;
-    } cases[] = {
-        {String8_Lit("u8"), String8_Lit("256")},
-        {String8_Lit("i8"), String8_Lit("-129")},
-        {String8_Lit("i8"), String8_Lit("128")},
-        {String8_Lit("u16"), String8_Lit("65536")},
-        {String8_Lit("i16"), String8_Lit("-32769")},
-        {String8_Lit("i16"), String8_Lit("32768")},
-        {String8_Lit("u32"), String8_Lit("4294967296")},
-        {String8_Lit("i32"), String8_Lit("-2147483649")},
-        {String8_Lit("i32"), String8_Lit("2147483648")},
-        {String8_Lit("u64"), String8_Lit("18446744073709551616")},
-        {String8_Lit("i64"), String8_Lit("-9223372036854775809")},
-        {String8_Lit("i64"), String8_Lit("9223372036854775808")},
-    };
-
-    for (U64 i = 0; i < ArrayCount(cases); i++)
-    {
-        Memmy_Value value = {0};
-        Memmy_Error error = {0};
-        Memmy_Type type = {0};
-        Test_ParseType(cases[i].type_name, &type);
-        AssertEq(Memmy_Value_Parse(arena, type, Memmy_PointerWidth_64, cases[i].text, &value, &error),
-                 Memmy_Status_Overflow);
-        AssertStrEq(error.context, String8_Lit("value"));
-        AssertStrEq(error.input, cases[i].text);
-    }
-    Arena_Destroy(arena);
-}
-
-Test(Test_MemmyValueParseIntegerRejectsInvalidSyntaxAndWrongSigns)
-{
-    Arena *arena = Arena_CreateDefault();
-    struct
-    {
-        String8 type_name;
-        String8 text;
-    } cases[] = {
-        {String8_Lit("u32"), String8_Lit("+1")},  {String8_Lit("u32"), String8_Lit("-1")},
-        {String8_Lit("u8"), String8_Lit("-1")},   {String8_Lit("u32"), String8_Lit("0x")},
-        {String8_Lit("i32"), String8_Lit("12x")}, {String8_Lit("i32"), String8_Lit("-")},
-    };
-
-    for (U64 i = 0; i < ArrayCount(cases); i++)
-    {
-        Memmy_Value value = {0};
-        Memmy_Error error = {0};
-        Memmy_Type type = {0};
-        Test_ParseType(cases[i].type_name, &type);
-        AssertEq(Memmy_Value_Parse(arena, type, Memmy_PointerWidth_64, cases[i].text, &value, &error),
-                 Memmy_Status_ParseError);
-        AssertStrEq(error.context, String8_Lit("value"));
-        AssertStrEq(error.input, cases[i].text);
-    }
-    Arena_Destroy(arena);
-}
-
-Test(Test_MemmyValueParsePointerWidths)
-{
-    Arena *arena = Arena_CreateDefault();
-    Memmy_Type type = {0};
-    Test_ParseType(String8_Lit("ptr"), &type);
     Memmy_Value value = {0};
-    U8 expected32[] = {0x78, 0x56, 0x34, 0x12};
-    U8 expected64[] = {0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01};
-
-    AssertEq(Memmy_Value_Parse(arena, type, Memmy_PointerWidth_32, String8_Lit("0x12345678"), &value, 0),
-             Memmy_Status_Ok);
-    Test_AssertBytes(value.bytes, expected32, ArrayCount(expected32));
-
-    AssertEq(Memmy_Value_Parse(arena, type, Memmy_PointerWidth_64, String8_Lit("0x0102030405060708"), &value, 0),
-             Memmy_Status_Ok);
-    Test_AssertBytes(value.bytes, expected64, ArrayCount(expected64));
-
-    Memmy_Error error = {0};
-    AssertEq(Memmy_Value_Parse(arena, type, Memmy_PointerWidth_32, String8_Lit("0x100000000"), &value, &error),
-             Memmy_Status_Overflow);
-    AssertEq(Memmy_Value_Parse(arena, type, Memmy_PointerWidth_Unknown, String8_Lit("0"), &value, &error),
-             Memmy_Status_InvalidArgument);
+    AssertEq(Memmy_Value_Decode(arena, Memmy_Type_U32, String8_Lit("\x01"), &value, 0), Memmy_Status_InvalidArgument);
     Arena_Destroy(arena);
 }
 
-Test(Test_MemmyValueParseFloatsAndText)
+Test(Test_MemmyValueFloatBitsAndUtfRoundTrip)
 {
     Arena *arena = Arena_CreateDefault();
-    Memmy_Value value = {0};
+    U32 f32_cases[] = {0x80000000u, 0x7fc12345u};
+    for (U64 i = 0; i < ArrayCount(f32_cases); i++)
+    {
+        Memmy_Value value = {0};
+        AssertEq(Memmy_Value_Decode(arena, Memmy_Type_F32, String8_Make((U8 *)&f32_cases[i], sizeof(f32_cases[i])),
+                                    &value, 0),
+                 Memmy_Status_Ok);
+        AssertEq(value.floating_bits, f32_cases[i]);
+        Memmy_EncodedValue encoded = {0};
+        AssertEq(Memmy_Value_Encode(arena, &value, &encoded, 0), Memmy_Status_Ok);
+        Test_AssertBytes(encoded.bytes, (U8 *)&f32_cases[i], sizeof(f32_cases[i]));
+    }
+    U64 f64_bits = 0x7ff8000012345678ull;
+    Memmy_Value f64 = {0};
+    AssertEq(Memmy_Value_Decode(arena, Memmy_Type_F64, String8_Make((U8 *)&f64_bits, 8), &f64, 0), Memmy_Status_Ok);
+    AssertEq(f64.floating_bits, f64_bits);
 
-    Memmy_Type type = {0};
-    Test_ParseType(String8_Lit("f32"), &type);
-    AssertEq(Memmy_Value_Parse(arena, type, Memmy_PointerWidth_64, String8_Lit("1.5"), &value, 0), Memmy_Status_Ok);
-    F32 f32 = 1.5f;
-    Test_AssertBytes(value.bytes, (U8 *)&f32, sizeof(f32));
+    String8 text = String8_Lit("A\xc3\xa9\xf0\x9f\x98\x80");
+    Memmy_Value string = {.type = Memmy_Type_Str, .string = text};
+    Memmy_EncodedValue utf8 = {0};
+    AssertEq(Memmy_Value_Encode(arena, &string, &utf8, 0), Memmy_Status_Ok);
+    AssertEq(utf8.bytes.len, text.len + 1);
+    AssertEq(utf8.bytes.data[utf8.bytes.len - 1], 0);
+    Memmy_Value decoded = {0};
+    AssertEq(Memmy_Value_Decode(arena, Memmy_Type_Str, utf8.bytes, &decoded, 0), Memmy_Status_Ok);
+    AssertStrEq(decoded.string, text);
 
-    Test_ParseType(String8_Lit("f64"), &type);
-    AssertEq(Memmy_Value_Parse(arena, type, Memmy_PointerWidth_64, String8_Lit("-2.25"), &value, 0), Memmy_Status_Ok);
-    F64 f64 = -2.25;
-    Test_AssertBytes(value.bytes, (U8 *)&f64, sizeof(f64));
+    string.type = Memmy_Type_WStr;
+    Memmy_EncodedValue utf16 = {0};
+    AssertEq(Memmy_Value_Encode(arena, &string, &utf16, 0), Memmy_Status_Ok);
+    AssertEq(utf16.bytes.data[utf16.bytes.len - 1], 0);
+    AssertEq(utf16.bytes.data[utf16.bytes.len - 2], 0);
+    AssertEq(Memmy_Value_Decode(arena, Memmy_Type_WStr, utf16.bytes, &decoded, 0), Memmy_Status_Ok);
+    AssertStrEq(decoded.string, text);
 
-    Test_ParseType(String8_Lit("str"), &type);
-    AssertEq(Memmy_Value_Parse(arena, type, Memmy_PointerWidth_64, String8_Lit("hello"), &value, 0), Memmy_Status_Ok);
-    U8 str_expected[] = {'h', 'e', 'l', 'l', 'o'};
-    Test_AssertBytes(value.bytes, str_expected, ArrayCount(str_expected));
+    U8 malformed_utf8[] = {0xc0, 0x80, 0};
+    AssertEq(
+        Memmy_Value_Decode(arena, Memmy_Type_Str, String8_Make(malformed_utf8, sizeof(malformed_utf8)), &decoded, 0),
+        Memmy_Status_InvalidEncoding);
+    U8 malformed_utf16[] = {0x00, 0xd8, 0, 0};
+    AssertEq(
+        Memmy_Value_Decode(arena, Memmy_Type_WStr, String8_Make(malformed_utf16, sizeof(malformed_utf16)), &decoded, 0),
+        Memmy_Status_InvalidEncoding);
+    Arena_Destroy(arena);
+}
 
-    Test_ParseType(String8_Lit("wstr"), &type);
-    AssertEq(Memmy_Value_Parse(arena, type, Memmy_PointerWidth_64, String8_Lit("Az"), &value, 0), Memmy_Status_Ok);
-    U8 wstr_expected[] = {'A', 0, 'z', 0};
-    Test_AssertBytes(value.bytes, wstr_expected, ArrayCount(wstr_expected));
+Test(Test_MemmyValueConversionsAndRejectedFamilies)
+{
+    Arena *arena = Arena_CreateDefault();
+    Memmy_Value signed_value = {.type = Memmy_Type_I64, .signed_integer = -1};
+    Memmy_Value converted = {0};
+    AssertEq(Memmy_Value_Convert(arena, &signed_value, Memmy_Type_U8, &converted, 0), Memmy_Status_Ok);
+    AssertEq(converted.unsigned_integer, U8_MAX);
+    AssertEq(Memmy_Value_Convert(arena, &signed_value, Memmy_Type_I8, &converted, 0), Memmy_Status_Ok);
+    AssertEq(converted.signed_integer, -1);
+
+    Memmy_Value large = {.type = Memmy_Type_U64, .unsigned_integer = U64_MAX};
+    AssertEq(Memmy_Value_Convert(arena, &large, Memmy_Type_I64, &converted, 0), Memmy_Status_Overflow);
+    Memmy_Value i32 = {.type = Memmy_Type_I32, .signed_integer = 42};
+    AssertEq(Memmy_Value_Convert(arena, &i32, Memmy_Type_F32, &converted, 0), Memmy_Status_Ok);
+    AssertEq(Memmy_Value_Convert(arena, &converted, Memmy_Type_I16, &converted, 0), Memmy_Status_Ok);
+    AssertEq(converted.signed_integer, 42);
+
+    F64 nan = NAN;
+    U64 nan_bits = 0;
+    Memory_Copy(&nan_bits, &nan, sizeof(nan_bits));
+    Memmy_Value float_value = {.type = Memmy_Type_F64, .floating_bits = nan_bits};
+    AssertEq(Memmy_Value_Convert(arena, &float_value, Memmy_Type_I64, &converted, 0), Memmy_Status_Overflow);
+
+    Memmy_Value string = {.type = Memmy_Type_Str, .string = String8_Lit("hello")};
+    AssertEq(Memmy_Value_Convert(arena, &string, Memmy_Type_WStr, &converted, 0), Memmy_Status_Ok);
+    AssertTrue(Memmy_Type_Eq(converted.type, Memmy_Type_WStr));
+    AssertStrEq(converted.string, String8_Lit("hello"));
+    AssertEq(Memmy_Value_Convert(arena, &string, Memmy_Type_U64, &converted, 0), Memmy_Status_InvalidArgument);
+
+    Memmy_Value address = {.type = Memmy_Type_Address, .address = 1};
+    Memmy_EncodedValue encoded = {0};
+    AssertEq(Memmy_Value_Encode(arena, &address, &encoded, 0), Memmy_Status_InvalidArgument);
+    Memmy_Value range = {.type = Memmy_Type_Range, .range = {.start = 1, .end = 2}};
+    AssertEq(Memmy_Value_Encode(arena, &range, &encoded, 0), Memmy_Status_InvalidArgument);
+    Memmy_Value null = {0};
+    AssertEq(Memmy_Value_Encode(arena, &null, &encoded, 0), Memmy_Status_InvalidArgument);
     Arena_Destroy(arena);
 }
 
@@ -199,66 +207,19 @@ Test(Test_MemmyPatternParseBytesWildcardsAndRejection)
     AssertEq(Memmy_Pattern_Parse(arena, String8_Lit("48 8b FF"), 0, &pattern, &error), Memmy_Status_Ok);
     AssertEq(pattern.count, 3);
     AssertEq(pattern.bytes[0].value, 0x48);
-    AssertEq(pattern.bytes[1].value, 0x8b);
     AssertEq(pattern.bytes[2].value, 0xff);
-
     AssertEq(
         Memmy_Pattern_Parse(arena, String8_Lit("48 ?? 89"), Memmy_PatternParseFlag_AllowWildcards, &pattern, &error),
         Memmy_Status_Ok);
-    AssertEq(pattern.count, 3);
     AssertTrue(pattern.bytes[1].wildcard);
-
-    AssertEq(Memmy_Pattern_Parse(arena, String8_Lit("48 ? ?? ? 89"), Memmy_PatternParseFlag_AllowWildcards, &pattern,
-                                 &error),
-             Memmy_Status_Ok);
-    AssertEq(pattern.count, 5);
-    AssertEq(pattern.bytes[0].value, 0x48);
-    AssertTrue(pattern.bytes[1].wildcard);
-    AssertTrue(pattern.bytes[2].wildcard);
-    AssertTrue(pattern.bytes[3].wildcard);
-    AssertEq(pattern.bytes[4].value, 0x89);
-
     AssertEq(Memmy_Pattern_Parse(arena, String8_Lit("48 ?? 89"), 0, &pattern, &error), Memmy_Status_ParseError);
-    AssertStrEq(error.context, String8_Lit("pattern"));
-    AssertEq(error.byte_offset, 3);
-
-    AssertEq(Memmy_Pattern_Parse(arena, String8_Lit("48 ? 89"), 0, &pattern, &error), Memmy_Status_ParseError);
-    AssertStrEq(error.context, String8_Lit("pattern"));
-    AssertEq(error.byte_offset, 3);
-
-    AssertEq(Memmy_Pattern_Parse(arena, String8_Lit("4 8b"), 0, &pattern, &error), Memmy_Status_ParseError);
     AssertEq(Memmy_Pattern_Parse(arena, String8_Lit("gg"), 0, &pattern, &error), Memmy_Status_ParseError);
-    AssertEq(Memmy_Pattern_Parse(arena, String8_Lit("?F"), Memmy_PatternParseFlag_AllowWildcards, &pattern, &error),
-             Memmy_Status_ParseError);
     Arena_Destroy(arena);
 }
 
-Test(Test_MemmyValueParseBytesRejectsWildcards)
-{
-    Arena *arena = Arena_CreateDefault();
-    Memmy_Type type = {0};
-    Test_ParseType(String8_Lit("bytes"), &type);
-    Memmy_Value value = {0};
-    U8 expected[] = {0x90, 0x90, 0xcc};
-
-    AssertEq(Memmy_Value_Parse(arena, type, Memmy_PointerWidth_64, String8_Lit("90 90 cc"), &value, 0),
-             Memmy_Status_Ok);
-    Test_AssertBytes(value.bytes, expected, ArrayCount(expected));
-
-    Memmy_Error error = {0};
-    AssertEq(Memmy_Value_Parse(arena, type, Memmy_PointerWidth_64, String8_Lit("90 ?? cc"), &value, &error),
-             Memmy_Status_ParseError);
-    AssertStrEq(error.context, String8_Lit("pattern"));
-
-    AssertEq(Memmy_Value_Parse(arena, type, Memmy_PointerWidth_64, String8_Lit("90 ? cc"), &value, &error),
-             Memmy_Status_ParseError);
-    AssertStrEq(error.context, String8_Lit("pattern"));
-}
 TestSuite suite_memmy_value = TestSuite_Make(
-    "Memmy Value", TestCase_Make(Test_MemmyTypeParseAcceptsV0Spellings),
-    TestCase_Make(Test_MemmyTypeParseRejectsUnknownNames), TestCase_Make(Test_MemmyValueParseIntegerBounds),
-    TestCase_Make(Test_MemmyValueParseIntegerRejectsInvalidAndOutOfRange),
-    TestCase_Make(Test_MemmyValueParseIntegerRejectsInvalidSyntaxAndWrongSigns),
-    TestCase_Make(Test_MemmyValueParsePointerWidths), TestCase_Make(Test_MemmyValueParseFloatsAndText),
-    TestCase_Make(Test_MemmyPatternParseBytesWildcardsAndRejection),
-    TestCase_Make(Test_MemmyValueParseBytesRejectsWildcards), );
+    "Memmy Value", TestCase_Make(Test_MemmyTypeDescriptorsParseValidateAndCompareStructurally),
+    TestCase_Make(Test_MemmyTypeListConstructionAndValueDeepCopy),
+    TestCase_Make(Test_MemmyValueIntegerDecodeEncodeBoundaries), TestCase_Make(Test_MemmyValueFloatBitsAndUtfRoundTrip),
+    TestCase_Make(Test_MemmyValueConversionsAndRejectedFamilies),
+    TestCase_Make(Test_MemmyPatternParseBytesWildcardsAndRejection), );

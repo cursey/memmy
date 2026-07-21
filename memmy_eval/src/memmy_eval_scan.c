@@ -123,7 +123,7 @@ Memmy_Status MemmyEval_Expr_EvalScan(MemmyEval_Exec *exec, MemmyAst_Node const *
             return status;
         }
 
-        Memmy_Value value = {0};
+        Memmy_EncodedValue value = {0};
         status = MemmyEval_Value_Parse(exec, process, type, expr->value_text, &value, error);
         if (status != Memmy_Status_Ok)
         {

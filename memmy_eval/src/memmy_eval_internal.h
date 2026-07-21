@@ -120,11 +120,11 @@ Memmy_Status MemmyEval_Value_Pipe(MemmyEval_Exec *exec, MemmyAst_Node const *exp
 Memmy_Status MemmyEval_Target_Eval(MemmyEval_Exec *exec, MemmyAst_Node const *target, MemmyEval_Value *out,
                                    Memmy_Error *error);
 Memmy_Status MemmyEval_Type_Parse(String8 type_name, Memmy_Type *out, Memmy_Error *error);
-I64 MemmyEval_Integer_FromBytes(Memmy_Value value);
+I64 MemmyEval_Integer_FromBytes(Memmy_EncodedValue value);
 Memmy_Status MemmyEval_Value_Read(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Type type,
-                                  Memmy_Value *out, Memmy_Error *error);
+                                  Memmy_EncodedValue *out, Memmy_Error *error);
 Memmy_Status MemmyEval_Value_Parse(MemmyEval_Exec *exec, Memmy_Process *process, Memmy_Type type, String8 text,
-                                   Memmy_Value *out, Memmy_Error *error);
+                                   Memmy_EncodedValue *out, Memmy_Error *error);
 Memmy_Status MemmyEval_Pointer_Read(Memmy_Process *process, Memmy_Addr address, Memmy_Addr *out, Memmy_Error *error);
 Memmy_Status MemmyEval_Expr_EvalValue(MemmyEval_Exec *exec, MemmyAst_Node const *expr, MemmyEval_Value *out,
                                       Memmy_Error *error);

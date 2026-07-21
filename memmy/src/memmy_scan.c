@@ -23,11 +23,11 @@ struct Memmy_ScanNeedle
     void *user_data;
 };
 
-static B32 Memmy_Value_MatchesAt(void *user_data, Memmy_Addr address, U8 const *bytes, U64 available)
+static B32 Memmy_EncodedValue_MatchesAt(void *user_data, Memmy_Addr address, U8 const *bytes, U64 available)
 {
     Unused(address);
 
-    Memmy_Value *value = (Memmy_Value *)user_data;
+    Memmy_EncodedValue *value = (Memmy_EncodedValue *)user_data;
     return available >= value->bytes.len && Memory_Equals(value->bytes.data, bytes, value->bytes.len);
 }
 
@@ -313,12 +313,12 @@ static Memmy_Status Memmy_Process_ScanNeedle(Arena *arena, Memmy_Process *proces
 }
 
 Memmy_Status Memmy_Process_ScanValue(Arena *arena, Memmy_Process *process, Memmy_ScanOptions const *options,
-                                     Memmy_Value value, Memmy_ScanSink sink, Memmy_Error *error)
+                                     Memmy_EncodedValue value, Memmy_ScanSink sink, Memmy_Error *error)
 {
     Memmy_ScanNeedle needle = {
         .min_size = value.bytes.len,
         .max_size = value.bytes.len,
-        .match = value.bytes.data != 0 ? Memmy_Value_MatchesAt : 0,
+        .match = value.bytes.data != 0 ? Memmy_EncodedValue_MatchesAt : 0,
         .user_data = &value,
     };
     return Memmy_Process_ScanNeedle(arena, process, options, needle, sink, error);

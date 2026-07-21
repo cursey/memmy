@@ -214,7 +214,7 @@ Test(Test_MemmyEvalAddressFromTypedValueUsesAmbientProcess)
     MemmyEval_Env *env = MemmyEval_Env_Create(arena);
     MemmyEval_Env_SetDefaultProcess(env, 4242, Memmy_PointerWidth_64);
     MemmyEval_Value read = {0};
-    Test_EvalExprText(env, arena, "@(<test-module.exe>+0 as ptr) as u8", &read);
+    Test_EvalExprText(env, arena, "@(<test-module.exe>+0 as u64) as u8", &read);
     AssertEq(read.kind, MemmyEval_ValueKind_TypedValue);
     AssertEq(read.address, 0x10000020);
     AssertEq(read.constant, 42);

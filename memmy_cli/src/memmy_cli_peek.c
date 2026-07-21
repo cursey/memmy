@@ -234,44 +234,33 @@ static Memmy_Status MemmyCli_PeekValue_Format(Arena *arena, MemmyCli_ValueFormat
                                               String8List *lines, Memmy_Error *error)
 {
     Memmy_Type type = format->type;
-    switch (type.kind)
+    if (Memmy_Type_IsInteger(type) && !type.integer.is_signed)
     {
-    case Memmy_TypeKind_U8:
-    case Memmy_TypeKind_U16:
-    case Memmy_TypeKind_U32:
-    case Memmy_TypeKind_U64:
-    case Memmy_TypeKind_Ptr: {
         U64 value = MemmyCli_Integer_ReadLE(bytes);
         MemmyCli_Line_Push(arena, lines, "%llu  0x%0*llx", (unsigned long long)value, (int)(bytes.len * 2),
                            (unsigned long long)value);
     }
-    break;
-    case Memmy_TypeKind_I8:
-    case Memmy_TypeKind_I16:
-    case Memmy_TypeKind_I32:
-    case Memmy_TypeKind_I64: {
+    else if (Memmy_Type_IsInteger(type))
+    {
         I64 value = MemmyCli_Integer_ReadSLE(bytes);
         U64 hex = MemmyCli_Integer_ReadLE(bytes);
         MemmyCli_Line_Push(arena, lines, "%lld  0x%0*llx", (long long)value, (int)(bytes.len * 2),
                            (unsigned long long)hex);
     }
-    break;
-    case Memmy_TypeKind_F32: {
+    else if (Memmy_Type_IsFloat(type) && type.floating.bit_count == 32)
+    {
         F32 value = 0;
         Memory_Copy(&value, bytes.data, sizeof(value));
         MemmyCli_Line_Push(arena, lines, "%g", (double)value);
     }
-    break;
-    case Memmy_TypeKind_F64: {
+    else if (Memmy_Type_IsFloat(type))
+    {
         F64 value = 0;
         Memory_Copy(&value, bytes.data, sizeof(value));
         MemmyCli_Line_Push(arena, lines, "%g", value);
     }
-    break;
-    case Memmy_TypeKind_Bytes:
-        MemmyCli_HexBytes_Push(arena, lines, bytes);
-        break;
-    case Memmy_TypeKind_Str: {
+    else if (Memmy_Type_IsString(type) && type.string.encoding == Memmy_StringEncoding_Utf8)
+    {
         Memmy_Status status = MemmyCli_Utf8_Validate(bytes, error);
         if (status != Memmy_Status_Ok)
         {
@@ -280,8 +269,8 @@ static Memmy_Status MemmyCli_PeekValue_Format(Arena *arena, MemmyCli_ValueFormat
         String8 escaped = MemmyCli_String_Escape(arena, bytes);
         String8List_Push(arena, lines, escaped);
     }
-    break;
-    case Memmy_TypeKind_WStr: {
+    else if (Memmy_Type_IsString(type))
+    {
         Memmy_Status status = MemmyCli_WString_Validate(bytes, error);
         if (status != Memmy_Status_Ok)
         {
@@ -291,8 +280,6 @@ static Memmy_Status MemmyCli_PeekValue_Format(Arena *arena, MemmyCli_ValueFormat
         String8 escaped = MemmyCli_String_Escape(arena, text);
         String8List_Push(arena, lines, escaped);
     }
-    break;
-    }
     return Memmy_Status_Ok;
 }
 
@@ -300,29 +287,21 @@ static Memmy_Status MemmyCli_JsonValueFields_Format(Arena *arena, MemmyCli_Value
                                                     String8 *out, Memmy_Error *error)
 {
     Memmy_Type type = format->type;
-    switch (type.kind)
+    if (Memmy_Type_IsInteger(type) && !type.integer.is_signed)
     {
-    case Memmy_TypeKind_U8:
-    case Memmy_TypeKind_U16:
-    case Memmy_TypeKind_U32:
-    case Memmy_TypeKind_U64:
-    case Memmy_TypeKind_Ptr: {
         U64 value = MemmyCli_Integer_ReadLE(bytes);
         *out = String8_PushF(arena, "\"value\":%llu,\"hex\":\"0x%0*llx\"", (unsigned long long)value,
                              (int)(bytes.len * 2), (unsigned long long)value);
     }
-    break;
-    case Memmy_TypeKind_I8:
-    case Memmy_TypeKind_I16:
-    case Memmy_TypeKind_I32:
-    case Memmy_TypeKind_I64: {
+    else if (Memmy_Type_IsInteger(type))
+    {
         I64 value = MemmyCli_Integer_ReadSLE(bytes);
         U64 hex = MemmyCli_Integer_ReadLE(bytes);
         *out = String8_PushF(arena, "\"value\":%lld,\"hex\":\"0x%0*llx\"", (long long)value, (int)(bytes.len * 2),
                              (unsigned long long)hex);
     }
-    break;
-    case Memmy_TypeKind_F32: {
+    else if (Memmy_Type_IsFloat(type) && type.floating.bit_count == 32)
+    {
         F32 value = 0;
         Memory_Copy(&value, bytes.data, sizeof(value));
         String8 hex = MemmyCli_JsonHexBytes_Format(arena, bytes);
@@ -335,8 +314,8 @@ static Memmy_Status MemmyCli_JsonValueFields_Format(Arena *arena, MemmyCli_Value
             *out = String8_PushF(arena, "\"value\":null,\"hex\":%.*s", (int)hex.len, (char *)hex.data);
         }
     }
-    break;
-    case Memmy_TypeKind_F64: {
+    else if (Memmy_Type_IsFloat(type))
+    {
         F64 value = 0;
         Memory_Copy(&value, bytes.data, sizeof(value));
         String8 hex = MemmyCli_JsonHexBytes_Format(arena, bytes);
@@ -349,16 +328,8 @@ static Memmy_Status MemmyCli_JsonValueFields_Format(Arena *arena, MemmyCli_Value
             *out = String8_PushF(arena, "\"value\":null,\"hex\":%.*s", (int)hex.len, (char *)hex.data);
         }
     }
-    break;
-    case Memmy_TypeKind_Bytes: {
-        String8 hex_bytes = MemmyCli_HexBytes_Format(arena, bytes);
-        String8 value = MemmyCli_JsonString_Format(arena, hex_bytes);
-        String8 hex = MemmyCli_JsonHexBytes_Format(arena, bytes);
-        *out = String8_PushF(arena, "\"value\":%.*s,\"hex\":%.*s", (int)value.len, (char *)value.data, (int)hex.len,
-                             (char *)hex.data);
-    }
-    break;
-    case Memmy_TypeKind_Str: {
+    else if (Memmy_Type_IsString(type) && type.string.encoding == Memmy_StringEncoding_Utf8)
+    {
         Memmy_Status status = MemmyCli_Utf8_Validate(bytes, error);
         if (status != Memmy_Status_Ok)
         {
@@ -369,8 +340,8 @@ static Memmy_Status MemmyCli_JsonValueFields_Format(Arena *arena, MemmyCli_Value
         *out = String8_PushF(arena, "\"value\":%.*s,\"hex\":%.*s", (int)value.len, (char *)value.data, (int)hex.len,
                              (char *)hex.data);
     }
-    break;
-    case Memmy_TypeKind_WStr: {
+    else if (Memmy_Type_IsString(type))
+    {
         Memmy_Status status = MemmyCli_WString_Validate(bytes, error);
         if (status != Memmy_Status_Ok)
         {
@@ -382,43 +353,34 @@ static Memmy_Status MemmyCli_JsonValueFields_Format(Arena *arena, MemmyCli_Value
         *out = String8_PushF(arena, "\"value\":%.*s,\"hex\":%.*s", (int)value.len, (char *)value.data, (int)hex.len,
                              (char *)hex.data);
     }
-    break;
-    }
     return Memmy_Status_Ok;
 }
 
 String8 MemmyCli_Type_String(Memmy_Type type)
 {
-    switch (type.kind)
+    if (Memmy_Type_IsInteger(type))
     {
-    case Memmy_TypeKind_U8:
-        return String8_Lit("u8");
-    case Memmy_TypeKind_I8:
-        return String8_Lit("i8");
-    case Memmy_TypeKind_U16:
-        return String8_Lit("u16");
-    case Memmy_TypeKind_I16:
-        return String8_Lit("i16");
-    case Memmy_TypeKind_U32:
-        return String8_Lit("u32");
-    case Memmy_TypeKind_I32:
-        return String8_Lit("i32");
-    case Memmy_TypeKind_U64:
-        return String8_Lit("u64");
-    case Memmy_TypeKind_I64:
-        return String8_Lit("i64");
-    case Memmy_TypeKind_F32:
-        return String8_Lit("f32");
-    case Memmy_TypeKind_F64:
-        return String8_Lit("f64");
-    case Memmy_TypeKind_Ptr:
-        return String8_Lit("ptr");
-    case Memmy_TypeKind_Bytes:
-        return String8_Lit("bytes");
-    case Memmy_TypeKind_Str:
-        return String8_Lit("str");
-    case Memmy_TypeKind_WStr:
-        return String8_Lit("wstr");
+        if (type.integer.bit_count == 8)
+        {
+            return type.integer.is_signed ? String8_Lit("i8") : String8_Lit("u8");
+        }
+        if (type.integer.bit_count == 16)
+        {
+            return type.integer.is_signed ? String8_Lit("i16") : String8_Lit("u16");
+        }
+        if (type.integer.bit_count == 32)
+        {
+            return type.integer.is_signed ? String8_Lit("i32") : String8_Lit("u32");
+        }
+        return type.integer.is_signed ? String8_Lit("i64") : String8_Lit("u64");
+    }
+    if (Memmy_Type_IsFloat(type))
+    {
+        return type.floating.bit_count == 32 ? String8_Lit("f32") : String8_Lit("f64");
+    }
+    if (Memmy_Type_IsString(type))
+    {
+        return type.string.encoding == Memmy_StringEncoding_Utf8 ? String8_Lit("str") : String8_Lit("wstr");
     }
     return String8_Lit("?");
 }

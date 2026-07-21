@@ -402,7 +402,7 @@ static B32 MemmyCli_Tutorial_Statement_Succeeds(Arena *arena, MemmyCli_Tutorial 
         return statement->expr != 0 && statement->expr->kind == MemmyAst_NodeKind_TypedRead &&
                tutorial->captured_value && value.kind == MemmyEval_ValueKind_TypedValue &&
                value.address == MemmyCli_Tutorial_ValueAddress(tutorial) &&
-               value.typed_value.type.kind == Memmy_TypeKind_U32 && value.typed_value.bytes.len == 4 &&
+               Memmy_Type_Eq(value.typed_value.type, Memmy_Type_U32) && value.typed_value.bytes.len == 4 &&
                value.typed_value.bytes.data[0] == 0x78 && value.typed_value.bytes.data[1] == 0x56 &&
                value.typed_value.bytes.data[2] == 0x34 && value.typed_value.bytes.data[3] == 0x12;
     }

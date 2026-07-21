@@ -185,8 +185,7 @@ Test(Test_MemmyEvalTypedIntegerVariablesWorkAsConstants)
     MemmyEval_Value typed = {
         .kind = MemmyEval_ValueKind_TypedValue,
         .constant = 7,
-        .typed_value = {.type = {.kind = Memmy_TypeKind_I32, .fixed_size = 4},
-                        .bytes = {.data = bytes, .len = ArrayCount(bytes)}},
+        .typed_value = {.type = Memmy_Type_I32, .bytes = {.data = bytes, .len = ArrayCount(bytes)}},
     };
 
     AssertEq(MemmyEval_Env_Set(env, String8_Lit("n"), typed), Memmy_Status_Ok);
@@ -198,7 +197,7 @@ Test(Test_MemmyEvalTypedIntegerVariablesWorkAsConstants)
     MemmyEval_Value found = {0};
     AssertEq(MemmyEval_Env_Find(env, String8_Lit("n"), &found), Memmy_Status_Ok);
     AssertEq(found.kind, MemmyEval_ValueKind_TypedValue);
-    AssertEq(found.typed_value.type.kind, Memmy_TypeKind_I32);
+    AssertTrue(Memmy_Type_Eq(found.typed_value.type, Memmy_Type_I32));
     AssertTrue(found.typed_value.bytes.data != bytes);
     AssertEq(found.typed_value.bytes.len, 4);
 
@@ -226,10 +225,10 @@ Test(Test_MemmyEvalResultsUseCallerOutputArena)
                                                  .addresses = source_addresses,
                                                  .address_count = ArrayCount(source_addresses)}),
              Memmy_Status_Ok);
-    AssertEq(MemmyEval_Env_Set(env, String8_Lit("typed"),
-                               (MemmyEval_Value){.kind = MemmyEval_ValueKind_TypedValue,
-                                                 .typed_value = {.type = {.kind = Memmy_TypeKind_U32},
-                                                                 .bytes = String8_Make(source_bytes, 4)}}),
+    AssertEq(MemmyEval_Env_Set(
+                 env, String8_Lit("typed"),
+                 (MemmyEval_Value){.kind = MemmyEval_ValueKind_TypedValue,
+                                   .typed_value = {.type = Memmy_Type_U32, .bytes = String8_Make(source_bytes, 4)}}),
              Memmy_Status_Ok);
 
     MemmyAst_Node *items_expr = 0;

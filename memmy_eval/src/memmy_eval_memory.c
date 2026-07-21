@@ -14,30 +14,16 @@ Memmy_Status MemmyEval_Type_Parse(String8 type_name, Memmy_Type *out, Memmy_Erro
 
 static Memmy_Status MemmyEval_Type_Size(Memmy_Process *process, Memmy_Type type, U64 *out, Memmy_Error *error)
 {
-    if (type.kind == Memmy_TypeKind_Ptr)
-    {
-        if (process->pointer_width == Memmy_PointerWidth_32)
-        {
-            *out = 4;
-            return Memmy_Status_Ok;
-        }
-        if (process->pointer_width == Memmy_PointerWidth_64)
-        {
-            *out = 8;
-            return Memmy_Status_Ok;
-        }
-        MemmyEval_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("type"),
-                            String8_Lit("target pointer width is unknown"));
-        return Memmy_Status_Unsupported;
-    }
-    if (type.fixed_size == 0)
+    (void)process;
+    U64 size = Memmy_Type_EncodedSize(type);
+    if (size == 0)
     {
         MemmyEval_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("type"),
                             String8_Lit("variable-width typed reads are not supported"));
         return Memmy_Status_Unsupported;
     }
 
-    *out = type.fixed_size;
+    *out = size;
     return Memmy_Status_Ok;
 }
 
@@ -76,7 +62,7 @@ static Memmy_Status MemmyEval_ByteReader_Read(MemmyEval_ByteReader *reader, U8 *
 }
 
 static Memmy_Status MemmyEval_String_Read(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Type type,
-                                          Memmy_Value *out, Memmy_Error *error)
+                                          Memmy_EncodedValue *out, Memmy_Error *error)
 {
     U8 *buffer = Arena_PushArrayNoZero(arena, U8, MEMMY_EVAL_STRING_READ_MAX);
     U64 len = 0;
@@ -157,12 +143,12 @@ static Memmy_Status MemmyEval_String_Read(Arena *arena, Memmy_Process *process, 
         }
     }
 
-    *out = (Memmy_Value){.type = type, .bytes = String8_Make(buffer, len)};
+    *out = (Memmy_EncodedValue){.type = type, .bytes = String8_Make(buffer, len)};
     return Memmy_Status_Ok;
 }
 
 static Memmy_Status MemmyEval_WString_Read(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Type type,
-                                           Memmy_Value *out, Memmy_Error *error)
+                                           Memmy_EncodedValue *out, Memmy_Error *error)
 {
     U64 max_size = MEMMY_EVAL_STRING_READ_MAX * 2;
     U8 *buffer = Arena_PushArrayNoZero(arena, U8, max_size);
@@ -248,11 +234,11 @@ static Memmy_Status MemmyEval_WString_Read(Arena *arena, Memmy_Process *process,
         }
     }
 
-    *out = (Memmy_Value){.type = type, .bytes = String8_Make(buffer, len)};
+    *out = (Memmy_EncodedValue){.type = type, .bytes = String8_Make(buffer, len)};
     return Memmy_Status_Ok;
 }
 
-I64 MemmyEval_Integer_FromBytes(Memmy_Value value)
+I64 MemmyEval_Integer_FromBytes(Memmy_EncodedValue value)
 {
     U64 raw = 0;
     U64 size = Min(value.bytes.len, (U64)sizeof(raw));
@@ -261,29 +247,22 @@ I64 MemmyEval_Integer_FromBytes(Memmy_Value value)
         raw |= ((U64)value.bytes.data[i]) << (i * 8);
     }
 
-    switch (value.type.kind)
+    if (Memmy_Type_IsInteger(value.type) && value.type.integer.is_signed && value.type.integer.bit_count < 64)
     {
-    case Memmy_TypeKind_I8:
-        return (I8)raw;
-    case Memmy_TypeKind_I16:
-        return (I16)raw;
-    case Memmy_TypeKind_I32:
-        return (I32)raw;
-    case Memmy_TypeKind_I64:
-        return (I64)raw;
-    default:
-        return (I64)raw;
+        U64 sign = 1ull << (value.type.integer.bit_count - 1);
+        raw = (raw ^ sign) - sign;
     }
+    return (I64)raw;
 }
 
 Memmy_Status MemmyEval_Value_Read(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Type type,
-                                  Memmy_Value *out, Memmy_Error *error)
+                                  Memmy_EncodedValue *out, Memmy_Error *error)
 {
-    if (type.kind == Memmy_TypeKind_Str)
+    if (Memmy_Type_IsString(type) && type.string.encoding == Memmy_StringEncoding_Utf8)
     {
         return MemmyEval_String_Read(arena, process, address, type, out, error);
     }
-    if (type.kind == Memmy_TypeKind_WStr)
+    if (Memmy_Type_IsString(type) && type.string.encoding == Memmy_StringEncoding_Utf16Le)
     {
         return MemmyEval_WString_Read(arena, process, address, type, out, error);
     }
@@ -312,7 +291,7 @@ Memmy_Status MemmyEval_Value_Read(Arena *arena, Memmy_Process *process, Memmy_Ad
         return Memmy_Status_PartialRead;
     }
 
-    *out = (Memmy_Value){.type = type, .bytes = String8_Make(bytes, size)};
+    *out = (Memmy_EncodedValue){.type = type, .bytes = String8_Make(bytes, size)};
     return Memmy_Status_Ok;
 }
 
@@ -376,7 +355,7 @@ static Memmy_Status MemmyEval_StringLiteral_Decode(Arena *arena, String8 text, S
 }
 
 Memmy_Status MemmyEval_Value_Parse(MemmyEval_Exec *exec, Memmy_Process *process, Memmy_Type type, String8 value_text,
-                                   Memmy_Value *out, Memmy_Error *error)
+                                   Memmy_EncodedValue *out, Memmy_Error *error)
 {
     MemmyEval_Env *env = exec->env;
     String8 parse_text = value_text;
@@ -416,7 +395,7 @@ Memmy_Status MemmyEval_Value_Parse(MemmyEval_Exec *exec, Memmy_Process *process,
         parse_text = String8_PushF(scratch.arena, "%lld", constant);
     }
 
-    if (type.kind == Memmy_TypeKind_Str || type.kind == Memmy_TypeKind_WStr)
+    if (Memmy_Type_IsString(type))
     {
         if (!using_scratch)
         {
@@ -431,7 +410,12 @@ Memmy_Status MemmyEval_Value_Parse(MemmyEval_Exec *exec, Memmy_Process *process,
         }
     }
 
-    Memmy_Status status = Memmy_Value_Parse(exec->out_arena, type, process->pointer_width, parse_text, out, error);
+    Memmy_Status status = Memmy_EncodedValue_Parse(exec->out_arena, type, parse_text, out, error);
+    if (status == Memmy_Status_Ok && Memmy_Type_IsString(type) && type.string.zero_terminated)
+    {
+        U64 terminator_size = type.string.encoding == Memmy_StringEncoding_Utf8 ? 1 : 2;
+        out->bytes.len -= terminator_size;
+    }
     if (using_scratch)
     {
         Scratch_End(scratch);
@@ -568,7 +552,7 @@ Memmy_Status MemmyEval_Expr_EvalMemory(MemmyEval_Exec *exec, MemmyAst_Node const
             return status;
         }
 
-        Memmy_Value value = {0};
+        Memmy_EncodedValue value = {0};
         status = MemmyEval_Value_Read(exec->out_arena, process, address, type, &value, error);
         if (status != Memmy_Status_Ok)
         {
@@ -611,14 +595,14 @@ Memmy_Status MemmyEval_Expr_EvalMemory(MemmyEval_Exec *exec, MemmyAst_Node const
             return status;
         }
 
-        Memmy_Value old_value = {0};
+        Memmy_EncodedValue old_value = {0};
         status = MemmyEval_Value_Read(exec->out_arena, process, address, type, &old_value, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
         }
 
-        Memmy_Value new_value = {0};
+        Memmy_EncodedValue new_value = {0};
         status = MemmyEval_Value_Parse(exec, process, type, expr->value_text, &new_value, error);
         if (status != Memmy_Status_Ok)
         {

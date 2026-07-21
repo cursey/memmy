@@ -9,10 +9,7 @@ B32 MemmyEval_Value_IsIntegerTyped(MemmyEval_Value *value)
         return 0;
     }
 
-    Memmy_TypeKind kind = value->typed_value.type.kind;
-    return kind == Memmy_TypeKind_U8 || kind == Memmy_TypeKind_I8 || kind == Memmy_TypeKind_U16 ||
-           kind == Memmy_TypeKind_I16 || kind == Memmy_TypeKind_U32 || kind == Memmy_TypeKind_I32 ||
-           kind == Memmy_TypeKind_U64 || kind == Memmy_TypeKind_I64 || kind == Memmy_TypeKind_Ptr;
+    return Memmy_Type_IsInteger(value->typed_value.type);
 }
 
 Memmy_Status MemmyEval_Value_AsConst(MemmyEval_Value *value, I64 *out, Memmy_Error *error)

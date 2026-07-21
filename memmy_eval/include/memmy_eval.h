@@ -29,8 +29,8 @@ struct MemmyEval_Value
     U64 address_count;
     Memmy_Range *ranges;
     U64 range_count;
-    Memmy_Value typed_value;
-    Memmy_Value old_typed_value;
+    Memmy_EncodedValue typed_value;
+    Memmy_EncodedValue old_typed_value;
 };
 
 typedef U32 MemmyEval_ResultKind;
@@ -64,8 +64,8 @@ struct MemmyEval_Result
     MemmyEval_ResultKind kind;
     MemmyEval_Value value;
     Memmy_Addr address;
-    Memmy_Value old_value;
-    Memmy_Value new_value;
+    Memmy_EncodedValue old_value;
+    Memmy_EncodedValue new_value;
     Memmy_ProcessInfo process;
     Memmy_Module module;
     Memmy_Region region;
