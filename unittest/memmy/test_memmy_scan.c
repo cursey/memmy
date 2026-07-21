@@ -420,7 +420,7 @@ Test(Test_MemmyScanRequiresRegionEnumeration)
     AssertEq(results.list.count, 0);
 
     Memmy_EncodedValue value = {0};
-    Test_ParseEncodedValue(arena, "u8", "204", &value);
+    Test_EncodeValue(arena, (Memmy_Value){.type = Memmy_Type_U8, .unsigned_integer = 204}, &value);
     AssertEq(Memmy_Process_ScanValue(arena, process, &options, value, Test_ScanSink(&results, arena), &error),
              Memmy_Status_Unsupported);
     AssertEq(Memmy_Process_ScanReferences(arena, process, &options, Memmy_ReferenceScanMode_Ptr, 0x1000,
@@ -548,7 +548,7 @@ Test(Test_MemmyValueScanFindsScalarValuesAtMultipleAlignments)
     Memmy_Process *process = 0;
     Test_OpenProcess(arena, &process);
     Memmy_EncodedValue value = {0};
-    Test_ParseEncodedValue(arena, "u16", "0x1234", &value);
+    Test_EncodeValue(arena, (Memmy_Value){.type = Memmy_Type_U16, .unsigned_integer = 0x1234}, &value);
     Memmy_ScanOptions options = {.range = {.start = 0x1000, .end = 0x100a}, .chunk_size = 3};
     Test_ScanResultList results = {0};
     Memmy_Error error = {0};
@@ -581,7 +581,7 @@ Test(Test_MemmyValueScanPointerWidthAware)
     test_backend.processes[0].pointer_width = Memmy_PointerWidth_32;
     memcpy(test_backend.memory + 0x20, ptr32, sizeof(ptr32));
     Test_OpenProcess(arena, &process);
-    Test_ParseEncodedValue(arena, "u32", "0x11223344", &value);
+    Test_EncodeValue(arena, (Memmy_Value){.type = Memmy_Type_U32, .unsigned_integer = 0x11223344}, &value);
     AssertEq(Memmy_Process_ScanValue(arena, process, &options, value, Test_ScanSink(&results, arena), &error),
              Memmy_Status_Ok);
     Memmy_Addr expected32[] = {0x1020};
@@ -590,7 +590,7 @@ Test(Test_MemmyValueScanPointerWidthAware)
     test_backend.processes[0].pointer_width = Memmy_PointerWidth_64;
     memcpy(test_backend.memory + 0x30, ptr64, sizeof(ptr64));
     Test_OpenProcess(arena, &process);
-    Test_ParseEncodedValue(arena, "u64", "0x1122334455667788", &value);
+    Test_EncodeValue(arena, (Memmy_Value){.type = Memmy_Type_U64, .unsigned_integer = 0x1122334455667788}, &value);
     options.range.start = 0x1030;
     options.range.end = 0x1040;
     AssertEq(Memmy_Process_ScanValue(arena, process, &options, value, Test_ScanSink(&results, arena), &error),
@@ -630,13 +630,13 @@ Test(Test_MemmyValueScanBytesUtf8AndUtf16)
     Memmy_Addr bytes_expected[] = {0x1020};
     Test_AssertScanAddresses(&results, bytes_expected, ArrayCount(bytes_expected));
 
-    Test_ParseEncodedValue(arena, "str", "Az", &value);
+    Test_EncodeValue(arena, (Memmy_Value){.type = Memmy_Type_Str, .string = String8_Lit("Az")}, &value);
     AssertEq(Memmy_Process_ScanValue(arena, process, &options, value, Test_ScanSink(&results, arena), &error),
              Memmy_Status_Ok);
     Memmy_Addr str_expected[] = {0x1030};
     Test_AssertScanAddresses(&results, str_expected, ArrayCount(str_expected));
 
-    Test_ParseEncodedValue(arena, "wstr", "Az", &value);
+    Test_EncodeValue(arena, (Memmy_Value){.type = Memmy_Type_WStr, .string = String8_Lit("Az")}, &value);
     AssertEq(Memmy_Process_ScanValue(arena, process, &options, value, Test_ScanSink(&results, arena), &error),
              Memmy_Status_Ok);
     Memmy_Addr wstr_expected[] = {0x1050};

@@ -40,7 +40,6 @@ B32 MemmyCli_Argv_HasVersion(I32 argc, char **argv);
 B32 MemmyCli_Argv_HasJsonl(I32 argc, char **argv);
 String8 MemmyCli_Address_Format(Arena *arena, Memmy_PointerWidth pointer_width, Memmy_Addr address);
 String8 MemmyCli_JsonString_Format(Arena *arena, String8 text);
-String8 MemmyCli_HexBytes_Format(Arena *arena, String8 bytes);
 String8 MemmyCli_JsonlError_Format(Arena *arena, Memmy_Error *error);
 
 #endif // MEMMY_CLI_H

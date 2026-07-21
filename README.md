@@ -39,11 +39,12 @@ The example deliberately selects index `0` at two points. If several strings,
 references, functions, or instructions match, inspect the corresponding list
 before choosing the result appropriate for the target build.
 
-The `=>` operator is a filter-map: it evaluates its right side for each input
-address or range, preserves and flattens successful address/range results, and
-omits failed or `nil` results. If nothing is produced, the transform evaluates
-to the type-neutral `nil` value. This lets lookups such as `function $` ignore
-items without matching metadata while keeping the successful matches ordered.
+The `=>` operator is a homogeneous filter-map over any `list<T>`. It resolves
+its output element type before iteration, preserves and flattens successful
+scalar/list results, and omits failed or `nil` items. Empty and all-filtered
+results retain their resolved `list<T>` type. This lets lookups such as
+`function $` ignore items without matching metadata while keeping successful
+matches ordered.
 
 ## Build
 

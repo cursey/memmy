@@ -2,8 +2,8 @@
 
 #include "base.h"
 
-typedef struct MemmyEval_ValueNode MemmyEval_ValueNode;
-struct MemmyEval_ValueNode
+typedef struct MemmyEval_ItemNode MemmyEval_ItemNode;
+struct MemmyEval_ItemNode
 {
     ListLink link;
     Memmy_Value value;
@@ -14,7 +14,7 @@ static Memmy_Value MemmyEval_I64(I64 value)
     return (Memmy_Value){.type = Memmy_Type_I64, .signed_integer = value};
 }
 
-Memmy_Status MemmyEval_Value_AsI64(Memmy_Value const *value, I64 *out, Memmy_Error *error)
+Memmy_Status MemmyEval_Integer_AsI64(Memmy_Value const *value, I64 *out, Memmy_Error *error)
 {
     if (value == 0 || out == 0 || !Memmy_Type_IsInteger(value->type))
     {
@@ -31,7 +31,7 @@ Memmy_Status MemmyEval_Value_AsI64(Memmy_Value const *value, I64 *out, Memmy_Err
     return Memmy_Status_Ok;
 }
 
-Memmy_Status MemmyEval_Value_AsAddress(Memmy_Value const *value, Memmy_Addr *out, Memmy_Error *error)
+Memmy_Status MemmyEval_Address_FromValue(Memmy_Value const *value, Memmy_Addr *out, Memmy_Error *error)
 {
     if (value != 0 && out != 0 && Memmy_Type_IsAddress(value->type))
     {
@@ -208,7 +208,7 @@ static Memmy_Status MemmyEval_IntegerBinary(MemmyAst_ConstOp op, Memmy_Value lhs
     return Memmy_Status_Ok;
 }
 
-static B32 MemmyEval_Value_IsAddressLike(Memmy_Value value)
+static B32 MemmyEval_Address_IsValueLike(Memmy_Value value)
 {
     return Memmy_Type_IsAddress(value.type) || Memmy_Type_IsRange(value.type);
 }
@@ -286,11 +286,11 @@ static Memmy_Status MemmyEval_AddressOffset(Memmy_Addr address, Memmy_Value inte
     return Memmy_Status_Ok;
 }
 
-Memmy_Status MemmyEval_Value_ApplyBinary(MemmyAst_ConstOp op, Memmy_Value lhs, Memmy_Value rhs, Memmy_Value *out,
-                                         Memmy_Error *error)
+Memmy_Status MemmyEval_Binary_Apply(MemmyAst_ConstOp op, Memmy_Value lhs, Memmy_Value rhs, Memmy_Value *out,
+                                    Memmy_Error *error)
 {
-    B32 lhs_address = MemmyEval_Value_IsAddressLike(lhs);
-    B32 rhs_address = MemmyEval_Value_IsAddressLike(rhs);
+    B32 lhs_address = MemmyEval_Address_IsValueLike(lhs);
+    B32 rhs_address = MemmyEval_Address_IsValueLike(rhs);
     if (lhs_address || rhs_address)
     {
         if (lhs_address && rhs_address && op == MemmyAst_ConstOp_Sub)
@@ -697,7 +697,7 @@ static Memmy_Status MemmyEval_CompactList(Arena *arena, Memmy_Type element_type,
         result.list.strings = Arena_PushArrayNoZero(arena, String8, items->count);
     }
     U64 index = 0;
-    List_ForEach(MemmyEval_ValueNode, node, items, link)
+    List_ForEach(MemmyEval_ItemNode, node, items, link)
     {
         Memmy_Value value = node->value;
         if (element_type.kind == Memmy_TypeKind_Integer && element_type.integer.is_signed)
@@ -770,7 +770,7 @@ Memmy_Status MemmyEval_List_Transform(MemmyEval_Exec *exec, MemmyAst_Node const 
     }
     B32 old_has_item = exec->has_current_item;
     Memmy_Value old_item = exec->current_item;
-    List items = {0}; // MemmyEval_ValueNode
+    List items = {0}; // MemmyEval_ItemNode
     for (U64 i = 0; i < input.list.count; i++)
     {
         exec->has_current_item = 1;
@@ -796,7 +796,7 @@ Memmy_Status MemmyEval_List_Transform(MemmyEval_Exec *exec, MemmyAst_Node const 
         }
         for (U64 j = 0; j < count; j++)
         {
-            MemmyEval_ValueNode *node = Arena_PushStruct(exec->transient_arena, MemmyEval_ValueNode);
+            MemmyEval_ItemNode *node = Arena_PushStruct(exec->transient_arena, MemmyEval_ItemNode);
             node->value = Memmy_Type_IsList(item.type) ? MemmyEval_ListItem(item, j) : item;
             List_PushBack(&items, &node->link);
         }
@@ -811,7 +811,7 @@ Memmy_Status MemmyEval_List_Transform(MemmyEval_Exec *exec, MemmyAst_Node const 
     return MemmyEval_CompactList(exec->out_arena, output_type, &items, out, error);
 }
 
-Memmy_Status MemmyEval_Value_Pipe(MemmyEval_Exec *exec, MemmyAst_Node const *expr, Memmy_Value *out, Memmy_Error *error)
+Memmy_Status MemmyEval_Pipe_Eval(MemmyEval_Exec *exec, MemmyAst_Node const *expr, Memmy_Value *out, Memmy_Error *error)
 {
     Memmy_Value input = {0};
     Memmy_Status status = MemmyEval_Expr_EvalWithContext(exec, expr->lhs, &input, error);
@@ -887,7 +887,7 @@ Memmy_Status MemmyEval_Expr_EvalValue(MemmyEval_Exec *exec, MemmyAst_Node const 
         }
         Memmy_Value rhs = {0};
         status = MemmyEval_Expr_EvalWithContext(exec, expr->rhs, &rhs, error);
-        return status == Memmy_Status_Ok ? MemmyEval_Value_ApplyBinary(expr->op, lhs, rhs, out, error) : status;
+        return status == Memmy_Status_Ok ? MemmyEval_Binary_Apply(expr->op, lhs, rhs, out, error) : status;
     }
     if (expr->kind == MemmyAst_NodeKind_FloatLiteral)
     {
@@ -919,7 +919,7 @@ Memmy_Status MemmyEval_Expr_EvalValue(MemmyEval_Exec *exec, MemmyAst_Node const 
     }
     if (expr->kind == MemmyAst_NodeKind_ValuePipe)
     {
-        return MemmyEval_Value_Pipe(exec, expr, out, error);
+        return MemmyEval_Pipe_Eval(exec, expr, out, error);
     }
     if (expr->kind == MemmyAst_NodeKind_Address)
     {
@@ -949,7 +949,7 @@ Memmy_Status MemmyEval_Expr_EvalValue(MemmyEval_Exec *exec, MemmyAst_Node const 
         {
             status = MemmyEval_Expr_EvalWithContext(exec, expr->rhs, &offset, error);
         }
-        return status == Memmy_Status_Ok ? MemmyEval_Value_ApplyBinary(MemmyAst_ConstOp_Add, base, offset, out, error)
+        return status == Memmy_Status_Ok ? MemmyEval_Binary_Apply(MemmyAst_ConstOp_Add, base, offset, out, error)
                                          : status;
     }
     if (expr->kind == MemmyAst_NodeKind_Range)
@@ -964,7 +964,7 @@ Memmy_Status MemmyEval_Expr_EvalValue(MemmyEval_Exec *exec, MemmyAst_Node const 
         Memmy_Addr start = 0;
         if (status == Memmy_Status_Ok)
         {
-            status = MemmyEval_Value_AsAddress(&start_value, &start, error);
+            status = MemmyEval_Address_FromValue(&start_value, &start, error);
         }
         Memmy_Range range = {0};
         if (status == Memmy_Status_Ok && expr->range_is_sized)
@@ -988,7 +988,7 @@ Memmy_Status MemmyEval_Expr_EvalValue(MemmyEval_Exec *exec, MemmyAst_Node const 
         else if (status == Memmy_Status_Ok)
         {
             Memmy_Addr end = 0;
-            status = MemmyEval_Value_AsAddress(&rhs, &end, error);
+            status = MemmyEval_Address_FromValue(&rhs, &end, error);
             if (status == Memmy_Status_Ok)
             {
                 status = Memmy_Range_FromStartEnd(start, end, &range, error);
@@ -1020,7 +1020,7 @@ Memmy_Status MemmyEval_Expr_EvalValue(MemmyEval_Exec *exec, MemmyAst_Node const 
             return Memmy_Status_InvalidArgument;
         }
         I64 index = 0;
-        status = MemmyEval_Value_AsI64(&index_value, &index, error);
+        status = MemmyEval_Integer_AsI64(&index_value, &index, error);
         if (status != Memmy_Status_Ok || index < 0 || (U64)index >= list.list.count)
         {
             MemmyEval_Error_Set(error, Memmy_Status_NotFound, String8_Lit("index"),

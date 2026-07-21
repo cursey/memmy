@@ -32,12 +32,10 @@ void Test_ParsePattern(Arena *arena, char *text, Memmy_Pattern *out)
              Memmy_Status_Ok);
 }
 
-void Test_ParseEncodedValue(Arena *arena, char *type_text, char *value_text, Memmy_EncodedValue *out)
+void Test_EncodeValue(Arena *arena, Memmy_Value value, Memmy_EncodedValue *out)
 {
     Memmy_Error error = {0};
-    Memmy_Type type = {0};
-    AssertEq(Memmy_Type_Parse(String8_FromCStr(type_text), &type, &error), Memmy_Status_Ok);
-    AssertEq(Memmy_EncodedValue_Parse(arena, type, String8_FromCStr(value_text), out, &error), Memmy_Status_Ok);
+    AssertEq(Memmy_Value_Encode(arena, &value, out, &error), Memmy_Status_Ok);
 }
 
 void Test_OpenProcess(Arena *arena, Memmy_Process **out)

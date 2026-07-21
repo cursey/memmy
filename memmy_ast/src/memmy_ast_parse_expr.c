@@ -1,5 +1,22 @@
 #include "memmy_ast_parser.h"
 
+/*
+Expression grammar (postfix details are implemented in memmy_ast_parse_postfix.c):
+
+    expr          := nontransform (("|>" | "=>") nontransform)*
+    nontransform  := additive dereference* postfix*
+    primary       := integer | float | string | "nil" | variable | "$" | address | range | target |
+                     "function" primary | "objectbase" primary | "(" expr ")"
+    address       := "@" integer-expression
+    range         := "[" additive ".." (additive | "+" integer-expression) "]" | "[0..]"
+    postfix       := "[" integer-expression "]" | "{" pattern "}" | "as" exact-type |
+                     "as" exact-type "==" nontransform | "refs" reference-mode additive |
+                     "disasm" "x64" "{" disassembly-pattern "}"
+    exact-type    := "u8" | "i8" | "u16" | "i16" | "u32" | "i32" | "u64" | "i64" |
+                     "f32" | "f64" | "str" | "wstr"
+    reference-mode := "ptr" | "rel32" | "any"
+*/
+
 #include "base.h"
 
 static MemmyAst_Status MemmyAst_Parser_ParseExpr(MemmyAst_Parser *parser, MemmyAst_Node **out);

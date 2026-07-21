@@ -213,7 +213,7 @@ Memmy_Status MemmyEval_Expr_EvalProcess(MemmyEval_Exec *exec, MemmyAst_Node cons
             return status;
         }
         Memmy_Addr address = 0;
-        status = MemmyEval_Value_AsAddress(&value, &address, error);
+        status = MemmyEval_Address_FromValue(&value, &address, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -245,7 +245,7 @@ Memmy_Status MemmyEval_Expr_EvalProcess(MemmyEval_Exec *exec, MemmyAst_Node cons
             return status;
         }
         Memmy_Addr address = 0;
-        status = MemmyEval_Value_AsAddress(&value, &address, error);
+        status = MemmyEval_Address_FromValue(&value, &address, error);
         if (status != Memmy_Status_Ok)
         {
             return status;

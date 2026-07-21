@@ -125,7 +125,7 @@ Memmy_Status MemmyEval_Expr_EvalScan(MemmyEval_Exec *exec, MemmyAst_Node const *
         Memmy_Addr target = 0;
         if (status == Memmy_Status_Ok)
         {
-            status = MemmyEval_Value_AsAddress(&target_value, &target, error);
+            status = MemmyEval_Address_FromValue(&target_value, &target, error);
         }
         if (status == Memmy_Status_Ok)
         {

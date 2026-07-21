@@ -99,8 +99,8 @@ static String8 MemmyCli_Tutorial_Instruction(Arena *arena, MemmyCli_Tutorial con
     }
     if (tutorial->step == MemmyCli_TutorialStep_Assignment)
     {
-        return String8_Lit("Tutorial 3/9: constants and variables\n"
-                           "Expressions use normal arithmetic, and assignments persist in the REPL.\n"
+        return String8_Lit("Tutorial 3/9: values and variables\n"
+                           "Integer literals are i64 values; assignments preserve exact semantic types.\n"
                            "Type:\n"
                            "  $answer = 6 * 7\n");
     }
@@ -172,7 +172,7 @@ static String8 MemmyCli_Tutorial_Hint(Arena *arena, MemmyCli_Tutorial const *tut
     }
     else if (tutorial->step == MemmyCli_TutorialStep_Variables)
     {
-        hint = String8_Lit("Hint: /vars displays every persistent binding and its value kind.");
+        hint = String8_Lit("Hint: /vars displays every persistent binding and its exact type.");
     }
     else if (tutorial->step == MemmyCli_TutorialStep_Range)
     {

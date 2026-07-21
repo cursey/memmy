@@ -75,7 +75,7 @@ void Test_ParseType(String8 text, Memmy_Type *out);
 void Test_DisableEnumerateRegions(Test_MemmyBackend *backend);
 void Test_ResetOpenTracking(Test_MemmyBackend *backend);
 void Test_ParsePattern(Arena *arena, char *text, Memmy_Pattern *out);
-void Test_ParseEncodedValue(Arena *arena, char *type_text, char *value_text, Memmy_EncodedValue *out);
+void Test_EncodeValue(Arena *arena, Memmy_Value value, Memmy_EncodedValue *out);
 void Test_OpenProcess(Arena *arena, Memmy_Process **out);
 Memmy_ScanSink Test_ScanSink(Test_ScanResultList *results, Arena *arena);
 Memmy_Status Test_ScanSinkCallback(void *user_data, Memmy_Addr address);

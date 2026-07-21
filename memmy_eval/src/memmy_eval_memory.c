@@ -54,8 +54,8 @@ static Memmy_Status MemmyEval_String_Read(Arena *arena, Memmy_Process *process, 
     return Memmy_Status_InvalidEncoding;
 }
 
-Memmy_Status MemmyEval_Value_Read(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Type type,
-                                  Memmy_Value *out, Memmy_Error *error)
+Memmy_Status MemmyEval_Memory_ReadValue(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Type type,
+                                        Memmy_Value *out, Memmy_Error *error)
 {
     if (Memmy_Type_IsString(type))
     {
@@ -122,7 +122,7 @@ Memmy_Status MemmyEval_Expr_EvalMemory(MemmyEval_Exec *exec, MemmyAst_Node const
     if (expr->kind == MemmyAst_NodeKind_Deref)
     {
         Memmy_Addr address = 0;
-        status = MemmyEval_Value_AsAddress(&base, &address, error);
+        status = MemmyEval_Address_FromValue(&base, &address, error);
         Memmy_Process *process = 0;
         if (status == Memmy_Status_Ok)
         {
@@ -145,7 +145,7 @@ Memmy_Status MemmyEval_Expr_EvalMemory(MemmyEval_Exec *exec, MemmyAst_Node const
                 return status;
             }
             Memmy_Value address_value = {.type = Memmy_Type_Address, .address = address};
-            return MemmyEval_Value_ApplyBinary(MemmyAst_ConstOp_Add, address_value, offset, out, error);
+            return MemmyEval_Binary_Apply(MemmyAst_ConstOp_Add, address_value, offset, out, error);
         }
         *out = (Memmy_Value){.type = Memmy_Type_Address, .address = address};
         return Memmy_Status_Ok;
@@ -164,7 +164,7 @@ Memmy_Status MemmyEval_Expr_EvalMemory(MemmyEval_Exec *exec, MemmyAst_Node const
             return Memmy_Value_Convert(exec->out_arena, &base, type, out, error);
         }
         Memmy_Addr address = 0;
-        status = MemmyEval_Value_AsAddress(&base, &address, error);
+        status = MemmyEval_Address_FromValue(&base, &address, error);
         Memmy_Process *process = 0;
         if (status == Memmy_Status_Ok)
         {
@@ -174,7 +174,7 @@ Memmy_Status MemmyEval_Expr_EvalMemory(MemmyEval_Exec *exec, MemmyAst_Node const
         {
             return status;
         }
-        return MemmyEval_Value_Read(exec->out_arena, process, address, type, out, error);
+        return MemmyEval_Memory_ReadValue(exec->out_arena, process, address, type, out, error);
     }
 
     MemmyEval_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("expr"),

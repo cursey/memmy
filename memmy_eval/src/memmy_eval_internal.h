@@ -87,7 +87,7 @@ void MemmyEval_Error_Set(Memmy_Error *error, Memmy_Status status, String8 contex
 void MemmyEval_Exec_Close(MemmyEval_Exec *exec);
 Memmy_Status MemmyEval_Exec_OpenProcess(MemmyEval_Exec *exec, U32 pid, Memmy_Process **out, Memmy_Error *error);
 Memmy_Status MemmyEval_Process_Require(MemmyEval_Exec *exec, String8 context, Memmy_Process **out, Memmy_Error *error);
-Memmy_Status MemmyEval_ValueResult_Emit(MemmyEval_ResultSink const *sink, Memmy_Value value);
+Memmy_Status MemmyEval_Result_EmitValue(MemmyEval_ResultSink const *sink, Memmy_Value value);
 Memmy_Status MemmyEval_Command_Eval(MemmyEval_Exec *exec, MemmyAst_Statement const *statement,
                                     MemmyEval_ResultSink const *sink, Memmy_Error *error);
 Memmy_Status MemmyEval_Expr_EvalWithContext(MemmyEval_Exec *exec, MemmyAst_Node const *expr, Memmy_Value *out,
@@ -95,18 +95,17 @@ Memmy_Status MemmyEval_Expr_EvalWithContext(MemmyEval_Exec *exec, MemmyAst_Node 
 Memmy_Status MemmyEval_Env_TypeFind(MemmyEval_Env const *env, String8 name, Memmy_Type *out);
 Memmy_Status MemmyEval_Statement_EvalWithContext(MemmyEval_Exec *exec, MemmyAst_Statement const *statement,
                                                  MemmyEval_ResultSink const *sink, Memmy_Error *error);
-Memmy_Status MemmyEval_Value_AsI64(Memmy_Value const *value, I64 *out, Memmy_Error *error);
-Memmy_Status MemmyEval_Value_AsAddress(Memmy_Value const *value, Memmy_Addr *out, Memmy_Error *error);
-Memmy_Status MemmyEval_Value_ApplyBinary(MemmyAst_ConstOp op, Memmy_Value lhs, Memmy_Value rhs, Memmy_Value *out,
-                                         Memmy_Error *error);
+Memmy_Status MemmyEval_Integer_AsI64(Memmy_Value const *value, I64 *out, Memmy_Error *error);
+Memmy_Status MemmyEval_Address_FromValue(Memmy_Value const *value, Memmy_Addr *out, Memmy_Error *error);
+Memmy_Status MemmyEval_Binary_Apply(MemmyAst_ConstOp op, Memmy_Value lhs, Memmy_Value rhs, Memmy_Value *out,
+                                    Memmy_Error *error);
 Memmy_Status MemmyEval_List_Transform(MemmyEval_Exec *exec, MemmyAst_Node const *expr, Memmy_Value *out,
                                       Memmy_Error *error);
-Memmy_Status MemmyEval_Value_Pipe(MemmyEval_Exec *exec, MemmyAst_Node const *expr, Memmy_Value *out,
-                                  Memmy_Error *error);
+Memmy_Status MemmyEval_Pipe_Eval(MemmyEval_Exec *exec, MemmyAst_Node const *expr, Memmy_Value *out, Memmy_Error *error);
 Memmy_Status MemmyEval_Target_Eval(MemmyEval_Exec *exec, MemmyAst_Node const *target, Memmy_Value *out,
                                    Memmy_Error *error);
-Memmy_Status MemmyEval_Value_Read(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Type type,
-                                  Memmy_Value *out, Memmy_Error *error);
+Memmy_Status MemmyEval_Memory_ReadValue(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Type type,
+                                        Memmy_Value *out, Memmy_Error *error);
 Memmy_Status MemmyEval_Pointer_Read(Memmy_Process *process, Memmy_Addr address, Memmy_Addr *out, Memmy_Error *error);
 Memmy_Status MemmyEval_Expr_EvalValue(MemmyEval_Exec *exec, MemmyAst_Node const *expr, Memmy_Value *out,
                                       Memmy_Error *error);

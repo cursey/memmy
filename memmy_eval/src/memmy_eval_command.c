@@ -51,7 +51,7 @@ static Memmy_Status MemmyEval_RegionEmitter_Push(void *user_data, Memmy_Region c
     return MemmyEval_Result_Push(emitter->sink, &result);
 }
 
-Memmy_Status MemmyEval_ValueResult_Emit(MemmyEval_ResultSink const *sink, Memmy_Value value)
+Memmy_Status MemmyEval_Result_EmitValue(MemmyEval_ResultSink const *sink, Memmy_Value value)
 {
     MemmyEval_Result result = {
         .kind = MemmyEval_ResultKind_Value,
@@ -154,32 +154,32 @@ Memmy_Status MemmyEval_Command_Eval(MemmyEval_Exec *exec, MemmyAst_Statement con
     {
         MemmyEval_Result result = {
             .kind = MemmyEval_ResultKind_Help,
-            .text = String8_Lit("Core values:\n"
-                                "  x                    constant integer/math expression\n"
-                                "  nil                  type-neutral absence of a value\n"
-                                "  @x                   absolute address\n"
-                                "  [@a..@b]             explicit address range [a, b)\n"
-                                "  [@a..+n]             sized address range [a, a+n)\n"
-                                "  <module>             module range in selected process\n"
-                                "  [0..]                selected process address-space range\n"
-                                "  function address     function range containing address\n"
-                                "  objectbase address   best-effort object base containing address\n"
-                                "  $name                variable\n"
-                                "  $rva = $hit - <module>  module-relative offset const\n"
+            .text = String8_Lit("Values and types:\n"
+                                "  42 / 42.5 / \"text\"  i64, f64, and str literals\n"
+                                "  nil                    null value\n"
+                                "  value as T             scalar conversion\n"
+                                "  @integer               integer-to-address construction\n"
+                                "  [@a..@b] / [@a..+n]   half-open ranges\n"
+                                "  <module> / [0..]       selected-process ranges\n"
+                                "  Types: u8 i8 u16 i16 u32 i32 u64 i64 f32 f64 str wstr\n"
                                 "\n"
-                                "Memory:\n"
+                                "Memory and scans:\n"
+                                "  address as T           typed read\n"
+                                "  address->offset        pointer read and optional offset\n"
+                                "  range{pattern}         raw pattern scan\n"
+                                "  range as T == expr     converted value scan\n"
                                 "  range refs <ptr|rel32|any> address\n"
-                                "  value |> expr        bind value to $ and evaluate expr once\n"
-                                "  list => expr         filter-map address/range items\n"
-                                "                       failed and nil RHS results are omitted\n"
-                                "  $                    current flow input inside a flow RHS\n"
-                                "  Flows chain left-to-right; parentheses nest; inner $ shadows outer $\n"
+                                "  range disasm x64 {...}\n"
+                                "\n"
+                                "Lists and flows:\n"
+                                "  list[N]                index any homogeneous list\n"
+                                "  value |> expr          bind the whole value to $ once\n"
+                                "  list => expr           filter-map any list; flatten list results\n"
+                                "                         failed and nil item results are omitted\n"
+                                "  Typed empty results retain list<T>; nil => expr stays nil\n"
                                 "  $matches |> $[0]\n"
-                                "  $matches => [$..+0x20]\n"
-                                "  $fn = function $xrefs[0]\n"
-                                "  $hits => objectbase $\n"
-                                "  $ranges => $ + 4\n"
-                                "  $name[N]             index address/range list\n"
+                                "  $values => $ as u16\n"
+                                "  $xrefs => function $\n"
                                 "\n"
                                 "Commands:\n"
                                 "  /procs [filter]\n"

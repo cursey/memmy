@@ -143,9 +143,6 @@ Memmy_Status Memmy_Value_Convert(Arena *arena, Memmy_Value const *value, Memmy_T
                                  Memmy_Error *error);
 Memmy_Status Memmy_Value_Encode(Arena *arena, Memmy_Value const *value, Memmy_EncodedValue *out, Memmy_Error *error);
 
-// Transitional text parser for command/evaluator callers. Encoded storage belongs to arena.
-Memmy_Status Memmy_EncodedValue_Parse(Arena *arena, Memmy_Type type, String8 text, Memmy_EncodedValue *out,
-                                      Memmy_Error *error);
 // Pattern byte storage belongs to arena. Text is borrowed only for the duration of the call.
 Memmy_Status Memmy_Pattern_Parse(Arena *arena, String8 text, Memmy_PatternParseFlags flags, Memmy_Pattern *out,
                                  Memmy_Error *error);

@@ -154,7 +154,6 @@ Test(Test_MemmyCliFormerSubcommandNamesAreFilePaths)
 Test(Test_MemmyCliJsonlHelpers)
 {
     Arena *arena = Arena_CreateDefault();
-    U8 bytes[] = {0x00, 0x0a, 0xff};
     char *jsonl_flag[] = {"memmy", "--jsonl", "--expr", "[@0x1000..+0x10] as u8 == 1"};
     char *jsonl_value[] = {"memmy", "--expr", "--jsonl"};
     char *help_flag[] = {"memmy", "--help"};
@@ -164,7 +163,6 @@ Test(Test_MemmyCliJsonlHelpers)
 
     AssertStrEq(MemmyCli_Address_Format(arena, Memmy_PointerWidth_64, 0x4242), String8_Lit("0x0000000000004242"));
     AssertStrEq(MemmyCli_Address_Format(arena, Memmy_PointerWidth_32, 0x4242), String8_Lit("0x00004242"));
-    AssertStrEq(MemmyCli_HexBytes_Format(arena, String8_Make(bytes, ArrayCount(bytes))), String8_Lit("00 0a ff"));
     AssertStrEq(MemmyCli_JsonString_Format(arena, String8_Lit("a\0b\n\"\\")), String8_Lit("\"a\\u0000b\\n\\\"\\\\\""));
     AssertEq(MemmyCli_Argv_HasJsonl((I32)ArrayCount(jsonl_flag), jsonl_flag), 1);
     AssertEq(MemmyCli_Argv_HasJsonl((I32)ArrayCount(jsonl_value), jsonl_value), 0);

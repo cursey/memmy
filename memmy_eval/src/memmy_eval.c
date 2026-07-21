@@ -74,7 +74,7 @@ Memmy_Status MemmyEval_Statement_EvalWithContext(MemmyEval_Exec *exec, MemmyAst_
 
     if (status == Memmy_Status_Ok)
     {
-        status = MemmyEval_ValueResult_Emit(sink, value);
+        status = MemmyEval_Result_EmitValue(sink, value);
     }
     return status;
 }

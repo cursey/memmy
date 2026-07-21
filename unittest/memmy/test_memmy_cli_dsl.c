@@ -137,9 +137,75 @@ Test(Test_MemmyCliFormatsFloatAndStringLiterals)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyCliEndToEndSemanticFamiliesTextAndJsonl)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    Test_MemmyCliSemantic_Setup(&backend);
+    backend.memory[0x20] = 0xaa;
+    backend.memory[0x30] = 0xaa;
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&backend)};
+    Memmy_Context_Set(&ctx);
+
+    String8 input = String8_Lit("$null = nil\n"
+                                "$integer = 7 as u16\n"
+                                "$float = 1.5 as f32\n"
+                                "$address = @0x1020\n"
+                                "$string = \"hello\" as wstr\n"
+                                "$range = [@0x1000..+0x40]\n"
+                                "$hits = $range{aa}\n"
+                                "$read = $address as u8\n"
+                                "$empty = $range{ff} => \"x\" as wstr\n"
+                                "$null\n$integer\n$float\n$address\n$string\n$range\n$hits\n$read\n$empty\n/vars\n");
+    String8 out = {0};
+    Memmy_Error error = {0};
+    char *text_argv[] = {"memmy", "--pid", "1234"};
+    AssertEq(MemmyCli_Input_RunString(arena, ArrayCount(text_argv), text_argv, input, &out, &error), Memmy_Status_Ok);
+    AssertTrue(String8_Find(out, String8_Lit("null nil\n"), 0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("u16 7\n"), 0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("f32 1.5\n"), 0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("address 0x0000000000001020\n"), 0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("wstr \"hello\"\n"), 0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("range [0x0000000000001000..0x0000000000001040)\n"), 0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("[0] address 0x0000000000001020\n"), 0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("list<address> count 2\n"), 0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("u8 170\n"), 0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("list<wstr> count 0\n"), 0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("empty list<wstr>\n"), 0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("hits list<address>\n"), 0) != STRING8_NPOS);
+
+    char *json_argv[] = {"memmy", "--jsonl", "--pid", "1234"};
+    error = (Memmy_Error){0};
+    AssertEq(MemmyCli_Input_RunString(arena, ArrayCount(json_argv), json_argv, input, &out, &error), Memmy_Status_Ok);
+    AssertTrue(String8_Find(out, String8_Lit("{\"type\":\"assignment\",\"name\":\"null\",\"value_type\":\"null\"}"),
+                            0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("{\"type\":\"value\",\"value_type\":\"u16\",\"value\":7}"), 0) !=
+               STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("{\"type\":\"value\",\"value_type\":\"f32\",\"value\":1.5}"), 0) !=
+               STRING8_NPOS);
+    AssertTrue(String8_Find(out,
+                            String8_Lit("{\"type\":\"value\",\"value_type\":\"range\",\"value\":{"
+                                        "\"start\":\"0x0000000000001000\",\"end\":\"0x0000000000001040\"}}"),
+                            0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out,
+                            String8_Lit("{\"type\":\"list_item\",\"value_type\":\"address\",\"index\":1,"
+                                        "\"value\":\"0x0000000000001030\"}"),
+                            0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("{\"type\":\"summary\",\"value_type\":\"list<wstr>\",\"count\":0}"), 0) !=
+               STRING8_NPOS);
+    AssertTrue(String8_Find(out,
+                            String8_Lit("{\"type\":\"variable\",\"name\":\"empty\","
+                                        "\"value_type\":\"list<wstr>\"}"),
+                            0) != STRING8_NPOS);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
 TestSuite suite_memmy_cli_dsl = TestSuite_Make(
     "Memmy CLI DSL", TestCase_Make(Test_MemmyCliFormatsSemanticScalarValuesText),
     TestCase_Make(Test_MemmyCliFormatsSemanticScalarValuesJsonl),
     TestCase_Make(Test_MemmyCliFormatsDecodedReadsAsValues), TestCase_Make(Test_MemmyCliStreamsSemanticAddressLists),
     TestCase_Make(Test_MemmyCliVarsReportsExactSemanticTypes),
-    TestCase_Make(Test_MemmyCliFormatsFloatAndStringLiterals), );
+    TestCase_Make(Test_MemmyCliFormatsFloatAndStringLiterals),
+    TestCase_Make(Test_MemmyCliEndToEndSemanticFamiliesTextAndJsonl), );

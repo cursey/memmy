@@ -160,16 +160,6 @@ String8 MemmyCli_JsonString_Format(Arena *arena, String8 text)
     return String8List_Join(arena, &parts, (String8){0});
 }
 
-String8 MemmyCli_HexBytes_Format(Arena *arena, String8 bytes)
-{
-    String8List parts = {0};
-    for (U64 i = 0; i < bytes.len; i++)
-    {
-        MemmyCli_Line_Push(arena, &parts, "%s%02x", i == 0 ? "" : " ", bytes.data[i]);
-    }
-    return String8List_Join(arena, &parts, (String8){0});
-}
-
 String8 MemmyCli_JsonlError_Format(Arena *arena, Memmy_Error *error)
 {
     Memmy_Error fallback = {0};
@@ -325,7 +315,7 @@ static String8 MemmyCli_Argv_Help(Arena *arena)
                                            "Expression options:\n"
                                            "  --expr <statement>\n"
                                            "\n"
-                                           "Types: u8 i8 u16 i16 u32 i32 u64 i64 f32 f64 ptr bytes str wstr\n"
+                                           "Types: u8 i8 u16 i16 u32 i32 u64 i64 f32 f64 str wstr\n"
                                            "Patterns: two-digit hex bytes with ? or ?? wildcards\n"));
 }
 

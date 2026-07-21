@@ -26,7 +26,6 @@ struct MemmyCli_EvalResultWriter
     B32 saw_exit;
     String8 assignment_name;
     MemmyEval_ResultSink const *observer;
-    MemmyCli_ScanOutput scan_output;
 };
 
 static void MemmyCli_AstError_Set(Memmy_Error *error, Memmy_Status status, MemmyAst_Diagnostic *diagnostic)
@@ -84,6 +83,35 @@ static Memmy_PointerWidth MemmyCli_EvalResultWriter_PointerWidth(MemmyCli_EvalRe
     return Memmy_PointerWidth_64;
 }
 
+static String8 MemmyCli_Type_String(Memmy_Type type)
+{
+    if (Memmy_Type_IsInteger(type))
+    {
+        if (type.integer.bit_count == 8)
+        {
+            return type.integer.is_signed ? String8_Lit("i8") : String8_Lit("u8");
+        }
+        if (type.integer.bit_count == 16)
+        {
+            return type.integer.is_signed ? String8_Lit("i16") : String8_Lit("u16");
+        }
+        if (type.integer.bit_count == 32)
+        {
+            return type.integer.is_signed ? String8_Lit("i32") : String8_Lit("u32");
+        }
+        return type.integer.is_signed ? String8_Lit("i64") : String8_Lit("u64");
+    }
+    if (Memmy_Type_IsFloat(type))
+    {
+        return type.floating.bit_count == 32 ? String8_Lit("f32") : String8_Lit("f64");
+    }
+    if (Memmy_Type_IsString(type))
+    {
+        return type.string.encoding == Memmy_StringEncoding_Utf8 ? String8_Lit("str") : String8_Lit("wstr");
+    }
+    return String8_Lit("?");
+}
+
 static U32 MemmyCli_EvalResultWriter_Pid(MemmyCli_EvalResultWriter *result_writer)
 {
     U32 pid = 0;
@@ -93,44 +121,36 @@ static U32 MemmyCli_EvalResultWriter_Pid(MemmyCli_EvalResultWriter *result_write
 
 static String8 MemmyCli_Dsl_Help(Arena *arena)
 {
-    return String8_Copy(arena, String8_Lit("Core values:\n"
-                                           "  x                    constant integer/math expression\n"
-                                           "  nil                  type-neutral absence of a value\n"
-                                           "  @x                   absolute address\n"
-                                           "  [@a..@b]             explicit address range [a, b)\n"
-                                           "  [@a..+n]             sized address range [a, a+n)\n"
-                                           "  <module>             module range in selected process\n"
-                                           "  [0..]                selected process address-space range\n"
-                                           "  function address     function range containing address\n"
-                                           "  objectbase address   best-effort object base containing address\n"
-                                           "  $name                variable\n"
-                                           "  $rva = $hit - <module>  module-relative offset const\n"
+    return String8_Copy(arena, String8_Lit("Values and types:\n"
+                                           "  42 / 42.5 / \"text\"  i64, f64, and str literals\n"
+                                           "  nil                    null value\n"
+                                           "  value as T             scalar conversion\n"
+                                           "  @integer               integer-to-address construction\n"
+                                           "  [@a..@b] / [@a..+n]   half-open ranges\n"
+                                           "  <module> / [0..]       selected-process ranges\n"
+                                           "  $name = expr           bind a copied semantic value\n"
+                                           "  Types: u8 i8 u16 i16 u32 i32 u64 i64 f32 f64 str wstr\n"
                                            "\n"
-                                           "Targets:\n"
-                                           "  <client.dll>          module in selected process\n"
-                                           "  Use /attach or --pid/--name to select a process\n"
+                                           "Memory and scans:\n"
+                                           "  address as T           typed read (a range reads at its start)\n"
+                                           "  address->offset        pointer read plus optional integer offset\n"
+                                           "  range{pattern}         raw pattern scan -> list<address>\n"
+                                           "  range as T == expr     converted value scan -> list<address>\n"
+                                           "  range refs <ptr|rel32|any> address\n"
+                                           "  range disasm x64 {...}\n"
+                                           "  function address       containing function range\n"
+                                           "  objectbase address     best-effort object base\n"
                                            "\n"
-                                           "Memory:\n"
-                                           "  address as T         typed read\n"
-                                           "  address as T = value typed write\n"
-                                           "  range{pattern}       pattern scan -> address list\n"
-                                           "  range as T == value  value scan -> address list\n"
-                                           "  range refs ptr addr  pointer reference scan -> address list\n"
-                                           "  range refs rel32 addr rel32 reference scan -> address list\n"
-                                           "  range refs any addr  ptr or rel32 reference scan -> address list\n"
-                                           "  range disasm x64 {...} x64 disassembly scan -> address list\n"
-                                           "  value |> expr        bind value to $ and evaluate expr once\n"
-                                           "  list => expr         filter-map address/range items\n"
-                                           "                       failed and nil RHS results are omitted\n"
-                                           "  $                    current flow input inside a flow RHS\n"
-                                           "  Flows chain left-to-right; parentheses nest; inner $ shadows outer $\n"
+                                           "Lists and flows:\n"
+                                           "  list[N]                index any homogeneous list\n"
+                                           "  value |> expr          bind the whole value to $ once\n"
+                                           "  list => expr           filter-map any list; flatten list results\n"
+                                           "                         failed and nil item results are omitted\n"
+                                           "  Typed empty results retain list<T>; nil => expr stays nil\n"
                                            "  $matches |> $[0]\n"
                                            "  $matches => [$..+0x20]\n"
+                                           "  $values => $ as u16\n"
                                            "  $xrefs => function $\n"
-                                           "  $hits => objectbase $\n"
-                                           "  $ranges => $ + 4\n"
-                                           "  $name = expr         bind evaluated result\n"
-                                           "  $name[N]             index address/range list\n"
                                            "\n"
                                            "Commands:\n"
                                            "  /procs [filter]\n"

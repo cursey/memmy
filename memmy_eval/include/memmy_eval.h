@@ -9,7 +9,6 @@ typedef struct MemmyEval_Env MemmyEval_Env;
 typedef U32 MemmyEval_ResultKind;
 enum
 {
-    MemmyEval_ResultKind_Null,
     MemmyEval_ResultKind_Value,
     MemmyEval_ResultKind_Process,
     MemmyEval_ResultKind_Module,
