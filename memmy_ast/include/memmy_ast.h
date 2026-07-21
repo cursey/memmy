@@ -150,7 +150,6 @@ struct MemmyAst_Node
     String8 type_name;
     String8 pattern;
     MemmyAst_DisasmPattern disasm_pattern;
-    String8 value_text;
     String8 target_module;
 };
 

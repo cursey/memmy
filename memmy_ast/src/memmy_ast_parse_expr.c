@@ -3,7 +3,6 @@
 #include "base.h"
 
 static MemmyAst_Status MemmyAst_Parser_ParseExpr(MemmyAst_Parser *parser, MemmyAst_Node **out);
-static MemmyAst_Status MemmyAst_Parser_ParseExprNoTransform(MemmyAst_Parser *parser, MemmyAst_Node **out);
 static MemmyAst_Status MemmyAst_Parser_ParseExprPrimary(MemmyAst_Parser *parser, MemmyAst_Node **out);
 static MemmyAst_Status MemmyAst_Parser_ParseTargetOrTargetAddress(MemmyAst_Parser *parser, MemmyAst_Node **out);
 static B32 MemmyAst_Parser_TokenEndsExpr(MemmyAst_TokenKind kind);
@@ -738,7 +737,7 @@ MemmyAst_Status MemmyAst_Parser_ParseExprAdditive(MemmyAst_Parser *parser, Memmy
     return MemmyAst_Status_Ok;
 }
 
-static MemmyAst_Status MemmyAst_Parser_ParseExprNoTransform(MemmyAst_Parser *parser, MemmyAst_Node **out)
+MemmyAst_Status MemmyAst_Parser_ParseExprNoTransform(MemmyAst_Parser *parser, MemmyAst_Node **out)
 {
     MemmyAst_Status status = MemmyAst_Parser_ParseExprAdditive(parser, out);
     if (status == MemmyAst_Status_Ok)

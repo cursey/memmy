@@ -33,55 +33,14 @@ static MemmyAst_Status MemmyAst_Parser_ParsePatternScan(MemmyAst_Parser *parser,
     return MemmyAst_Parser_Next(parser);
 }
 
-static MemmyAst_Status MemmyAst_Parser_CaptureValueText(MemmyAst_Parser *parser, String8 *out)
+static B32 MemmyAst_TypeName_IsValid(String8 name)
 {
-    U64 start = parser->token.byte_offset;
-    U64 pos = start;
-    B32 in_string = 0;
-    while (pos < parser->input.len)
-    {
-        U8 c = parser->input.data[pos];
-        if (in_string)
-        {
-            if (c == '\\' && pos + 1 < parser->input.len)
-            {
-                pos += 2;
-                continue;
-            }
-            if (c == '"')
-            {
-                in_string = 0;
-            }
-        }
-        else
-        {
-            if (c == '"')
-            {
-                in_string = 1;
-            }
-            else if (c == ')' || c == '[')
-            {
-                break;
-            }
-            else if (pos + 1 < parser->input.len && ((c == '|' && parser->input.data[pos + 1] == '>') ||
-                                                     (c == '=' && parser->input.data[pos + 1] == '>')))
-            {
-                break;
-            }
-        }
-        pos++;
-    }
-
-    String8 value_text = String8_TrimWhitespace(String8_Substr(parser->input, start, pos - start));
-    if (value_text.len == 0)
-    {
-        MemmyAst_Parser_SetError(parser, String8_Lit("expected value"), start, 1);
-        return MemmyAst_Status_ParseError;
-    }
-
-    parser->pos = pos;
-    *out = value_text;
-    return MemmyAst_Parser_Next(parser);
+    return String8_Eq(name, String8_Lit("u8")) || String8_Eq(name, String8_Lit("i8")) ||
+           String8_Eq(name, String8_Lit("u16")) || String8_Eq(name, String8_Lit("i16")) ||
+           String8_Eq(name, String8_Lit("u32")) || String8_Eq(name, String8_Lit("i32")) ||
+           String8_Eq(name, String8_Lit("u64")) || String8_Eq(name, String8_Lit("i64")) ||
+           String8_Eq(name, String8_Lit("f32")) || String8_Eq(name, String8_Lit("f64")) ||
+           String8_Eq(name, String8_Lit("str")) || String8_Eq(name, String8_Lit("wstr"));
 }
 
 static MemmyAst_Status MemmyAst_Parser_ParseTypedMemory(MemmyAst_Parser *parser, MemmyAst_Node **out)
@@ -102,6 +61,11 @@ static MemmyAst_Status MemmyAst_Parser_ParseTypedMemory(MemmyAst_Parser *parser,
     }
 
     MemmyAst_Token type = parser->token;
+    if (!MemmyAst_TypeName_IsValid(type.text))
+    {
+        MemmyAst_Parser_SetError(parser, String8_Lit("unsupported type name"), type.byte_offset, type.byte_count);
+        return MemmyAst_Status_ParseError;
+    }
     status = MemmyAst_Parser_Next(parser);
     if (status != MemmyAst_Status_Ok)
     {
@@ -110,7 +74,7 @@ static MemmyAst_Status MemmyAst_Parser_ParseTypedMemory(MemmyAst_Parser *parser,
 
     MemmyAst_NodeKind kind = MemmyAst_NodeKind_TypedRead;
     MemmyAst_Token op = as;
-    String8 value_text = {0};
+    MemmyAst_Node *value_expr = 0;
     if (parser->token.kind == MemmyAst_TokenKind_EqualEqual)
     {
         kind = MemmyAst_NodeKind_ValueScan;
@@ -118,7 +82,7 @@ static MemmyAst_Status MemmyAst_Parser_ParseTypedMemory(MemmyAst_Parser *parser,
         status = MemmyAst_Parser_Next(parser);
         if (status == MemmyAst_Status_Ok)
         {
-            status = MemmyAst_Parser_CaptureValueText(parser, &value_text);
+            status = MemmyAst_Parser_ParseExprNoTransform(parser, &value_expr);
         }
     }
     if (status != MemmyAst_Status_Ok)
@@ -128,10 +92,10 @@ static MemmyAst_Status MemmyAst_Parser_ParseTypedMemory(MemmyAst_Parser *parser,
 
     MemmyAst_Node *node = MemmyAst_Parser_PushNode(parser, kind, op);
     node->lhs = base;
+    node->rhs = value_expr;
     node->type_name = type.text;
-    node->value_text = value_text;
-    node->contains_variable = base->contains_variable;
-    U64 end = (parser->token.kind == MemmyAst_TokenKind_Eof) ? parser->input.len : parser->token.byte_offset;
+    node->contains_variable = base->contains_variable || (value_expr != 0 && value_expr->contains_variable);
+    U64 end = value_expr != 0 ? value_expr->byte_offset + value_expr->byte_count : type.byte_offset + type.byte_count;
     MemmyAst_Parser_NodeCoverInput(parser, node, base->byte_offset, end);
     *out = node;
     return MemmyAst_Status_Ok;

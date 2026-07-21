@@ -79,21 +79,29 @@ Test(Test_MemmyAstParsesPocketReferenceAddressLists)
     AssertEq(float_scan->kind, MemmyAst_NodeKind_ValueScan);
     AssertEq(float_scan->lhs->kind, MemmyAst_NodeKind_Target);
     AssertStrEq(float_scan->type_name, String8_Lit("f32"));
-    AssertStrEq(float_scan->value_text, String8_Lit("42.777"));
+    AssertEq(float_scan->rhs->kind, MemmyAst_NodeKind_FloatLiteral);
 
     MemmyAst_Node *string_scan = 0;
     Test_ParseAstExpr(arena, "[0..] as str == \"hello\"", &string_scan);
     AssertEq(string_scan->kind, MemmyAst_NodeKind_ValueScan);
     AssertEq(string_scan->lhs->kind, MemmyAst_NodeKind_ProcessRange);
     AssertStrEq(string_scan->type_name, String8_Lit("str"));
-    AssertStrEq(string_scan->value_text, String8_Lit("\"hello\""));
+    AssertEq(string_scan->rhs->kind, MemmyAst_NodeKind_StringLiteral);
+    AssertStrEq(string_scan->rhs->string, String8_Lit("hello"));
 
     MemmyAst_Node *integer_scan = 0;
     Test_ParseAstExpr(arena, "[@0x1234..@0x5678] as u32 == 123", &integer_scan);
     AssertEq(integer_scan->kind, MemmyAst_NodeKind_ValueScan);
     AssertEq(integer_scan->lhs->kind, MemmyAst_NodeKind_Range);
     AssertStrEq(integer_scan->type_name, String8_Lit("u32"));
-    AssertStrEq(integer_scan->value_text, String8_Lit("123"));
+    AssertEq(integer_scan->rhs->kind, MemmyAst_NodeKind_ConstArithmetic);
+    AssertEq(integer_scan->rhs->value, 123);
+
+    MemmyAst_Node *expression_scan = 0;
+    Test_ParseAstExpr(arena, "[0..] as u32 == $needle + 1", &expression_scan);
+    AssertEq(expression_scan->kind, MemmyAst_NodeKind_ValueScan);
+    AssertEq(expression_scan->rhs->kind, MemmyAst_NodeKind_ConstArithmetic);
+    AssertEq(expression_scan->rhs->op, MemmyAst_ConstOp_Add);
 
     MemmyAst_Node *module_ref = 0;
     Test_ParseAstExpr(arena, "<client.dll> refs ptr @0x1234", &module_ref);
@@ -174,6 +182,15 @@ Test(Test_MemmyAstRejectsInvalidReferenceScans)
     Test_RejectAstExpr("[0..] refs wat @0x1000");
     Test_RejectAstExpr("[0..] refs ptr");
     Test_RejectAstExpr("[0..] refs ptr 1234");
+}
+
+Test(Test_MemmyAstRejectsInvalidValueScanTypesAndExpressions)
+{
+    Test_RejectAstExpr("[0..] as u32 ==");
+    Test_RejectAstExpr("[0..] as bytes == 01");
+    Test_RejectAstExpr("[0..] as ptr == 0");
+    Test_RejectAstExpr("[0..] as list == 0");
+    Test_RejectAstExpr("[0..] as u32 == 1 +");
 }
 
 Test(Test_MemmyAstParsesListTransforms)
@@ -320,7 +337,8 @@ TestSuite suite_memmy_ast_postfix = TestSuite_Make(
     TestCase_Make(Test_MemmyAstParsesPocketReferenceReads), TestCase_Make(Test_MemmyAstRejectsPocketReferenceWrites),
     TestCase_Make(Test_MemmyAstParsesPocketReferenceAddressLists),
     TestCase_Make(Test_MemmyAstParsesPocketReferenceIndexingAddressLists),
-    TestCase_Make(Test_MemmyAstRejectsInvalidReferenceScans), TestCase_Make(Test_MemmyAstParsesListTransforms),
-    TestCase_Make(Test_MemmyAstRejectsInvalidListTransforms),
+    TestCase_Make(Test_MemmyAstRejectsInvalidReferenceScans),
+    TestCase_Make(Test_MemmyAstRejectsInvalidValueScanTypesAndExpressions),
+    TestCase_Make(Test_MemmyAstParsesListTransforms), TestCase_Make(Test_MemmyAstRejectsInvalidListTransforms),
     TestCase_Make(Test_MemmyAstParsesValuePipesAndMixedFlowChains),
     TestCase_Make(Test_MemmyAstRejectsInvalidValuePipes), );

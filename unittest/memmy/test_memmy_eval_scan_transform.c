@@ -43,9 +43,117 @@ Test(Test_MemmyEvalValueAndStringScansMaterializeSemanticLists)
     AssertEq(matches.list.addresses[0], 0x1010);
     AssertEq(matches.list.addresses[1], 0x1030);
 
-    Test_EvalExprText(env, arena, "[@0x1000..+0x80] as str == hello", &matches);
+    Test_EvalExprText(env, arena, "[@0x1000..+0x80] as str == \"hello\"", &matches);
     Test_AssertAddressList(matches, 1);
     AssertEq(matches.list.addresses[0], 0x1040);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalValueScansEvaluateAndConvertRhsExpressions)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    MemmyEval_Env *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+    backend.memory[0x20] = 0x11;
+    backend.memory[0x21] = 0x11;
+    Test_EvalStatementText(env, arena, "$needle = 0x1110");
+
+    Memmy_Value matches = {0};
+    Test_EvalExprText(env, arena, "[@0x1000..+0x40] as u16 == $needle + 1", &matches);
+    Test_AssertAddressList(matches, 1);
+    AssertEq(matches.list.addresses[0], 0x1020);
+
+    F64 literal = 42.777;
+    U64 literal_bits = 0;
+    Memory_Copy(&literal_bits, &literal, sizeof(literal_bits));
+    Memmy_Value f64 = {.type = Memmy_Type_F64, .floating_bits = literal_bits};
+    Memmy_Value f32 = {0};
+    AssertEq(Memmy_Value_Convert(arena, &f64, Memmy_Type_F32, &f32, 0), Memmy_Status_Ok);
+    Memmy_EncodedValue encoded = {0};
+    AssertEq(Memmy_Value_Encode(arena, &f32, &encoded, 0), Memmy_Status_Ok);
+    Memory_Copy(&backend.memory[0x30], encoded.bytes.data, encoded.bytes.len);
+    Test_EvalExprText(env, arena, "[@0x1000..+0x40] as f32 == 42.777", &matches);
+    Test_AssertAddressList(matches, 1);
+    AssertEq(matches.list.addresses[0], 0x1030);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalStringScansUseCanonicalTextWithoutTerminators)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    MemmyEval_Env *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+    Memory_Copy(&backend.memory[0x20], "helloX", 6);
+    Memory_Copy(&backend.memory[0x30], "line\nX", 6);
+
+    Memmy_Value wide = {.type = Memmy_Type_WStr, .string = String8_Lit("h\xc3\xa9")};
+    Memmy_EncodedValue encoded = {0};
+    AssertEq(Memmy_Value_Encode(arena, &wide, &encoded, 0), Memmy_Status_Ok);
+    Memory_Copy(&backend.memory[0x40], encoded.bytes.data, encoded.bytes.len - 2);
+
+    Memmy_Value matches = {0};
+    Test_EvalExprText(env, arena, "[@0x1000..+0x80] as str == \"hello\"", &matches);
+    Test_AssertAddressList(matches, 1);
+    AssertEq(matches.list.addresses[0], 0x1020);
+    Test_EvalExprText(env, arena, "[@0x1000..+0x80] as str == \"line\\n\"", &matches);
+    Test_AssertAddressList(matches, 1);
+    AssertEq(matches.list.addresses[0], 0x1030);
+    Test_EvalExprText(env, arena, "[@0x1000..+0x80] as wstr == \"h\xc3\xa9\"", &matches);
+    Test_AssertAddressList(matches, 1);
+    AssertEq(matches.list.addresses[0], 0x1040);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalValueScanRhsFailsAndEvaluatesOnce)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    MemmyEval_Env *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+    backend.memory[0x20] = 0x7a;
+    backend.memory[0x80] = 0x7a;
+
+    MemmyAst_Node *expr = 0;
+    Test_EvalParseExpr(arena, "[@0x1000..+0x40] as u8 == $missing", &expr);
+    Memmy_Value value = {0};
+    AssertEq(MemmyEval_Expr_Eval(env, expr, &value, 0), Memmy_Status_NotFound);
+    AssertEq(backend.read_call_count, 0);
+
+    Test_EvalExprText(env, arena, "[@0x1000..+0x40] as u8 == (@0x1080 as u8)", &value);
+    Test_AssertAddressList(value, 1);
+    AssertEq(value.list.addresses[0], 0x1020);
+    AssertEq(backend.read_call_count, 2);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalValueScansTraverseAccessibleIntersections)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    MemmyEval_Env *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+    backend.memory[0x20] = 0xab;
+    backend.memory[0x50] = 0xab;
+    Test_MemmyBackend_AddUnreadableRange(&backend, 0x1010, 0x1040);
+
+    Memmy_Value value = {0};
+    Test_EvalExprText(env, arena, "[@0x1000..+0x80] as u8 == 0xab", &value);
+    Test_AssertAddressList(value, 1);
+    AssertEq(value.list.addresses[0], 0x1050);
+
+    MemmyAst_Node *expr = 0;
+    Test_EvalParseExpr(arena, "@0x1020 as u8", &expr);
+    AssertEq(MemmyEval_Expr_Eval(env, expr, &value, 0), Memmy_Status_Unreadable);
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -111,6 +219,10 @@ Test(Test_MemmyEvalNilShortCircuitsTransform)
 TestSuite suite_memmy_eval_scan_transform = TestSuite_Make(
     "Memmy Eval Scan And Transform", TestCase_Make(Test_MemmyEvalPatternScanAssignmentMaterializesSemanticList),
     TestCase_Make(Test_MemmyEvalValueAndStringScansMaterializeSemanticLists),
+    TestCase_Make(Test_MemmyEvalValueScansEvaluateAndConvertRhsExpressions),
+    TestCase_Make(Test_MemmyEvalStringScansUseCanonicalTextWithoutTerminators),
+    TestCase_Make(Test_MemmyEvalValueScanRhsFailsAndEvaluatesOnce),
+    TestCase_Make(Test_MemmyEvalValueScansTraverseAccessibleIntersections),
     TestCase_Make(Test_MemmyEvalReferenceScansMaterializeSemanticLists),
     TestCase_Make(Test_MemmyEvalSemanticListsIndexTransformAndStore),
     TestCase_Make(Test_MemmyEvalNilShortCircuitsTransform), );

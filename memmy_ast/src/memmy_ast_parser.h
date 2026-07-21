@@ -73,6 +73,7 @@ B32 MemmyAst_Token_IsIdentifier(MemmyAst_Token token, String8 text);
 
 MemmyAst_Status MemmyAst_Parser_ParseConstSum(MemmyAst_Parser *parser, MemmyAst_Node **out);
 MemmyAst_Status MemmyAst_Parser_ParseExprAdditive(MemmyAst_Parser *parser, MemmyAst_Node **out);
+MemmyAst_Status MemmyAst_Parser_ParseExprNoTransform(MemmyAst_Parser *parser, MemmyAst_Node **out);
 MemmyAst_Status MemmyAst_Parser_ParsePostfix(MemmyAst_Parser *parser, MemmyAst_Node **out, B32 tight_only);
 MemmyAst_Status MemmyAst_Parser_ParseExprOnly(MemmyAst_Parser *parser, MemmyAst_Node **out);
 

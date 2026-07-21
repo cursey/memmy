@@ -94,10 +94,20 @@ Memmy_Status MemmyEval_Expr_EvalScan(MemmyEval_Exec *exec, MemmyAst_Node const *
     {
         Memmy_Type type = {0};
         status = Memmy_Type_Parse(expr->type_name, &type, error);
+        Memmy_Value value = {0};
+        if (status == Memmy_Status_Ok)
+        {
+            status = MemmyEval_Expr_EvalWithContext(exec, expr->rhs, &value, error);
+        }
+        Memmy_Value converted = {0};
+        if (status == Memmy_Status_Ok)
+        {
+            status = Memmy_Value_Convert(exec->transient_arena, &value, type, &converted, error);
+        }
         Memmy_EncodedValue needle = {0};
         if (status == Memmy_Status_Ok)
         {
-            status = Memmy_EncodedValue_Parse(exec->transient_arena, type, expr->value_text, &needle, error);
+            status = Memmy_Value_Encode(exec->transient_arena, &converted, &needle, error);
         }
         if (status == Memmy_Status_Ok && Memmy_Type_IsString(type) && type.string.zero_terminated)
         {
