@@ -172,6 +172,8 @@ Test(Test_MemmyValueConversionsAndRejectedFamilies)
 
     Memmy_Value large = {.type = Memmy_Type_U64, .unsigned_integer = U64_MAX};
     AssertEq(Memmy_Value_Convert(arena, &large, Memmy_Type_I64, &converted, 0), Memmy_Status_Overflow);
+    AssertEq(Memmy_Value_Convert(arena, &large, Memmy_Type_U8, &converted, 0), Memmy_Status_Ok);
+    AssertEq(converted.unsigned_integer, U8_MAX);
     Memmy_Value i32 = {.type = Memmy_Type_I32, .signed_integer = 42};
     AssertEq(Memmy_Value_Convert(arena, &i32, Memmy_Type_F32, &converted, 0), Memmy_Status_Ok);
     AssertEq(Memmy_Value_Convert(arena, &converted, Memmy_Type_I16, &converted, 0), Memmy_Status_Ok);

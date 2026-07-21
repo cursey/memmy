@@ -18,6 +18,8 @@ enum
 {
     MemmyAst_NodeKind_Nil,
     MemmyAst_NodeKind_ConstArithmetic,
+    MemmyAst_NodeKind_FloatLiteral,
+    MemmyAst_NodeKind_StringLiteral,
     MemmyAst_NodeKind_Variable,
     MemmyAst_NodeKind_CurrentItem,
     MemmyAst_NodeKind_Target,
@@ -135,6 +137,8 @@ struct MemmyAst_Node
     U64 byte_offset;
     U64 byte_count;
     I64 value;
+    U64 floating_bits;
+    String8 string;
     B32 contains_variable;
     MemmyAst_ConstOp op;
     MemmyAst_Node *lhs;

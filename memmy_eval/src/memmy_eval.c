@@ -98,6 +98,8 @@ Memmy_Status MemmyEval_Expr_EvalWithContext(MemmyEval_Exec *exec, MemmyAst_Node 
     {
     case MemmyAst_NodeKind_Nil:
     case MemmyAst_NodeKind_ConstArithmetic:
+    case MemmyAst_NodeKind_FloatLiteral:
+    case MemmyAst_NodeKind_StringLiteral:
     case MemmyAst_NodeKind_Variable:
     case MemmyAst_NodeKind_CurrentItem:
     case MemmyAst_NodeKind_ListTransform:

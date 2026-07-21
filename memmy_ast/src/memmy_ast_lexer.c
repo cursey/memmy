@@ -89,6 +89,7 @@ MemmyAst_Status MemmyAst_Parser_Next(MemmyAst_Parser *parser)
     }
     else if (Char8_IsDigit(c))
     {
+        B32 is_float = 0;
         if (c == '0' && (MemmyAst_Parser_Peek(parser) == 'x' || MemmyAst_Parser_Peek(parser) == 'X'))
         {
             parser->pos++;
@@ -108,8 +109,38 @@ MemmyAst_Status MemmyAst_Parser_Next(MemmyAst_Parser *parser)
             {
                 parser->pos++;
             }
+            if (!MemmyAst_Parser_AtEnd(parser) && MemmyAst_Parser_Peek(parser) == '.' &&
+                (parser->pos + 1 >= parser->input.len || parser->input.data[parser->pos + 1] != '.'))
+            {
+                is_float = 1;
+                parser->pos++;
+                while (!MemmyAst_Parser_AtEnd(parser) && Char8_IsDigit(MemmyAst_Parser_Peek(parser)))
+                {
+                    parser->pos++;
+                }
+            }
+            if (!MemmyAst_Parser_AtEnd(parser) &&
+                (MemmyAst_Parser_Peek(parser) == 'e' || MemmyAst_Parser_Peek(parser) == 'E'))
+            {
+                is_float = 1;
+                parser->pos++;
+                if (!MemmyAst_Parser_AtEnd(parser) &&
+                    (MemmyAst_Parser_Peek(parser) == '+' || MemmyAst_Parser_Peek(parser) == '-'))
+                {
+                    parser->pos++;
+                }
+                if (MemmyAst_Parser_AtEnd(parser) || !Char8_IsDigit(MemmyAst_Parser_Peek(parser)))
+                {
+                    MemmyAst_Parser_SetError(parser, String8_Lit("expected exponent digit"), parser->pos, 1);
+                    return MemmyAst_Status_ParseError;
+                }
+                while (!MemmyAst_Parser_AtEnd(parser) && Char8_IsDigit(MemmyAst_Parser_Peek(parser)))
+                {
+                    parser->pos++;
+                }
+            }
         }
-        kind = MemmyAst_TokenKind_Integer;
+        kind = is_float ? MemmyAst_TokenKind_Float : MemmyAst_TokenKind_Integer;
     }
     else if (c == '$')
     {

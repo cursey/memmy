@@ -505,7 +505,9 @@ static String8 MemmyCli_ValueJson_Format(Arena *arena, Memmy_PointerWidth pointe
         {
             Memory_Copy(&number, &value.floating_bits, sizeof(number));
         }
-        return F64_IsFinite(number) ? String8_PushF(arena, "%.17g", number) : String8_Lit("null");
+        return F64_IsFinite(number)
+                   ? String8_PushF(arena, value.type.floating.bit_count == 32 ? "%.9g" : "%.17g", number)
+                   : String8_Lit("null");
     }
     if (Memmy_Type_IsAddress(value.type))
     {
@@ -551,7 +553,7 @@ static String8 MemmyCli_ValueText_Format(Arena *arena, Memmy_PointerWidth pointe
         {
             Memory_Copy(&number, &value.floating_bits, sizeof(number));
         }
-        return String8_PushF(arena, "%.17g", number);
+        return String8_PushF(arena, value.type.floating.bit_count == 32 ? "%.9g" : "%.17g", number);
     }
     if (Memmy_Type_IsAddress(value.type))
     {

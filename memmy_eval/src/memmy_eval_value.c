@@ -87,10 +87,31 @@ static Memmy_Type MemmyEval_IntegerCommonType(Memmy_Type a, Memmy_Type b)
 
 static Memmy_Status MemmyEval_IntegerConvert(Memmy_Value value, Memmy_Type type, Memmy_Value *out, Memmy_Error *error)
 {
-    Arena *scratch_arena = Arena_Create(Megabytes(1));
-    Memmy_Status status = Memmy_Value_Convert(scratch_arena, &value, type, out, error);
-    Arena_Destroy(scratch_arena);
-    return status;
+    Memmy_Value result = {.type = type};
+    if (type.integer.is_signed)
+    {
+        if (value.type.integer.is_signed)
+        {
+            result.signed_integer = value.signed_integer;
+        }
+        else if (value.unsigned_integer <= (U64)MemmyEval_IntegerMax(type.integer.bit_count))
+        {
+            result.signed_integer = (I64)value.unsigned_integer;
+        }
+        else
+        {
+            MemmyEval_Error_Set(error, Memmy_Status_Overflow, String8_Lit("expr"),
+                                String8_Lit("integer conversion overflow"));
+            return Memmy_Status_Overflow;
+        }
+    }
+    else
+    {
+        U64 raw = value.type.integer.is_signed ? (U64)value.signed_integer : value.unsigned_integer;
+        result.unsigned_integer = raw & MemmyEval_IntegerMask(type.integer.bit_count);
+    }
+    *out = result;
+    return Memmy_Status_Ok;
 }
 
 static Memmy_Status MemmyEval_IntegerBinary(MemmyAst_ConstOp op, Memmy_Value lhs, Memmy_Value rhs, Memmy_Value *out,
@@ -561,6 +582,16 @@ Memmy_Status MemmyEval_Expr_EvalValue(MemmyEval_Exec *exec, MemmyAst_Node const 
         status = MemmyEval_Expr_EvalWithContext(exec, expr->rhs, &rhs, error);
         return status == Memmy_Status_Ok ? MemmyEval_Value_ApplyBinary(expr->op, lhs, rhs, out, error) : status;
     }
+    if (expr->kind == MemmyAst_NodeKind_FloatLiteral)
+    {
+        *out = (Memmy_Value){.type = Memmy_Type_F64, .floating_bits = expr->floating_bits};
+        return Memmy_Status_Ok;
+    }
+    if (expr->kind == MemmyAst_NodeKind_StringLiteral)
+    {
+        *out = (Memmy_Value){.type = Memmy_Type_Str, .string = String8_Copy(exec->out_arena, expr->string)};
+        return Memmy_Status_Ok;
+    }
     if (expr->kind == MemmyAst_NodeKind_Variable)
     {
         return MemmyEval_Env_Find(exec->out_arena, exec->env, expr->name, out);
@@ -631,15 +662,20 @@ Memmy_Status MemmyEval_Expr_EvalValue(MemmyEval_Exec *exec, MemmyAst_Node const 
         Memmy_Range range = {0};
         if (status == Memmy_Status_Ok && expr->range_is_sized)
         {
-            I64 size = 0;
-            status = MemmyEval_Value_AsI64(&rhs, &size, error);
-            if (status == Memmy_Status_Ok && size < 0)
+            if (!Memmy_Type_IsInteger(rhs.type) || (rhs.type.integer.is_signed && rhs.signed_integer < 0))
             {
+                MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("range"),
+                                    String8_Lit("range size must be a nonnegative integer"));
                 status = Memmy_Status_InvalidArgument;
             }
             if (status == Memmy_Status_Ok)
             {
-                status = Memmy_Range_FromStartLength(start, (U64)size, &range, error);
+                Memmy_Addr end = 0;
+                status = MemmyEval_AddressOffset(start, rhs, 0, &end, error);
+                if (status == Memmy_Status_Ok)
+                {
+                    status = Memmy_Range_FromStartEnd(start, end, &range, error);
+                }
             }
         }
         else if (status == Memmy_Status_Ok)

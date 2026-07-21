@@ -15,6 +15,7 @@ enum
     MemmyAst_TokenKind_Variable,
     MemmyAst_TokenKind_CurrentItem,
     MemmyAst_TokenKind_Integer,
+    MemmyAst_TokenKind_Float,
     MemmyAst_TokenKind_String,
     MemmyAst_TokenKind_Target,
     MemmyAst_TokenKind_Command,

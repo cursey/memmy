@@ -12,6 +12,8 @@ static Memmy_Value Test_Address(Memmy_Addr value)
     return result;
 }
 
+static void Test_EvalExpectStatus(MemmyEval_Env *env, Arena *arena, char *text, Memmy_Status expected);
+
 Test(Test_MemmyEvalCreatesEnvAndBindsArenaOwnedValues)
 {
     Arena *arena = Arena_CreateDefault();
@@ -159,11 +161,184 @@ Test(Test_MemmyEvalResultsUseCallerOutputArena)
     Arena_Destroy(env_arena);
 }
 
+Test(Test_MemmyEvalOrdinaryLiteralDefaultsAndConversions)
+{
+    Arena *arena = Arena_CreateDefault();
+    MemmyEval_Env *env = MemmyEval_Env_Create(arena);
+    Memmy_Value value = {0};
+
+    Test_EvalExprText(env, arena, "42.777", &value);
+    AssertTrue(Memmy_Type_Eq(value.type, Memmy_Type_F64));
+    F64 expected = 42.777;
+    U64 expected_bits = 0;
+    Memory_Copy(&expected_bits, &expected, sizeof(expected_bits));
+    AssertEq(value.floating_bits, expected_bits);
+
+    Test_EvalExprText(env, arena, "42.777 as f32", &value);
+    AssertTrue(Memmy_Type_Eq(value.type, Memmy_Type_F32));
+    Test_EvalExprText(env, arena, "\"hello\"", &value);
+    AssertTrue(Memmy_Type_Eq(value.type, Memmy_Type_Str));
+    AssertStrEq(value.string, String8_Lit("hello"));
+    Test_EvalExprText(env, arena, "\"hello\" as wstr", &value);
+    AssertTrue(Memmy_Type_Eq(value.type, Memmy_Type_WStr));
+    AssertStrEq(value.string, String8_Lit("hello"));
+    Test_EvalExprText(env, arena, "42.9 as i32", &value);
+    AssertTrue(Memmy_Type_Eq(value.type, Memmy_Type_I32));
+    AssertEq(value.signed_integer, 42);
+
+    MemmyAst_Node *expr = 0;
+    Test_EvalParseExpr(arena, "1.0 + 2.0", &expr);
+    AssertEq(MemmyEval_Expr_Eval(env, expr, &value, 0), Memmy_Status_InvalidArgument);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalIntegerPromotionsAndUsualConversions)
+{
+    Arena *arena = Arena_CreateDefault();
+    MemmyEval_Env *env = MemmyEval_Env_Create(arena);
+    AssertEq(MemmyEval_Env_Set(env, String8_Lit("u8a"), (Memmy_Value){.type = Memmy_Type_U8, .unsigned_integer = 250}),
+             Memmy_Status_Ok);
+    AssertEq(MemmyEval_Env_Set(env, String8_Lit("u8b"), (Memmy_Value){.type = Memmy_Type_U8, .unsigned_integer = 10}),
+             Memmy_Status_Ok);
+    AssertEq(
+        MemmyEval_Env_Set(env, String8_Lit("u32"), (Memmy_Value){.type = Memmy_Type_U32, .unsigned_integer = U32_MAX}),
+        Memmy_Status_Ok);
+    AssertEq(MemmyEval_Env_Set(env, String8_Lit("i32"), (Memmy_Value){.type = Memmy_Type_I32, .signed_integer = -1}),
+             Memmy_Status_Ok);
+    AssertEq(MemmyEval_Env_Set(env, String8_Lit("u64"), (Memmy_Value){.type = Memmy_Type_U64, .unsigned_integer = 0}),
+             Memmy_Status_Ok);
+
+    Memmy_Value value = {0};
+    Test_EvalExprText(env, arena, "$u8a + $u8b", &value);
+    AssertTrue(Memmy_Type_Eq(value.type, Memmy_Type_I32));
+    AssertEq(value.signed_integer, 260);
+    Test_EvalExprText(env, arena, "$u32 + 1", &value);
+    AssertTrue(Memmy_Type_Eq(value.type, Memmy_Type_I64));
+    AssertEq(value.signed_integer, (I64)U32_MAX + 1);
+    Test_EvalExprText(env, arena, "$i32 + $u32", &value);
+    AssertTrue(Memmy_Type_Eq(value.type, Memmy_Type_U32));
+    AssertEq(value.unsigned_integer, U32_MAX - 1);
+    Test_EvalExprText(env, arena, "$i32 + $u64", &value);
+    AssertTrue(Memmy_Type_Eq(value.type, Memmy_Type_U64));
+    AssertEq(value.unsigned_integer, U64_MAX);
+    Test_EvalExprText(env, arena, "-$u8b", &value);
+    AssertTrue(Memmy_Type_Eq(value.type, Memmy_Type_I32));
+    AssertEq(value.signed_integer, -10);
+    Test_EvalExprText(env, arena, "$i32 as u64", &value);
+    AssertTrue(Memmy_Type_Eq(value.type, Memmy_Type_U64));
+    AssertEq(value.unsigned_integer, U64_MAX);
+    Test_EvalExpectStatus(env, arena, "$u32 as i32", Memmy_Status_Overflow);
+    Test_EvalExpectStatus(env, arena, "\"42\" as u64", Memmy_Status_InvalidArgument);
+    Test_EvalExpectStatus(env, arena, "nil as u64", Memmy_Status_InvalidArgument);
+
+    Arena_Destroy(arena);
+}
+
+static void Test_EvalExpectStatus(MemmyEval_Env *env, Arena *arena, char *text, Memmy_Status expected)
+{
+    MemmyAst_Node *expr = 0;
+    Test_EvalParseExpr(arena, text, &expr);
+    Memmy_Value value = {0};
+    AssertEq(MemmyEval_Expr_Eval(env, expr, &value, 0), expected);
+}
+
+Test(Test_MemmyEvalIntegerOverflowWrapAndDivisionRules)
+{
+    Arena *arena = Arena_CreateDefault();
+    MemmyEval_Env *env = MemmyEval_Env_Create(arena);
+    AssertEq(
+        MemmyEval_Env_Set(env, String8_Lit("imax"), (Memmy_Value){.type = Memmy_Type_I32, .signed_integer = I32_MAX}),
+        Memmy_Status_Ok);
+    AssertEq(
+        MemmyEval_Env_Set(env, String8_Lit("imin"), (Memmy_Value){.type = Memmy_Type_I32, .signed_integer = I32_MIN}),
+        Memmy_Status_Ok);
+    AssertEq(MemmyEval_Env_Set(env, String8_Lit("one"), (Memmy_Value){.type = Memmy_Type_I32, .signed_integer = 1}),
+             Memmy_Status_Ok);
+    AssertEq(
+        MemmyEval_Env_Set(env, String8_Lit("minus_one"), (Memmy_Value){.type = Memmy_Type_I32, .signed_integer = -1}),
+        Memmy_Status_Ok);
+    AssertEq(
+        MemmyEval_Env_Set(env, String8_Lit("umax"), (Memmy_Value){.type = Memmy_Type_U32, .unsigned_integer = U32_MAX}),
+        Memmy_Status_Ok);
+    AssertEq(MemmyEval_Env_Set(env, String8_Lit("uone"), (Memmy_Value){.type = Memmy_Type_U32, .unsigned_integer = 1}),
+             Memmy_Status_Ok);
+    AssertEq(MemmyEval_Env_Set(env, String8_Lit("zero"), (Memmy_Value){.type = Memmy_Type_I32, .signed_integer = 0}),
+             Memmy_Status_Ok);
+
+    Test_EvalExpectStatus(env, arena, "$imax + $one", Memmy_Status_Overflow);
+    Test_EvalExpectStatus(env, arena, "$imin / $minus_one", Memmy_Status_Overflow);
+    Test_EvalExpectStatus(env, arena, "$one / $zero", Memmy_Status_InvalidArgument);
+    Test_EvalExpectStatus(env, arena, "$one % $zero", Memmy_Status_InvalidArgument);
+    Memmy_Value value = {0};
+    Test_EvalExprText(env, arena, "$umax + $uone", &value);
+    AssertTrue(Memmy_Type_Eq(value.type, Memmy_Type_U32));
+    AssertEq(value.unsigned_integer, 0);
+
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalAddressConstructionRejectsNegativeAndAcceptsU64)
+{
+    Arena *arena = Arena_CreateDefault();
+    MemmyEval_Env *env = MemmyEval_Env_Create(arena);
+    AssertEq(
+        MemmyEval_Env_Set(env, String8_Lit("wide"), (Memmy_Value){.type = Memmy_Type_U64, .unsigned_integer = U64_MAX}),
+        Memmy_Status_Ok);
+    Memmy_Value value = {0};
+    Test_EvalExprText(env, arena, "@$wide", &value);
+    AssertTrue(Memmy_Type_Eq(value.type, Memmy_Type_Address));
+    AssertEq(value.address, U64_MAX);
+    Test_EvalExpectStatus(env, arena, "@-1", Memmy_Status_InvalidArgument);
+    Arena_Destroy(arena);
+}
+
+Test(Test_MemmyEvalAddressAndRangeProjectionMatrix)
+{
+    Arena *arena = Arena_CreateDefault();
+    MemmyEval_Env *env = MemmyEval_Env_Create(arena);
+    AssertEq(MemmyEval_Env_Set(env, String8_Lit("addr"), Test_Address(0x1000)), Memmy_Status_Ok);
+    AssertEq(MemmyEval_Env_Set(env, String8_Lit("range"),
+                               (Memmy_Value){.type = Memmy_Type_Range, .range = {.start = 0x1000, .end = 0x1100}}),
+             Memmy_Status_Ok);
+    AssertEq(MemmyEval_Env_Set(env, String8_Lit("neg"), (Memmy_Value){.type = Memmy_Type_I32, .signed_integer = -0x10}),
+             Memmy_Status_Ok);
+    AssertEq(
+        MemmyEval_Env_Set(env, String8_Lit("usize"), (Memmy_Value){.type = Memmy_Type_U64, .unsigned_integer = 0x20}),
+        Memmy_Status_Ok);
+
+    Memmy_Value value = {0};
+    Test_EvalExprText(env, arena, "$addr + $neg", &value);
+    AssertEq(value.address, 0xff0);
+    Test_EvalExprText(env, arena, "$addr - $neg", &value);
+    AssertEq(value.address, 0x1010);
+    Test_EvalExprText(env, arena, "1 + $addr", &value);
+    AssertEq(value.address, 0x1001);
+    Test_EvalExprText(env, arena, "$range + 4", &value);
+    AssertTrue(Memmy_Type_Eq(value.type, Memmy_Type_Address));
+    AssertEq(value.address, 0x1004);
+    Test_EvalExprText(env, arena, "$range - $addr", &value);
+    AssertTrue(Memmy_Type_Eq(value.type, Memmy_Type_I64));
+    AssertEq(value.signed_integer, 0);
+    Test_EvalExprText(env, arena, "[$addr..+$usize]", &value);
+    AssertTrue(Memmy_Type_Eq(value.type, Memmy_Type_Range));
+    AssertEq(value.range.end, 0x1020);
+
+    Test_EvalExpectStatus(env, arena, "1 - $addr", Memmy_Status_InvalidArgument);
+    Test_EvalExpectStatus(env, arena, "$addr + $addr", Memmy_Status_InvalidArgument);
+    Test_EvalExpectStatus(env, arena, "$range * 2", Memmy_Status_InvalidArgument);
+    Test_EvalExpectStatus(env, arena, "[$addr..+$neg]", Memmy_Status_InvalidArgument);
+    Arena_Destroy(arena);
+}
+
 TestSuite suite_memmy_eval_core_value = TestSuite_Make(
     "Memmy Eval Core And Value", TestCase_Make(Test_MemmyEvalCreatesEnvAndBindsArenaOwnedValues),
     TestCase_Make(Test_MemmyEvalExpressionStatementsEmitSemanticValues),
     TestCase_Make(Test_MemmyEvalVariablesBindIndependentSemanticCopies),
     TestCase_Make(Test_MemmyEvalAddressAndRangeVariables),
     TestCase_Make(Test_MemmyEvalWrongTypeInIntegerExpressionFails), TestCase_Make(Test_MemmyEvalAddressOverflowFails),
-    TestCase_Make(Test_MemmyEvalAddressDifferenceBoundaries),
-    TestCase_Make(Test_MemmyEvalResultsUseCallerOutputArena), );
+    TestCase_Make(Test_MemmyEvalAddressDifferenceBoundaries), TestCase_Make(Test_MemmyEvalResultsUseCallerOutputArena),
+    TestCase_Make(Test_MemmyEvalOrdinaryLiteralDefaultsAndConversions),
+    TestCase_Make(Test_MemmyEvalIntegerPromotionsAndUsualConversions),
+    TestCase_Make(Test_MemmyEvalIntegerOverflowWrapAndDivisionRules),
+    TestCase_Make(Test_MemmyEvalAddressConstructionRejectsNegativeAndAcceptsU64),
+    TestCase_Make(Test_MemmyEvalAddressAndRangeProjectionMatrix), );

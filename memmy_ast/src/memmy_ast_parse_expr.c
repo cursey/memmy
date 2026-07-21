@@ -9,27 +9,6 @@ static MemmyAst_Status MemmyAst_Parser_ParseTargetOrTargetAddress(MemmyAst_Parse
 static B32 MemmyAst_Parser_TokenEndsExpr(MemmyAst_TokenKind kind);
 static MemmyAst_Status MemmyAst_Parser_ParseDerefChain(MemmyAst_Parser *parser, MemmyAst_Node **out);
 
-static B32 MemmyAst_Node_CanFoldConst(MemmyAst_Node *node)
-{
-    B32 result = 0;
-    if (node != 0 && node->kind == MemmyAst_NodeKind_ConstArithmetic && !node->contains_variable)
-    {
-        if (node->op == MemmyAst_ConstOp_None)
-        {
-            result = 1;
-        }
-        else if (node->op == MemmyAst_ConstOp_Pos || node->op == MemmyAst_ConstOp_Neg)
-        {
-            result = MemmyAst_Node_CanFoldConst(node->lhs);
-        }
-        else
-        {
-            result = MemmyAst_Node_CanFoldConst(node->lhs) && MemmyAst_Node_CanFoldConst(node->rhs);
-        }
-    }
-    return result;
-}
-
 static MemmyAst_Status MemmyAst_Parser_ParseIntegerValue(MemmyAst_Parser *parser, MemmyAst_Token token, U64 limit,
                                                          I64 *out)
 {
@@ -109,6 +88,62 @@ static MemmyAst_Status MemmyAst_Parser_ParseConstPrimary(MemmyAst_Parser *parser
         {
             return status;
         }
+        *out = node;
+        return MemmyAst_Parser_Next(parser);
+    }
+
+    if (parser->token.kind == MemmyAst_TokenKind_Float)
+    {
+        MemmyAst_Token token = parser->token;
+        F64 value = 0;
+        U64 error_offset = 0;
+        if (String8_ParseF64(token.text, &value, &error_offset) != String8_ParseStatus_Ok)
+        {
+            MemmyAst_Parser_SetError(parser, String8_Lit("invalid floating-point literal"),
+                                     token.byte_offset + error_offset, 1);
+            return MemmyAst_Status_ParseError;
+        }
+        MemmyAst_Node *node = MemmyAst_Parser_PushNode(parser, MemmyAst_NodeKind_FloatLiteral, token);
+        Memory_Copy(&node->floating_bits, &value, sizeof(value));
+        *out = node;
+        return MemmyAst_Parser_Next(parser);
+    }
+
+    if (parser->token.kind == MemmyAst_TokenKind_String)
+    {
+        MemmyAst_Token token = parser->token;
+        U8 *decoded = Arena_PushArrayNoZero(parser->arena, U8, token.text.len - 2);
+        U64 decoded_len = 0;
+        for (U64 i = 1; i + 1 < token.text.len; i++)
+        {
+            U8 c = token.text.data[i];
+            if (c == '\\')
+            {
+                i++;
+                c = token.text.data[i];
+                if (c == 'n')
+                {
+                    c = '\n';
+                }
+                else if (c == 'r')
+                {
+                    c = '\r';
+                }
+                else if (c == 't')
+                {
+                    c = '\t';
+                }
+                else if (c != '\\' && c != '"')
+                {
+                    MemmyAst_Parser_SetError(parser, String8_Lit("invalid string escape"), token.byte_offset + i - 1,
+                                             2);
+                    return MemmyAst_Status_ParseError;
+                }
+            }
+            decoded[decoded_len++] = c;
+        }
+        MemmyAst_Node *node = MemmyAst_Parser_PushNode(parser, MemmyAst_NodeKind_StringLiteral, token);
+        node->string = String8_Make(decoded, decoded_len);
         *out = node;
         return MemmyAst_Parser_Next(parser);
     }
@@ -201,6 +236,26 @@ static MemmyAst_Status MemmyAst_Parser_ParseConstUnary(MemmyAst_Parser *parser, 
             return MemmyAst_Parser_Next(parser);
         }
 
+        if (token.kind == MemmyAst_TokenKind_Minus && parser->token.kind == MemmyAst_TokenKind_Float)
+        {
+            MemmyAst_Token literal = parser->token;
+            String8 text = String8_Substr(parser->input, token.byte_offset,
+                                          literal.byte_offset + literal.byte_count - token.byte_offset);
+            F64 value = 0;
+            U64 error_offset = 0;
+            if (String8_ParseF64(text, &value, &error_offset) != String8_ParseStatus_Ok)
+            {
+                MemmyAst_Parser_SetError(parser, String8_Lit("invalid floating-point literal"),
+                                         token.byte_offset + error_offset, 1);
+                return MemmyAst_Status_ParseError;
+            }
+            MemmyAst_Node *node = MemmyAst_Parser_PushNode(parser, MemmyAst_NodeKind_FloatLiteral, token);
+            MemmyAst_Parser_NodeCoverInput(parser, node, token.byte_offset, literal.byte_offset + literal.byte_count);
+            Memory_Copy(&node->floating_bits, &value, sizeof(value));
+            *out = node;
+            return MemmyAst_Parser_Next(parser);
+        }
+
         MemmyAst_Node *operand = 0;
         status = MemmyAst_Parser_ParseConstUnary(parser, &operand);
         if (status != MemmyAst_Status_Ok)
@@ -213,22 +268,6 @@ static MemmyAst_Status MemmyAst_Parser_ParseConstUnary(MemmyAst_Parser *parser, 
         node->lhs = operand;
         node->contains_variable = operand->contains_variable;
         node->byte_count = operand->byte_offset + operand->byte_count - token.byte_offset;
-        if (MemmyAst_Node_CanFoldConst(operand))
-        {
-            if (node->op == MemmyAst_ConstOp_Neg && !SubI64Checked(0, operand->value, &node->value))
-            {
-                MemmyAst_Parser_SetError(parser, String8_Lit("constant expression overflow"), token.byte_offset, 1);
-                return MemmyAst_Status_Overflow;
-            }
-            else if (node->op == MemmyAst_ConstOp_Pos)
-            {
-                node->value = operand->value;
-            }
-            else
-            {
-                node->value = -operand->value;
-            }
-        }
         *out = node;
         return MemmyAst_Status_Ok;
     }
@@ -266,47 +305,6 @@ static MemmyAst_Status MemmyAst_Parser_CombineConst(MemmyAst_Parser *parser, Mem
         break;
     default:
         break;
-    }
-
-    if (MemmyAst_Node_CanFoldConst(lhs) && MemmyAst_Node_CanFoldConst(rhs))
-    {
-        B32 ok = 1;
-        if (node->op == MemmyAst_ConstOp_Add)
-        {
-            ok = AddI64Checked(lhs->value, rhs->value, &node->value);
-        }
-        else if (node->op == MemmyAst_ConstOp_Sub)
-        {
-            ok = SubI64Checked(lhs->value, rhs->value, &node->value);
-        }
-        else if (node->op == MemmyAst_ConstOp_Mul)
-        {
-            ok = MulI64Checked(lhs->value, rhs->value, &node->value);
-        }
-        else if (node->op == MemmyAst_ConstOp_Div)
-        {
-            if (rhs->value == 0)
-            {
-                MemmyAst_Parser_SetError(parser, String8_Lit("division by zero"), op_token.byte_offset, 1);
-                return MemmyAst_Status_ParseError;
-            }
-            ok = DivI64Checked(lhs->value, rhs->value, &node->value);
-        }
-        else if (node->op == MemmyAst_ConstOp_Mod)
-        {
-            if (rhs->value == 0)
-            {
-                MemmyAst_Parser_SetError(parser, String8_Lit("modulo by zero"), op_token.byte_offset, 1);
-                return MemmyAst_Status_ParseError;
-            }
-            ok = ModI64Checked(lhs->value, rhs->value, &node->value);
-        }
-
-        if (!ok)
-        {
-            MemmyAst_Parser_SetError(parser, String8_Lit("constant expression overflow"), op_token.byte_offset, 1);
-            return MemmyAst_Status_Overflow;
-        }
     }
 
     *out = node;

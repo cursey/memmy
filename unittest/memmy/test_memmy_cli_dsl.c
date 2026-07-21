@@ -118,8 +118,28 @@ Test(Test_MemmyCliVarsReportsExactSemanticTypes)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyCliFormatsFloatAndStringLiterals)
+{
+    Arena *arena = Arena_CreateDefault();
+    String8 out = {0};
+    Memmy_Error error = {0};
+
+    char *float_text[] = {"memmy", "--expr", "42.5 as f32"};
+    AssertEq(MemmyCli_Argv_RunToString(arena, ArrayCount(float_text), float_text, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("f32 42.5\n"));
+    char *string_text[] = {"memmy", "--expr", "\"hello\\nworld\""};
+    AssertEq(MemmyCli_Argv_RunToString(arena, ArrayCount(string_text), string_text, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("str \"hello\\nworld\"\n"));
+    char *json[] = {"memmy", "--jsonl", "--expr", "42.5"};
+    AssertEq(MemmyCli_Argv_RunToString(arena, ArrayCount(json), json, &out, &error), Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("{\"type\":\"value\",\"value_type\":\"f64\",\"value\":42.5}\n"));
+
+    Arena_Destroy(arena);
+}
+
 TestSuite suite_memmy_cli_dsl = TestSuite_Make(
     "Memmy CLI DSL", TestCase_Make(Test_MemmyCliFormatsSemanticScalarValuesText),
     TestCase_Make(Test_MemmyCliFormatsSemanticScalarValuesJsonl),
     TestCase_Make(Test_MemmyCliFormatsDecodedReadsAsValues), TestCase_Make(Test_MemmyCliStreamsSemanticAddressLists),
-    TestCase_Make(Test_MemmyCliVarsReportsExactSemanticTypes), );
+    TestCase_Make(Test_MemmyCliVarsReportsExactSemanticTypes),
+    TestCase_Make(Test_MemmyCliFormatsFloatAndStringLiterals), );

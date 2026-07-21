@@ -8,7 +8,6 @@ Test(Test_MemmyAstParsesConstantsWithPrecedence)
 
     AssertEq(expr->kind, MemmyAst_NodeKind_ConstArithmetic);
     AssertEq(expr->op, MemmyAst_ConstOp_Sub);
-    AssertEq(expr->value, 0x1234 - 32 * (4 + 5));
     AssertEq(expr->lhs->value, 0x1234);
     AssertEq(expr->rhs->op, MemmyAst_ConstOp_Mul);
     AssertEq(expr->rhs->rhs->op, MemmyAst_ConstOp_Add);
@@ -124,7 +123,7 @@ Test(Test_MemmyAstParsesPocketReferenceCoreValues)
     MemmyAst_Node *constant = 0;
     Test_ParseAstExpr(arena, "32 * (4 + 5)", &constant);
     AssertEq(constant->kind, MemmyAst_NodeKind_ConstArithmetic);
-    AssertEq(constant->value, 32 * (4 + 5));
+    AssertEq(constant->op, MemmyAst_ConstOp_Mul);
 
     MemmyAst_Node *address = 0;
     Test_ParseAstExpr(arena, "@0x1234", &address);
@@ -252,7 +251,7 @@ Test(Test_MemmyAstParsesPocketReferenceAddresses)
     MemmyAst_Node *deref_expr_offset = 0;
     Test_ParseAstExpr(arena, "@0x1234->(32 * (4 + 5))", &deref_expr_offset);
     AssertEq(deref_expr_offset->kind, MemmyAst_NodeKind_Deref);
-    AssertEq(deref_expr_offset->rhs->value, 32 * (4 + 5));
+    AssertEq(deref_expr_offset->rhs->op, MemmyAst_ConstOp_Mul);
 
     MemmyAst_Node *range_deref = 0;
     Test_ParseAstExpr(arena, "[@0x1234..@0x5678]->", &range_deref);
@@ -274,11 +273,36 @@ Test(Test_MemmyAstParsesPocketReferenceAddresses)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyAstParsesOrdinaryFloatAndStringLiterals)
+{
+    Arena *arena = Arena_CreateDefault();
+    MemmyAst_Node *expr = 0;
+
+    Test_ParseAstExpr(arena, "42.777", &expr);
+    AssertEq(expr->kind, MemmyAst_NodeKind_FloatLiteral);
+    F64 expected = 42.777;
+    U64 expected_bits = 0;
+    Memory_Copy(&expected_bits, &expected, sizeof(expected_bits));
+    AssertEq(expr->floating_bits, expected_bits);
+
+    Test_ParseAstExpr(arena, "-0.0", &expr);
+    AssertEq(expr->kind, MemmyAst_NodeKind_FloatLiteral);
+    AssertEq(expr->floating_bits, 0x8000000000000000ull);
+
+    Test_ParseAstExpr(arena, "\"hello\\n\\t\\\"\\\\world\"", &expr);
+    AssertEq(expr->kind, MemmyAst_NodeKind_StringLiteral);
+    AssertStrEq(expr->string, String8_Lit("hello\n\t\"\\world"));
+
+    Test_RejectAstExpr("\"bad\\q\"");
+    Test_RejectAstExpr("1e+");
+    Arena_Destroy(arena);
+}
+
 TestSuite suite_memmy_ast_expr = TestSuite_Make(
     "Memmy AST Expressions", TestCase_Make(Test_MemmyAstParsesConstantsWithPrecedence),
     TestCase_Make(Test_MemmyAstParsesVariablesInConstExpressions),
     TestCase_Make(Test_MemmyAstParsesGeneralAddressArithmetic), TestCase_Make(Test_MemmyAstRejectsInvalidIdentifiers),
     TestCase_Make(Test_MemmyAstParsesPocketReferenceTargets),
     TestCase_Make(Test_MemmyAstParsesPocketReferenceCoreValues),
-    TestCase_Make(Test_MemmyAstParsesPocketReferenceRanges),
-    TestCase_Make(Test_MemmyAstParsesPocketReferenceAddresses), );
+    TestCase_Make(Test_MemmyAstParsesPocketReferenceRanges), TestCase_Make(Test_MemmyAstParsesPocketReferenceAddresses),
+    TestCase_Make(Test_MemmyAstParsesOrdinaryFloatAndStringLiterals), );
