@@ -359,6 +359,309 @@ static Memmy_Value MemmyEval_ListItem(Memmy_Value list, U64 index)
     return result;
 }
 
+static B32 MemmyEval_Type_IsAddressLike(Memmy_Type type)
+{
+    return Memmy_Type_IsAddress(type) || Memmy_Type_IsRange(type);
+}
+
+static Memmy_Status MemmyEval_Type_ConversionCheck(Memmy_Type source, Memmy_Type destination, B32 address_is_read,
+                                                   Memmy_Error *error)
+{
+    B32 supported = Memmy_Type_Eq(source, destination) ||
+                    ((Memmy_Type_IsInteger(source) || Memmy_Type_IsFloat(source)) &&
+                     (Memmy_Type_IsInteger(destination) || Memmy_Type_IsFloat(destination))) ||
+                    (Memmy_Type_IsString(source) && Memmy_Type_IsString(destination)) ||
+                    (address_is_read && MemmyEval_Type_IsAddressLike(source));
+    if (!supported)
+    {
+        MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("type"),
+                            String8_Lit("unsupported value conversion"));
+        return Memmy_Status_InvalidArgument;
+    }
+    return Memmy_Status_Ok;
+}
+
+static Memmy_Status MemmyEval_Type_ResolveBinary(MemmyAst_ConstOp op, Memmy_Type lhs, Memmy_Type rhs, Memmy_Type *out,
+                                                 Memmy_Error *error)
+{
+    B32 lhs_address = MemmyEval_Type_IsAddressLike(lhs);
+    B32 rhs_address = MemmyEval_Type_IsAddressLike(rhs);
+    if (lhs_address || rhs_address)
+    {
+        if (lhs_address && rhs_address && op == MemmyAst_ConstOp_Sub)
+        {
+            *out = Memmy_Type_I64;
+            return Memmy_Status_Ok;
+        }
+        B32 valid = lhs_address != rhs_address && Memmy_Type_IsInteger(lhs_address ? rhs : lhs) &&
+                    (op == MemmyAst_ConstOp_Add || lhs_address && op == MemmyAst_ConstOp_Sub);
+        if (valid)
+        {
+            *out = Memmy_Type_Address;
+            return Memmy_Status_Ok;
+        }
+        MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("expr"),
+                            String8_Lit("invalid address arithmetic"));
+        return Memmy_Status_InvalidArgument;
+    }
+    if (!Memmy_Type_IsInteger(lhs) || !Memmy_Type_IsInteger(rhs))
+    {
+        MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("expr"),
+                            String8_Lit("integer arithmetic requires integer operands"));
+        return Memmy_Status_InvalidArgument;
+    }
+    *out = MemmyEval_IntegerCommonType(lhs, rhs);
+    return Memmy_Status_Ok;
+}
+
+static Memmy_Status MemmyEval_Expr_ResolveType(MemmyEval_Exec *exec, MemmyAst_Node const *expr, B32 has_current_item,
+                                               Memmy_Type current_item_type, Memmy_Type *out, Memmy_Error *error)
+{
+    *out = (Memmy_Type){0};
+    if (expr == 0)
+    {
+        return Memmy_Status_InvalidArgument;
+    }
+
+    if (expr->kind == MemmyAst_NodeKind_Nil)
+    {
+        return Memmy_Status_Ok;
+    }
+    if (expr->kind == MemmyAst_NodeKind_ConstArithmetic)
+    {
+        if (expr->op == MemmyAst_ConstOp_None)
+        {
+            *out = Memmy_Type_I64;
+            return Memmy_Status_Ok;
+        }
+        Memmy_Type lhs = {0};
+        Memmy_Status status =
+            MemmyEval_Expr_ResolveType(exec, expr->lhs, has_current_item, current_item_type, &lhs, error);
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        if (expr->op == MemmyAst_ConstOp_Pos || expr->op == MemmyAst_ConstOp_Neg)
+        {
+            if (!Memmy_Type_IsInteger(lhs))
+            {
+                MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("expr"),
+                                    String8_Lit("unary arithmetic requires an integer"));
+                return Memmy_Status_InvalidArgument;
+            }
+            *out = MemmyEval_IntegerPromote(lhs);
+            return Memmy_Status_Ok;
+        }
+        Memmy_Type rhs = {0};
+        status = MemmyEval_Expr_ResolveType(exec, expr->rhs, has_current_item, current_item_type, &rhs, error);
+        return status == Memmy_Status_Ok ? MemmyEval_Type_ResolveBinary(expr->op, lhs, rhs, out, error) : status;
+    }
+    if (expr->kind == MemmyAst_NodeKind_FloatLiteral)
+    {
+        *out = Memmy_Type_F64;
+        return Memmy_Status_Ok;
+    }
+    if (expr->kind == MemmyAst_NodeKind_StringLiteral)
+    {
+        *out = Memmy_Type_Str;
+        return Memmy_Status_Ok;
+    }
+    if (expr->kind == MemmyAst_NodeKind_Variable)
+    {
+        return MemmyEval_Env_TypeFind(exec->env, expr->name, out);
+    }
+    if (expr->kind == MemmyAst_NodeKind_CurrentItem)
+    {
+        if (!has_current_item)
+        {
+            MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("flow"),
+                                String8_Lit("current flow input is only available inside flow expressions"));
+            return Memmy_Status_InvalidArgument;
+        }
+        *out = current_item_type;
+        return Memmy_Status_Ok;
+    }
+    if (expr->kind == MemmyAst_NodeKind_ListTransform)
+    {
+        Memmy_Type input = {0};
+        Memmy_Status status =
+            MemmyEval_Expr_ResolveType(exec, expr->lhs, has_current_item, current_item_type, &input, error);
+        if (status != Memmy_Status_Ok || Memmy_Type_IsNull(input))
+        {
+            return status;
+        }
+        if (!Memmy_Type_IsList(input))
+        {
+            MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("transform"),
+                                String8_Lit("transform requires a list"));
+            return Memmy_Status_InvalidArgument;
+        }
+        Memmy_Type result = {0};
+        status = MemmyEval_Expr_ResolveType(exec, expr->rhs, 1, *input.list.element_type, &result, error);
+        Memmy_Type element_type = Memmy_Type_IsList(result) ? *result.list.element_type : result;
+        if (status != Memmy_Status_Ok || Memmy_Type_IsNull(element_type) || Memmy_Type_IsList(element_type) ||
+            !Memmy_Type_IsValid(element_type))
+        {
+            if (status == Memmy_Status_Ok)
+            {
+                MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("transform"),
+                                    String8_Lit("transform result must have a scalar type"));
+                status = Memmy_Status_InvalidArgument;
+            }
+            return status;
+        }
+        return Memmy_Type_ListCreate(exec->transient_arena, element_type, out, error);
+    }
+    if (expr->kind == MemmyAst_NodeKind_ValuePipe)
+    {
+        Memmy_Type input = {0};
+        Memmy_Status status =
+            MemmyEval_Expr_ResolveType(exec, expr->lhs, has_current_item, current_item_type, &input, error);
+        return status == Memmy_Status_Ok ? MemmyEval_Expr_ResolveType(exec, expr->rhs, 1, input, out, error) : status;
+    }
+    if (expr->kind == MemmyAst_NodeKind_Address)
+    {
+        Memmy_Type integer = {0};
+        Memmy_Status status =
+            MemmyEval_Expr_ResolveType(exec, expr->value_expr, has_current_item, current_item_type, &integer, error);
+        if (status != Memmy_Status_Ok || !Memmy_Type_IsInteger(integer))
+        {
+            return status == Memmy_Status_Ok ? Memmy_Status_InvalidArgument : status;
+        }
+        *out = Memmy_Type_Address;
+        return Memmy_Status_Ok;
+    }
+    if (expr->kind == MemmyAst_NodeKind_Range)
+    {
+        Memmy_Type start = {0};
+        Memmy_Type end_or_size = {0};
+        Memmy_Status status =
+            MemmyEval_Expr_ResolveType(exec, expr->lhs, has_current_item, current_item_type, &start, error);
+        if (status == Memmy_Status_Ok)
+        {
+            status =
+                MemmyEval_Expr_ResolveType(exec, expr->rhs, has_current_item, current_item_type, &end_or_size, error);
+        }
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        B32 valid =
+            MemmyEval_Type_IsAddressLike(start) &&
+            (expr->range_is_sized ? Memmy_Type_IsInteger(end_or_size) : MemmyEval_Type_IsAddressLike(end_or_size));
+        if (!valid)
+        {
+            return Memmy_Status_InvalidArgument;
+        }
+        *out = Memmy_Type_Range;
+        return Memmy_Status_Ok;
+    }
+    if (expr->kind == MemmyAst_NodeKind_Index)
+    {
+        Memmy_Type list = {0};
+        Memmy_Type index = {0};
+        Memmy_Status status =
+            MemmyEval_Expr_ResolveType(exec, expr->lhs, has_current_item, current_item_type, &list, error);
+        if (status == Memmy_Status_Ok)
+        {
+            status = MemmyEval_Expr_ResolveType(exec, expr->rhs, has_current_item, current_item_type, &index, error);
+        }
+        if (status != Memmy_Status_Ok || !Memmy_Type_IsList(list) || !Memmy_Type_IsInteger(index))
+        {
+            return status == Memmy_Status_Ok ? Memmy_Status_InvalidArgument : status;
+        }
+        *out = *list.list.element_type;
+        return Memmy_Status_Ok;
+    }
+    if (expr->kind == MemmyAst_NodeKind_Target || expr->kind == MemmyAst_NodeKind_ProcessRange)
+    {
+        *out = Memmy_Type_Range;
+        return Memmy_Status_Ok;
+    }
+    if (expr->kind == MemmyAst_NodeKind_Function || expr->kind == MemmyAst_NodeKind_ObjectBase ||
+        expr->kind == MemmyAst_NodeKind_Deref)
+    {
+        Memmy_Type base = {0};
+        Memmy_Status status =
+            MemmyEval_Expr_ResolveType(exec, expr->lhs, has_current_item, current_item_type, &base, error);
+        if (status != Memmy_Status_Ok || !MemmyEval_Type_IsAddressLike(base))
+        {
+            return status == Memmy_Status_Ok ? Memmy_Status_InvalidArgument : status;
+        }
+        if (expr->kind == MemmyAst_NodeKind_Deref && expr->rhs != 0)
+        {
+            Memmy_Type offset = {0};
+            status = MemmyEval_Expr_ResolveType(exec, expr->rhs, has_current_item, current_item_type, &offset, error);
+            if (status != Memmy_Status_Ok || !Memmy_Type_IsInteger(offset))
+            {
+                return status == Memmy_Status_Ok ? Memmy_Status_InvalidArgument : status;
+            }
+        }
+        *out = expr->kind == MemmyAst_NodeKind_Function ? Memmy_Type_Range : Memmy_Type_Address;
+        return Memmy_Status_Ok;
+    }
+    if (expr->kind == MemmyAst_NodeKind_TypedRead)
+    {
+        Memmy_Type source = {0};
+        Memmy_Status status =
+            MemmyEval_Expr_ResolveType(exec, expr->lhs, has_current_item, current_item_type, &source, error);
+        Memmy_Type destination = {0};
+        if (status == Memmy_Status_Ok)
+        {
+            status = Memmy_Type_Parse(expr->type_name, &destination, error);
+        }
+        if (status == Memmy_Status_Ok)
+        {
+            status = MemmyEval_Type_ConversionCheck(source, destination, 1, error);
+        }
+        if (status == Memmy_Status_Ok)
+        {
+            *out = destination;
+        }
+        return status;
+    }
+    if (expr->kind == MemmyAst_NodeKind_PatternScan || expr->kind == MemmyAst_NodeKind_ValueScan ||
+        expr->kind == MemmyAst_NodeKind_ReferenceScan || expr->kind == MemmyAst_NodeKind_DisasmScan)
+    {
+        Memmy_Type range = {0};
+        Memmy_Status status =
+            MemmyEval_Expr_ResolveType(exec, expr->lhs, has_current_item, current_item_type, &range, error);
+        if (status != Memmy_Status_Ok || !Memmy_Type_IsRange(range))
+        {
+            return status == Memmy_Status_Ok ? Memmy_Status_InvalidArgument : status;
+        }
+        if (expr->kind == MemmyAst_NodeKind_ValueScan)
+        {
+            Memmy_Type source = {0};
+            Memmy_Type destination = {0};
+            status = MemmyEval_Expr_ResolveType(exec, expr->rhs, has_current_item, current_item_type, &source, error);
+            if (status == Memmy_Status_Ok)
+            {
+                status = Memmy_Type_Parse(expr->type_name, &destination, error);
+            }
+            if (status == Memmy_Status_Ok)
+            {
+                status = MemmyEval_Type_ConversionCheck(source, destination, 0, error);
+            }
+        }
+        else if (expr->kind == MemmyAst_NodeKind_ReferenceScan)
+        {
+            Memmy_Type target = {0};
+            status = MemmyEval_Expr_ResolveType(exec, expr->rhs, has_current_item, current_item_type, &target, error);
+            if (status == Memmy_Status_Ok && !MemmyEval_Type_IsAddressLike(target))
+            {
+                status = Memmy_Status_InvalidArgument;
+            }
+        }
+        if (status != Memmy_Status_Ok)
+        {
+            return status;
+        }
+        return Memmy_Type_ListCreate(exec->transient_arena, Memmy_Type_Address, out, error);
+    }
+    return Memmy_Status_Unsupported;
+}
+
 static Memmy_Status MemmyEval_CompactList(Arena *arena, Memmy_Type element_type, List *items, Memmy_Value *out,
                                           Memmy_Error *error)
 {
@@ -451,10 +754,23 @@ Memmy_Status MemmyEval_List_Transform(MemmyEval_Exec *exec, MemmyAst_Node const 
                             String8_Lit("transform requires a list"));
         return Memmy_Status_InvalidArgument;
     }
+    Memmy_Type resolved = {0};
+    status = MemmyEval_Expr_ResolveType(exec, expr->rhs, 1, *input.type.list.element_type, &resolved, error);
+    Memmy_Type output_type = Memmy_Type_IsList(resolved) ? *resolved.list.element_type : resolved;
+    if (status != Memmy_Status_Ok || Memmy_Type_IsNull(output_type) || Memmy_Type_IsList(output_type) ||
+        !Memmy_Type_IsValid(output_type))
+    {
+        if (status == Memmy_Status_Ok)
+        {
+            MemmyEval_Error_Set(error, Memmy_Status_InvalidArgument, String8_Lit("transform"),
+                                String8_Lit("transform result must have a scalar type"));
+            status = Memmy_Status_InvalidArgument;
+        }
+        return status;
+    }
     B32 old_has_item = exec->has_current_item;
     Memmy_Value old_item = exec->current_item;
     List items = {0}; // MemmyEval_ValueNode
-    Memmy_Type output_type = {0};
     for (U64 i = 0; i < input.list.count; i++)
     {
         exec->has_current_item = 1;
@@ -472,10 +788,6 @@ Memmy_Status MemmyEval_List_Transform(MemmyEval_Exec *exec, MemmyAst_Node const 
         {
             status = Memmy_Status_InvalidArgument;
             break;
-        }
-        if (Memmy_Type_IsNull(output_type))
-        {
-            output_type = item_type;
         }
         if (!Memmy_Type_Eq(output_type, item_type))
         {
@@ -495,11 +807,6 @@ Memmy_Status MemmyEval_List_Transform(MemmyEval_Exec *exec, MemmyAst_Node const 
     {
         MemmyEval_Error_Set(error, status, String8_Lit("transform"), String8_Lit("incompatible transform result"));
         return status;
-    }
-    if (Memmy_Type_IsNull(output_type))
-    {
-        *out = (Memmy_Value){0};
-        return Memmy_Status_Ok;
     }
     return MemmyEval_CompactList(exec->out_arena, output_type, &items, out, error);
 }

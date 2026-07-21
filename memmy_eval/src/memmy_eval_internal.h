@@ -92,6 +92,7 @@ Memmy_Status MemmyEval_Command_Eval(MemmyEval_Exec *exec, MemmyAst_Statement con
                                     MemmyEval_ResultSink const *sink, Memmy_Error *error);
 Memmy_Status MemmyEval_Expr_EvalWithContext(MemmyEval_Exec *exec, MemmyAst_Node const *expr, Memmy_Value *out,
                                             Memmy_Error *error);
+Memmy_Status MemmyEval_Env_TypeFind(MemmyEval_Env const *env, String8 name, Memmy_Type *out);
 Memmy_Status MemmyEval_Statement_EvalWithContext(MemmyEval_Exec *exec, MemmyAst_Statement const *statement,
                                                  MemmyEval_ResultSink const *sink, Memmy_Error *error);
 Memmy_Status MemmyEval_Value_AsI64(Memmy_Value const *value, I64 *out, Memmy_Error *error);

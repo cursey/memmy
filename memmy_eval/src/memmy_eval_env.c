@@ -112,6 +112,26 @@ Memmy_Status MemmyEval_Env_Find(Arena *out_arena, MemmyEval_Env const *env, Stri
     return Memmy_Value_Copy(out_arena, &binding->value, out, 0);
 }
 
+Memmy_Status MemmyEval_Env_TypeFind(MemmyEval_Env const *env, String8 name, Memmy_Type *out)
+{
+    if (out != 0)
+    {
+        *out = (Memmy_Type){0};
+    }
+    if (env == 0 || out == 0)
+    {
+        return Memmy_Status_InvalidArgument;
+    }
+
+    MemmyEval_Binding *binding = MemmyEval_Env_FindBinding(env, name);
+    if (binding == 0)
+    {
+        return Memmy_Status_NotFound;
+    }
+    *out = binding->value.type;
+    return Memmy_Status_Ok;
+}
+
 Memmy_Status MemmyEval_Env_Unset(MemmyEval_Env *env, String8 name)
 {
     if (env == 0)
