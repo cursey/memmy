@@ -280,8 +280,7 @@ Memmy_Status MemmyCli_Tutorial_Command_Run(Arena *arena, MemmyCli_Tutorial *tuto
 static Memmy_Status MemmyCli_Tutorial_Result_Push(void *user_data, MemmyEval_Result const *result)
 {
     MemmyCli_Tutorial *tutorial = (MemmyCli_Tutorial *)user_data;
-    if (result->kind == MemmyEval_ResultKind_Value || result->kind == MemmyEval_ResultKind_Read ||
-        result->kind == MemmyEval_ResultKind_AddressList)
+    if (result->kind == MemmyEval_ResultKind_Value)
     {
         tutorial->captured_value = 1;
         tutorial->captured_result = *result;
@@ -302,9 +301,9 @@ MemmyEval_ResultSink const *MemmyCli_Tutorial_Statement_Begin(MemmyCli_Tutorial 
     return &tutorial->observer;
 }
 
-static B32 MemmyCli_Tutorial_Value_IsAddress(MemmyCli_Tutorial const *tutorial, MemmyEval_Value value)
+static B32 MemmyCli_Tutorial_Value_IsAddress(MemmyCli_Tutorial const *tutorial, Memmy_Value value)
 {
-    return value.kind == MemmyEval_ValueKind_Address && value.address == MemmyCli_Tutorial_MarkerAddress(tutorial);
+    return Memmy_Type_IsAddress(value.type) && value.address == MemmyCli_Tutorial_MarkerAddress(tutorial);
 }
 
 static B32 MemmyCli_Tutorial_Pattern_IsMarker(Arena *arena, MemmyAst_Node const *scan)
@@ -342,10 +341,10 @@ static B32 MemmyCli_Tutorial_Node_IsCurrentIndex(MemmyAst_Node const *node)
            node->lhs->kind == MemmyAst_NodeKind_CurrentItem;
 }
 
-static B32 MemmyCli_Tutorial_Range_IsFixture(MemmyCli_Tutorial const *tutorial, MemmyEval_Value value)
+static B32 MemmyCli_Tutorial_Range_IsFixture(MemmyCli_Tutorial const *tutorial, Memmy_Value value)
 {
     Memmy_Addr start = MemmyCli_Tutorial_FixtureAddress(tutorial);
-    return value.kind == MemmyEval_ValueKind_Range && value.range.start == start &&
+    return Memmy_Type_IsRange(value.type) && value.range.start == start &&
            value.range.end == start + MEMMY_CLI_TUTORIAL_FIXTURE_SIZE;
 }
 
@@ -354,7 +353,7 @@ static B32 MemmyCli_Tutorial_ScanRange_IsFixture(Arena *arena, MemmyCli_Tutorial
 {
     Arena *conflicts[] = {arena, tutorial->arena};
     Scratch scratch = Scratch_Begin(conflicts, ArrayCount(conflicts));
-    MemmyEval_Value value = {0};
+    Memmy_Value value = {0};
     B32 result = scan != 0 && scan->lhs != 0 &&
                  MemmyEval_Expr_Eval(scratch.arena, env, scan->lhs, &value, 0) == Memmy_Status_Ok &&
                  MemmyCli_Tutorial_Range_IsFixture(tutorial, value);
@@ -366,11 +365,12 @@ static B32 MemmyCli_Tutorial_ScanVariable_IsValid(Arena *arena, MemmyCli_Tutoria
 {
     Arena *conflicts[] = {arena, tutorial->arena};
     Scratch scratch = Scratch_Begin(conflicts, ArrayCount(conflicts));
-    MemmyEval_Value value = {0};
+    Memmy_Value value = {0};
     B32 result = tutorial->scan_variable.len != 0 &&
                  MemmyEval_Env_Find(scratch.arena, env, tutorial->scan_variable, &value) == Memmy_Status_Ok &&
-                 value.kind == MemmyEval_ValueKind_AddressList && value.address_count == 1 && value.addresses != 0 &&
-                 value.addresses[0] == MemmyCli_Tutorial_MarkerAddress(tutorial);
+                 Memmy_Type_IsList(value.type) && Memmy_Type_IsAddress(*value.type.list.element_type) &&
+                 value.list.count == 1 && value.list.addresses != 0 &&
+                 value.list.addresses[0] == MemmyCli_Tutorial_MarkerAddress(tutorial);
     Scratch_End(scratch);
     return result;
 }
@@ -378,7 +378,7 @@ static B32 MemmyCli_Tutorial_ScanVariable_IsValid(Arena *arena, MemmyCli_Tutoria
 static B32 MemmyCli_Tutorial_Statement_Succeeds(Arena *arena, MemmyCli_Tutorial *tutorial,
                                                 MemmyAst_Statement const *statement, MemmyEval_Env *env)
 {
-    MemmyEval_Value value = tutorial->captured_result.value;
+    Memmy_Value value = tutorial->captured_result.value;
     if (tutorial->step == MemmyCli_TutorialStep_Modules)
     {
         return statement->kind == MemmyAst_NodeKind_Command && statement->command_kind == MemmyAst_CommandKind_Mods &&
@@ -387,7 +387,7 @@ static B32 MemmyCli_Tutorial_Statement_Succeeds(Arena *arena, MemmyCli_Tutorial 
     if (tutorial->step == MemmyCli_TutorialStep_Assignment)
     {
         return statement->kind == MemmyAst_NodeKind_Assignment && tutorial->captured_value &&
-               value.kind == MemmyEval_ValueKind_Const && value.constant == 42;
+               Memmy_Type_Eq(value.type, Memmy_Type_I64) && value.signed_integer == 42;
     }
     if (tutorial->step == MemmyCli_TutorialStep_Variables)
     {
@@ -400,20 +400,17 @@ static B32 MemmyCli_Tutorial_Statement_Succeeds(Arena *arena, MemmyCli_Tutorial 
     if (tutorial->step == MemmyCli_TutorialStep_TypedRead)
     {
         return statement->expr != 0 && statement->expr->kind == MemmyAst_NodeKind_TypedRead &&
-               tutorial->captured_value && value.kind == MemmyEval_ValueKind_TypedValue &&
-               value.address == MemmyCli_Tutorial_ValueAddress(tutorial) &&
-               Memmy_Type_Eq(value.typed_value.type, Memmy_Type_U32) && value.typed_value.bytes.len == 4 &&
-               value.typed_value.bytes.data[0] == 0x78 && value.typed_value.bytes.data[1] == 0x56 &&
-               value.typed_value.bytes.data[2] == 0x34 && value.typed_value.bytes.data[3] == 0x12;
+               tutorial->captured_value && Memmy_Type_Eq(value.type, Memmy_Type_U32) &&
+               value.unsigned_integer == 0x12345678;
     }
     if (tutorial->step == MemmyCli_TutorialStep_PatternScan)
     {
         MemmyAst_Node const *scan = statement->assignment_value;
         if (statement->kind != MemmyAst_NodeKind_Assignment || !tutorial->captured_value ||
             !MemmyCli_Tutorial_Pattern_IsMarker(arena, scan) ||
-            !MemmyCli_Tutorial_ScanRange_IsFixture(arena, tutorial, env, scan) ||
-            value.kind != MemmyEval_ValueKind_AddressList || value.address_count != 1 ||
-            value.addresses[0] != MemmyCli_Tutorial_MarkerAddress(tutorial))
+            !MemmyCli_Tutorial_ScanRange_IsFixture(arena, tutorial, env, scan) || !Memmy_Type_IsList(value.type) ||
+            !Memmy_Type_IsAddress(*value.type.list.element_type) || value.list.count != 1 ||
+            value.list.addresses[0] != MemmyCli_Tutorial_MarkerAddress(tutorial))
         {
             return 0;
         }

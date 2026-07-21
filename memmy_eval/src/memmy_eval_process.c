@@ -60,10 +60,8 @@ Memmy_Status MemmyEval_Exec_OpenProcess(MemmyEval_Exec *exec, U32 pid, Memmy_Pro
     return Memmy_Status_Ok;
 }
 
-Memmy_Status MemmyEval_Process_Require(MemmyEval_Exec *exec, MemmyEval_Value *value, String8 context,
-                                       Memmy_Process **out, Memmy_Error *error)
+Memmy_Status MemmyEval_Process_Require(MemmyEval_Exec *exec, String8 context, Memmy_Process **out, Memmy_Error *error)
 {
-    (void)value;
     U32 pid = 0;
     if (exec != 0 && exec->env != 0 && exec->env->has_default_process)
     {
@@ -152,7 +150,7 @@ static Memmy_Status MemmyEval_Module_Resolve(MemmyEval_Exec *exec, MemmyAst_Node
     return Memmy_Status_Ok;
 }
 
-Memmy_Status MemmyEval_Target_Eval(MemmyEval_Exec *exec, MemmyAst_Node const *target, MemmyEval_Value *out,
+Memmy_Status MemmyEval_Target_Eval(MemmyEval_Exec *exec, MemmyAst_Node const *target, Memmy_Value *out,
                                    Memmy_Error *error)
 {
     if (target->target_module.len != 0)
@@ -170,7 +168,7 @@ Memmy_Status MemmyEval_Target_Eval(MemmyEval_Exec *exec, MemmyAst_Node const *ta
         {
             return status;
         }
-        *out = (MemmyEval_Value){.kind = MemmyEval_ValueKind_Range, .range = range};
+        *out = (Memmy_Value){.type = Memmy_Type_Range, .range = range};
         return Memmy_Status_Ok;
     }
 
@@ -178,7 +176,7 @@ Memmy_Status MemmyEval_Target_Eval(MemmyEval_Exec *exec, MemmyAst_Node const *ta
     return Memmy_Status_InvalidArgument;
 }
 
-Memmy_Status MemmyEval_Expr_EvalProcess(MemmyEval_Exec *exec, MemmyAst_Node const *expr, MemmyEval_Value *out,
+Memmy_Status MemmyEval_Expr_EvalProcess(MemmyEval_Exec *exec, MemmyAst_Node const *expr, Memmy_Value *out,
                                         Memmy_Error *error)
 {
     MemmyEval_Env *env = exec->env;
@@ -190,7 +188,7 @@ Memmy_Status MemmyEval_Expr_EvalProcess(MemmyEval_Exec *exec, MemmyAst_Node cons
     if (expr->kind == MemmyAst_NodeKind_ProcessRange)
     {
         Memmy_Process *process = 0;
-        Memmy_Status status = MemmyEval_Process_Require(exec, 0, String8_Lit("range"), &process, error);
+        Memmy_Status status = MemmyEval_Process_Require(exec, String8_Lit("range"), &process, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -203,12 +201,12 @@ Memmy_Status MemmyEval_Expr_EvalProcess(MemmyEval_Exec *exec, MemmyAst_Node cons
             return status;
         }
 
-        *out = (MemmyEval_Value){.kind = MemmyEval_ValueKind_Range, .range = range};
+        *out = (Memmy_Value){.type = Memmy_Type_Range, .range = range};
         return Memmy_Status_Ok;
     }
     if (expr->kind == MemmyAst_NodeKind_Function)
     {
-        MemmyEval_Value value = {0};
+        Memmy_Value value = {0};
         Memmy_Status status = MemmyEval_Expr_EvalWithContext(exec, expr->lhs, &value, error);
         if (status != Memmy_Status_Ok)
         {
@@ -222,7 +220,7 @@ Memmy_Status MemmyEval_Expr_EvalProcess(MemmyEval_Exec *exec, MemmyAst_Node cons
         }
 
         Memmy_Process *process = 0;
-        status = MemmyEval_Process_Require(exec, &value, String8_Lit("function"), &process, error);
+        status = MemmyEval_Process_Require(exec, String8_Lit("function"), &process, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -235,12 +233,12 @@ Memmy_Status MemmyEval_Expr_EvalProcess(MemmyEval_Exec *exec, MemmyAst_Node cons
             return status;
         }
 
-        *out = (MemmyEval_Value){.kind = MemmyEval_ValueKind_Range, .range = range};
+        *out = (Memmy_Value){.type = Memmy_Type_Range, .range = range};
         return Memmy_Status_Ok;
     }
     if (expr->kind == MemmyAst_NodeKind_ObjectBase)
     {
-        MemmyEval_Value value = {0};
+        Memmy_Value value = {0};
         Memmy_Status status = MemmyEval_Expr_EvalWithContext(exec, expr->lhs, &value, error);
         if (status != Memmy_Status_Ok)
         {
@@ -254,7 +252,7 @@ Memmy_Status MemmyEval_Expr_EvalProcess(MemmyEval_Exec *exec, MemmyAst_Node cons
         }
 
         Memmy_Process *process = 0;
-        status = MemmyEval_Process_Require(exec, &value, String8_Lit("objectbase"), &process, error);
+        status = MemmyEval_Process_Require(exec, String8_Lit("objectbase"), &process, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -267,7 +265,7 @@ Memmy_Status MemmyEval_Expr_EvalProcess(MemmyEval_Exec *exec, MemmyAst_Node cons
             return status;
         }
 
-        *out = (MemmyEval_Value){.kind = MemmyEval_ValueKind_Address, .address = result.address};
+        *out = (Memmy_Value){.type = Memmy_Type_Address, .address = result.address};
         return Memmy_Status_Ok;
     }
     MemmyEval_Error_Set(error, Memmy_Status_Unsupported, String8_Lit("expr"),

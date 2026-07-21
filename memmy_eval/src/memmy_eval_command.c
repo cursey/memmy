@@ -51,40 +51,12 @@ static Memmy_Status MemmyEval_RegionEmitter_Push(void *user_data, Memmy_Region c
     return MemmyEval_Result_Push(emitter->sink, &result);
 }
 
-static MemmyEval_ResultKind MemmyEval_ResultKind_ForValue(MemmyEval_Value value)
-{
-    if (value.kind == MemmyEval_ValueKind_TypedValue && value.old_typed_value.bytes.data != 0)
-    {
-        return MemmyEval_ResultKind_Write;
-    }
-    if (value.kind == MemmyEval_ValueKind_TypedValue)
-    {
-        return MemmyEval_ResultKind_Read;
-    }
-    if (value.kind == MemmyEval_ValueKind_AddressList)
-    {
-        return MemmyEval_ResultKind_AddressList;
-    }
-    return MemmyEval_ResultKind_Value;
-}
-
-Memmy_Status MemmyEval_ValueResult_Emit(MemmyEval_ResultSink const *sink, MemmyEval_Value value)
+Memmy_Status MemmyEval_ValueResult_Emit(MemmyEval_ResultSink const *sink, Memmy_Value value)
 {
     MemmyEval_Result result = {
-        .kind = MemmyEval_ResultKind_ForValue(value),
+        .kind = MemmyEval_ResultKind_Value,
         .value = value,
     };
-    if (result.kind == MemmyEval_ResultKind_Write)
-    {
-        result.address = value.address;
-        result.old_value = value.old_typed_value;
-        result.new_value = value.typed_value;
-    }
-    else if (result.kind == MemmyEval_ResultKind_Read)
-    {
-        result.address = value.address;
-        result.new_value = value.typed_value;
-    }
     return MemmyEval_Result_Push(sink, &result);
 }
 
@@ -107,7 +79,7 @@ Memmy_Status MemmyEval_Command_Eval(MemmyEval_Exec *exec, MemmyAst_Statement con
     if (statement->command_kind == MemmyAst_CommandKind_Mods)
     {
         Memmy_Process *process = 0;
-        Memmy_Status status = MemmyEval_Process_Require(exec, 0, String8_Lit("mods"), &process, error);
+        Memmy_Status status = MemmyEval_Process_Require(exec, String8_Lit("mods"), &process, error);
         if (status != Memmy_Status_Ok)
         {
             return status;
@@ -126,7 +98,7 @@ Memmy_Status MemmyEval_Command_Eval(MemmyEval_Exec *exec, MemmyAst_Statement con
     if (statement->command_kind == MemmyAst_CommandKind_Regions)
     {
         Memmy_Process *process = 0;
-        Memmy_Status status = MemmyEval_Process_Require(exec, 0, String8_Lit("regions"), &process, error);
+        Memmy_Status status = MemmyEval_Process_Require(exec, String8_Lit("regions"), &process, error);
         if (status != Memmy_Status_Ok)
         {
             return status;

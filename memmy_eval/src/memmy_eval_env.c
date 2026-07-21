@@ -16,28 +16,6 @@ static MemmyEval_Binding *MemmyEval_Env_FindBinding(MemmyEval_Env const *env, St
     return link != 0 ? ContainerOf(link, MemmyEval_Binding, hash) : 0;
 }
 
-static MemmyEval_Value MemmyEval_Value_Copy(Arena *arena, MemmyEval_Value value)
-{
-    if (value.kind == MemmyEval_ValueKind_TypedValue)
-    {
-        value.typed_value.bytes = String8_Copy(arena, value.typed_value.bytes);
-        value.old_typed_value.bytes = String8_Copy(arena, value.old_typed_value.bytes);
-    }
-    if (value.kind == MemmyEval_ValueKind_AddressList && value.address_count != 0)
-    {
-        Memmy_Addr *addresses = Arena_PushArrayNoZero(arena, Memmy_Addr, value.address_count);
-        Memory_Copy(addresses, value.addresses, sizeof(addresses[0]) * value.address_count);
-        value.addresses = addresses;
-    }
-    if (value.kind == MemmyEval_ValueKind_RangeList && value.range_count != 0)
-    {
-        Memmy_Range *ranges = Arena_PushArrayNoZero(arena, Memmy_Range, value.range_count);
-        Memory_Copy(ranges, value.ranges, sizeof(ranges[0]) * value.range_count);
-        value.ranges = ranges;
-    }
-    return value;
-}
-
 MemmyEval_Env *MemmyEval_Env_Create(Arena *arena)
 {
     if (arena == 0)
@@ -96,7 +74,7 @@ B32 MemmyEval_Env_GetDefaultProcess(MemmyEval_Env const *env, U32 *out_pid, Memm
     return 1;
 }
 
-Memmy_Status MemmyEval_Env_Set(MemmyEval_Env *env, String8 name, MemmyEval_Value value)
+Memmy_Status MemmyEval_Env_Set(MemmyEval_Env *env, String8 name, Memmy_Value value)
 {
     if (env == 0 || name.len == 0)
     {
@@ -111,15 +89,14 @@ Memmy_Status MemmyEval_Env_Set(MemmyEval_Env *env, String8 name, MemmyEval_Value
         binding->hash.hash = Hash_Fnv1a(binding->name.data, binding->name.len);
         HashMap_Insert(&env->bindings, &binding->hash);
     }
-    binding->value = MemmyEval_Value_Copy(env->arena, value);
-    return Memmy_Status_Ok;
+    return Memmy_Value_Copy(env->arena, &value, &binding->value, 0);
 }
 
-Memmy_Status MemmyEval_Env_Find(Arena *out_arena, MemmyEval_Env const *env, String8 name, MemmyEval_Value *out)
+Memmy_Status MemmyEval_Env_Find(Arena *out_arena, MemmyEval_Env const *env, String8 name, Memmy_Value *out)
 {
     if (out != 0)
     {
-        *out = (MemmyEval_Value){0};
+        *out = (Memmy_Value){0};
     }
     if (out_arena == 0 || env == 0 || out == 0)
     {
@@ -132,8 +109,7 @@ Memmy_Status MemmyEval_Env_Find(Arena *out_arena, MemmyEval_Env const *env, Stri
         return Memmy_Status_NotFound;
     }
 
-    *out = MemmyEval_Value_Copy(out_arena, binding->value);
-    return Memmy_Status_Ok;
+    return Memmy_Value_Copy(out_arena, &binding->value, out, 0);
 }
 
 Memmy_Status MemmyEval_Env_Unset(MemmyEval_Env *env, String8 name)

@@ -147,35 +147,28 @@ static String8 MemmyCli_Dsl_Help(Arena *arena)
                                            "  /quit\n"));
 }
 
-static String8 MemmyCli_EvalValue_KindString(MemmyEval_Value value)
+static String8 MemmyCli_ValueType_Format(Arena *arena, Memmy_Type type)
 {
-    if (value.kind == MemmyEval_ValueKind_Const)
+    if (Memmy_Type_IsNull(type))
     {
-        return String8_Lit("const");
+        return String8_Lit("null");
     }
-    if (value.kind == MemmyEval_ValueKind_Address)
+    if (Memmy_Type_IsAddress(type))
     {
         return String8_Lit("address");
     }
-    if (value.kind == MemmyEval_ValueKind_Range)
+    if (Memmy_Type_IsRange(type))
     {
         return String8_Lit("range");
     }
-    if (value.kind == MemmyEval_ValueKind_AddressList)
+    if (Memmy_Type_IsInteger(type) || Memmy_Type_IsFloat(type) || Memmy_Type_IsString(type))
     {
-        return String8_Lit("address_list");
+        return MemmyCli_Type_String(type);
     }
-    if (value.kind == MemmyEval_ValueKind_RangeList)
+    if (Memmy_Type_IsList(type))
     {
-        return String8_Lit("range_list");
-    }
-    if (value.kind == MemmyEval_ValueKind_TypedValue)
-    {
-        return String8_Lit("typed_value");
-    }
-    if (value.kind == MemmyEval_ValueKind_Nil)
-    {
-        return String8_Lit("nil");
+        String8 element = MemmyCli_ValueType_Format(arena, *type.list.element_type);
+        return String8_PushF(arena, "list<%.*s>", (int)element.len, (char *)element.data);
     }
     return String8_Lit("unknown");
 }
@@ -452,121 +445,178 @@ static Memmy_Status MemmyCli_EvalResultWriter_WriteRegion(MemmyCli_EvalResultWri
     return MemmyCli_EvalResultWriter_Write(result_writer, line);
 }
 
-static Memmy_Status MemmyCli_EvalResultWriter_WriteValue(MemmyCli_EvalResultWriter *result_writer,
-                                                         MemmyEval_Value value)
+static Memmy_Value MemmyCli_ListItem(Memmy_Value list, U64 index)
 {
-    Arena *arena = result_writer->arena;
-    Memmy_PointerWidth pointer_width = MemmyCli_EvalResultWriter_PointerWidth(result_writer);
-    if (value.kind == MemmyEval_ValueKind_Nil)
+    Memmy_Type type = *list.type.list.element_type;
+    Memmy_Value item = {.type = type};
+    if (type.kind == Memmy_TypeKind_Integer)
     {
-        String8 line = result_writer->jsonl ? String8_Lit("{\"type\":\"value\",\"kind\":\"nil\",\"value\":null}\n")
-                                            : String8_Lit("nil\n");
-        return MemmyCli_EvalResultWriter_Write(result_writer, line);
+        if (type.integer.is_signed)
+        {
+            item.signed_integer = list.list.signed_integers[index];
+        }
+        else
+        {
+            item.unsigned_integer = list.list.unsigned_integers[index];
+        }
     }
-    if (value.kind == MemmyEval_ValueKind_Const)
+    else if (type.kind == Memmy_TypeKind_Float)
     {
-        String8 line = result_writer->jsonl
-                           ? String8_PushF(arena,
-                                           "{\"type\":\"value\",\"kind\":\"const\",\"value_kind\":\"const\","
-                                           "\"value\":%lld}\n",
-                                           (long long)value.constant)
-                           : String8_PushF(arena, "%lld\n", (long long)value.constant);
-        return MemmyCli_EvalResultWriter_Write(result_writer, line);
+        item.floating_bits =
+            type.floating.bit_count == 32 ? list.list.floating32_bits[index] : list.list.floating64_bits[index];
     }
-    if (value.kind == MemmyEval_ValueKind_Address)
+    else if (type.kind == Memmy_TypeKind_Address)
+    {
+        item.address = list.list.addresses[index];
+    }
+    else if (type.kind == Memmy_TypeKind_Range)
+    {
+        item.range = list.list.ranges[index];
+    }
+    else if (type.kind == Memmy_TypeKind_String)
+    {
+        item.string = list.list.strings[index];
+    }
+    return item;
+}
+
+static String8 MemmyCli_ValueJson_Format(Arena *arena, Memmy_PointerWidth pointer_width, Memmy_Value value)
+{
+    if (Memmy_Type_IsNull(value.type))
+    {
+        return String8_Lit("null");
+    }
+    if (Memmy_Type_IsInteger(value.type))
+    {
+        return value.type.integer.is_signed ? String8_PushF(arena, "%lld", (long long)value.signed_integer)
+                                            : String8_PushF(arena, "%llu", (unsigned long long)value.unsigned_integer);
+    }
+    if (Memmy_Type_IsFloat(value.type))
+    {
+        F64 number = 0;
+        if (value.type.floating.bit_count == 32)
+        {
+            U32 bits = (U32)value.floating_bits;
+            F32 f32 = 0;
+            Memory_Copy(&f32, &bits, sizeof(f32));
+            number = f32;
+        }
+        else
+        {
+            Memory_Copy(&number, &value.floating_bits, sizeof(number));
+        }
+        return F64_IsFinite(number) ? String8_PushF(arena, "%.17g", number) : String8_Lit("null");
+    }
+    if (Memmy_Type_IsAddress(value.type))
     {
         String8 address = MemmyCli_Address_Format(arena, pointer_width, value.address);
-        String8 line = result_writer->jsonl ? String8_PushF(arena, "{\"type\":\"address\",\"address\":\"%.*s\"}\n",
-                                                            (int)address.len, (char *)address.data)
-                                            : String8_PushF(arena, "%.*s\n", (int)address.len, (char *)address.data);
-        return MemmyCli_EvalResultWriter_Write(result_writer, line);
+        return String8_PushF(arena, "\"%.*s\"", (int)address.len, (char *)address.data);
     }
-    if (value.kind == MemmyEval_ValueKind_Range)
+    if (Memmy_Type_IsRange(value.type))
     {
         String8 start = MemmyCli_Address_Format(arena, pointer_width, value.range.start);
         String8 end = MemmyCli_Address_Format(arena, pointer_width, value.range.end);
-        String8 line = result_writer->jsonl
-                           ? String8_PushF(arena, "{\"type\":\"range\",\"start\":\"%.*s\",\"end\":\"%.*s\"}\n",
-                                           (int)start.len, (char *)start.data, (int)end.len, (char *)end.data)
-                           : String8_PushF(arena, "[%.*s..%.*s)\n", (int)start.len, (char *)start.data, (int)end.len,
-                                           (char *)end.data);
-        return MemmyCli_EvalResultWriter_Write(result_writer, line);
+        return String8_PushF(arena, "{\"start\":\"%.*s\",\"end\":\"%.*s\"}", (int)start.len, (char *)start.data,
+                             (int)end.len, (char *)end.data);
     }
-    if (value.kind == MemmyEval_ValueKind_RangeList)
+    if (Memmy_Type_IsString(value.type))
     {
-        if (result_writer->jsonl)
-        {
-            for (U64 i = 0; i < value.range_count; i++)
-            {
-                String8 start = MemmyCli_Address_Format(arena, pointer_width, value.ranges[i].start);
-                String8 end = MemmyCli_Address_Format(arena, pointer_width, value.ranges[i].end);
-                Memmy_Status status = MemmyCli_EvalResultWriter_Write(
-                    result_writer, String8_PushF(arena,
-                                                 "{\"type\":\"range\",\"start\":\"%.*s\","
-                                                 "\"end\":\"%.*s\"}\n",
-                                                 (int)start.len, (char *)start.data, (int)end.len, (char *)end.data));
-                if (status != Memmy_Status_Ok)
-                {
-                    return status;
-                }
-            }
-            return MemmyCli_EvalResultWriter_Write(result_writer,
-                                                   String8_PushF(arena, "{\"type\":\"summary\",\"ranges\":%llu}\n",
-                                                                 (unsigned long long)value.range_count));
-        }
+        return MemmyCli_JsonString_Format(arena, value.string);
+    }
+    return String8_Lit("null");
+}
 
-        Memmy_Status status = MemmyCli_EvalResultWriter_Write(result_writer, String8_Lit("START              END\n"));
-        if (status != Memmy_Status_Ok)
+static String8 MemmyCli_ValueText_Format(Arena *arena, Memmy_PointerWidth pointer_width, Memmy_Value value)
+{
+    if (Memmy_Type_IsNull(value.type))
+    {
+        return String8_Lit("nil");
+    }
+    if (Memmy_Type_IsInteger(value.type))
+    {
+        return value.type.integer.is_signed ? String8_PushF(arena, "%lld", (long long)value.signed_integer)
+                                            : String8_PushF(arena, "%llu", (unsigned long long)value.unsigned_integer);
+    }
+    if (Memmy_Type_IsFloat(value.type))
+    {
+        F64 number = 0;
+        if (value.type.floating.bit_count == 32)
         {
-            return status;
+            U32 bits = (U32)value.floating_bits;
+            F32 f32 = 0;
+            Memory_Copy(&f32, &bits, sizeof(f32));
+            number = f32;
         }
-        for (U64 i = 0; i < value.range_count; i++)
+        else
         {
-            String8 start = MemmyCli_Address_Format(arena, pointer_width, value.ranges[i].start);
-            String8 end = MemmyCli_Address_Format(arena, pointer_width, value.ranges[i].end);
-            status = MemmyCli_EvalResultWriter_Write(result_writer,
-                                                     String8_PushF(arena, "%.*s %.*s\n", (int)start.len,
-                                                                   (char *)start.data, (int)end.len, (char *)end.data));
+            Memory_Copy(&number, &value.floating_bits, sizeof(number));
+        }
+        return String8_PushF(arena, "%.17g", number);
+    }
+    if (Memmy_Type_IsAddress(value.type))
+    {
+        return MemmyCli_Address_Format(arena, pointer_width, value.address);
+    }
+    if (Memmy_Type_IsRange(value.type))
+    {
+        String8 start = MemmyCli_Address_Format(arena, pointer_width, value.range.start);
+        String8 end = MemmyCli_Address_Format(arena, pointer_width, value.range.end);
+        return String8_PushF(arena, "[%.*s..%.*s)", (int)start.len, (char *)start.data, (int)end.len, (char *)end.data);
+    }
+    if (Memmy_Type_IsString(value.type))
+    {
+        return MemmyCli_JsonString_Format(arena, value.string);
+    }
+    return String8_Lit("?");
+}
+
+static Memmy_Status MemmyCli_EvalResultWriter_WriteValue(MemmyCli_EvalResultWriter *result_writer, Memmy_Value value)
+{
+    Arena *arena = result_writer->arena;
+    Memmy_PointerWidth pointer_width = MemmyCli_EvalResultWriter_PointerWidth(result_writer);
+    String8 type = MemmyCli_ValueType_Format(arena, value.type);
+    if (Memmy_Type_IsList(value.type))
+    {
+        String8 element_type = MemmyCli_ValueType_Format(arena, *value.type.list.element_type);
+        for (U64 i = 0; i < value.list.count; i++)
+        {
+            Memmy_Value item = MemmyCli_ListItem(value, i);
+            String8 item_text = result_writer->jsonl ? MemmyCli_ValueJson_Format(arena, pointer_width, item)
+                                                     : MemmyCli_ValueText_Format(arena, pointer_width, item);
+            String8 line =
+                result_writer->jsonl
+                    ? String8_PushF(arena,
+                                    "{\"type\":\"list_item\",\"value_type\":\"%.*s\","
+                                    "\"index\":%llu,\"value\":%.*s}\n",
+                                    (int)element_type.len, (char *)element_type.data, (unsigned long long)i,
+                                    (int)item_text.len, (char *)item_text.data)
+                    : String8_PushF(arena, "[%llu] %.*s %.*s\n", (unsigned long long)i, (int)element_type.len,
+                                    (char *)element_type.data, (int)item_text.len, (char *)item_text.data);
+            Memmy_Status status = MemmyCli_EvalResultWriter_Write(result_writer, line);
             if (status != Memmy_Status_Ok)
             {
                 return status;
             }
         }
-        return Memmy_Status_Ok;
+        String8 summary = result_writer->jsonl
+                              ? String8_PushF(arena, "{\"type\":\"summary\",\"value_type\":\"%.*s\",\"count\":%llu}\n",
+                                              (int)type.len, (char *)type.data, (unsigned long long)value.list.count)
+                              : String8_PushF(arena, "%.*s count %llu\n", (int)type.len, (char *)type.data,
+                                              (unsigned long long)value.list.count);
+        return MemmyCli_EvalResultWriter_Write(result_writer, summary);
     }
-    return Memmy_Status_Ok;
-}
-
-static Memmy_Status MemmyCli_EvalResultWriter_WriteAddressList(MemmyCli_EvalResultWriter *result_writer,
-                                                               MemmyEval_Value value)
-{
-    Memmy_Status status =
-        MemmyCli_ScanOutput_Begin(&result_writer->scan_output, result_writer->arena, result_writer->writer,
-                                  MemmyCli_EvalResultWriter_PointerWidth(result_writer), result_writer->jsonl);
-    if (status != Memmy_Status_Ok)
-    {
-        result_writer->status = status;
-        return status;
-    }
-    for (U64 i = 0; i < value.address_count; i++)
-    {
-        status = MemmyCli_ScanOutput_PushMatch(&result_writer->scan_output, value.addresses[i]);
-        if (status != Memmy_Status_Ok)
-        {
-            result_writer->status = status;
-            return status;
-        }
-    }
-    status = MemmyCli_ScanOutput_End(&result_writer->scan_output);
-    if (status != Memmy_Status_Ok)
-    {
-        result_writer->status = status;
-    }
-    return status;
+    String8 formatted = result_writer->jsonl ? MemmyCli_ValueJson_Format(arena, pointer_width, value)
+                                             : MemmyCli_ValueText_Format(arena, pointer_width, value);
+    String8 line = result_writer->jsonl
+                       ? String8_PushF(arena, "{\"type\":\"value\",\"value_type\":\"%.*s\",\"value\":%.*s}\n",
+                                       (int)type.len, (char *)type.data, (int)formatted.len, (char *)formatted.data)
+                       : String8_PushF(arena, "%.*s %.*s\n", (int)type.len, (char *)type.data, (int)formatted.len,
+                                       (char *)formatted.data);
+    return MemmyCli_EvalResultWriter_Write(result_writer, line);
 }
 
 static Memmy_Status MemmyCli_EvalResultWriter_WriteAssignment(MemmyCli_EvalResultWriter *result_writer,
-                                                              MemmyEval_Value value)
+                                                              Memmy_Value value)
 {
     if (!result_writer->jsonl)
     {
@@ -575,9 +625,9 @@ static Memmy_Status MemmyCli_EvalResultWriter_WriteAssignment(MemmyCli_EvalResul
 
     Arena *arena = result_writer->arena;
     String8 name = MemmyCli_JsonString_Format(arena, result_writer->assignment_name);
-    String8 kind = MemmyCli_EvalValue_KindString(value);
-    String8 line = String8_PushF(arena, "{\"type\":\"assignment\",\"name\":%.*s,\"kind\":\"%.*s\"}\n", (int)name.len,
-                                 (char *)name.data, (int)kind.len, (char *)kind.data);
+    String8 type = MemmyCli_ValueType_Format(arena, value.type);
+    String8 line = String8_PushF(arena, "{\"type\":\"assignment\",\"name\":%.*s,\"value_type\":\"%.*s\"}\n",
+                                 (int)name.len, (char *)name.data, (int)type.len, (char *)type.data);
     return MemmyCli_EvalResultWriter_Write(result_writer, line);
 }
 
@@ -598,9 +648,7 @@ static Memmy_Status MemmyCli_EvalResultWriter_Push(void *user_data, MemmyEval_Re
     }
 
     Arena *arena = result_writer->arena;
-    if (result_writer->suppress_value_result &&
-        (result->kind == MemmyEval_ResultKind_Value || result->kind == MemmyEval_ResultKind_Read ||
-         result->kind == MemmyEval_ResultKind_Write || result->kind == MemmyEval_ResultKind_AddressList))
+    if (result_writer->suppress_value_result && result->kind == MemmyEval_ResultKind_Value)
     {
         result_writer->status = MemmyCli_EvalResultWriter_WriteAssignment(result_writer, result->value);
         return result_writer->status;
@@ -610,45 +658,6 @@ static Memmy_Status MemmyCli_EvalResultWriter_Push(void *user_data, MemmyEval_Re
     if (value.kind == MemmyEval_ResultKind_Value)
     {
         result_writer->status = MemmyCli_EvalResultWriter_WriteValue(result_writer, value.value);
-    }
-    else if (value.kind == MemmyEval_ResultKind_Read)
-    {
-        MemmyCli_PeekOutput peek = {
-            .pointer_width = MemmyCli_EvalResultWriter_PointerWidth(result_writer),
-            .address = value.address,
-            .type = value.new_value.type,
-            .type_text = MemmyCli_Type_String(value.new_value.type),
-            .bytes = value.new_value.bytes,
-        };
-        String8 output = {0};
-        result_writer->status = MemmyCli_PeekOutput_Format(arena, &peek, result_writer->jsonl, &output, 0);
-        if (result_writer->status == Memmy_Status_Ok)
-        {
-            result_writer->status = MemmyCli_EvalResultWriter_Write(result_writer, output);
-        }
-    }
-    else if (value.kind == MemmyEval_ResultKind_Write)
-    {
-        MemmyCli_PokeOutput poke = {
-            .pid = MemmyCli_EvalResultWriter_Pid(result_writer),
-            .pointer_width = MemmyCli_EvalResultWriter_PointerWidth(result_writer),
-            .address = value.address,
-            .type = value.new_value.type,
-            .type_text = MemmyCli_Type_String(value.new_value.type),
-            .old_bytes = value.old_value.bytes,
-            .new_bytes = value.new_value.bytes,
-            .dry_run = 0,
-        };
-        String8 output = {0};
-        result_writer->status = MemmyCli_PokeOutput_Format(arena, &poke, result_writer->jsonl, &output, 0);
-        if (result_writer->status == Memmy_Status_Ok)
-        {
-            result_writer->status = MemmyCli_EvalResultWriter_Write(result_writer, output);
-        }
-    }
-    else if (value.kind == MemmyEval_ResultKind_AddressList)
-    {
-        result_writer->status = MemmyCli_EvalResultWriter_WriteAddressList(result_writer, value.value);
     }
     else if (value.kind == MemmyEval_ResultKind_Process)
     {
@@ -664,18 +673,18 @@ static Memmy_Status MemmyCli_EvalResultWriter_Push(void *user_data, MemmyEval_Re
     }
     else if (value.kind == MemmyEval_ResultKind_Variable)
     {
-        String8 kind = MemmyCli_EvalValue_KindString(value.variable.value);
+        String8 type = MemmyCli_ValueType_Format(arena, value.variable.value.type);
         String8 line = {0};
         if (result_writer->jsonl)
         {
             String8 name = MemmyCli_JsonString_Format(arena, value.variable.name);
-            line = String8_PushF(arena, "{\"type\":\"variable\",\"name\":%.*s,\"kind\":\"%.*s\"}\n", (int)name.len,
-                                 (char *)name.data, (int)kind.len, (char *)kind.data);
+            line = String8_PushF(arena, "{\"type\":\"variable\",\"name\":%.*s,\"value_type\":\"%.*s\"}\n",
+                                 (int)name.len, (char *)name.data, (int)type.len, (char *)type.data);
         }
         else
         {
             line = String8_PushF(arena, "%.*s %.*s\n", (int)value.variable.name.len, (char *)value.variable.name.data,
-                                 (int)kind.len, (char *)kind.data);
+                                 (int)type.len, (char *)type.data);
         }
         result_writer->status = MemmyCli_EvalResultWriter_Write(result_writer, line);
     }

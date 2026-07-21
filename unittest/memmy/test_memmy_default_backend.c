@@ -227,27 +227,23 @@ Test(Test_MemmyDefaultBackendCliSelfProcessSmoke)
     U8 pattern_bytes[] = {0xde, 0xad, 0xbe, 0xef};
     memcpy(scan_fixture + 4, pattern_bytes, sizeof(pattern_bytes));
 
-    volatile U32 poke_value = 0x11223344;
+    volatile U32 read_value = 0x11223344;
     char *pid_text = String8_ToCStr(arena, String8_PushF(arena, "%u", Os_GetProcessId()));
-    U64 poke_addr = (U64)(uintptr_t)&poke_value;
+    U64 read_addr = (U64)(uintptr_t)&read_value;
     U64 scan_start = (U64)(uintptr_t)scan_fixture;
     U64 function_addr = (U64)(uintptr_t)&Test_MemmyDefaultBackendFunctionLookupFixture;
 
     String8 out = {0};
-    char *peek_expr = String8_ToCStr(arena, String8_PushF(arena, "@0x%llx as u32", poke_addr));
-    char *poke_expr = String8_ToCStr(arena, String8_PushF(arena, "@0x%llx as u32 = 0x55667788", poke_addr));
+    char *peek_expr = String8_ToCStr(arena, String8_PushF(arena, "@0x%llx as u32", read_addr));
     char *pscan_expr = String8_ToCStr(arena, String8_PushF(arena, "[@0x%llx..+0x10]{de ad be ef}", scan_start));
     char *scan_expr = String8_ToCStr(arena, String8_PushF(arena, "[@0x%llx..+0x10] as u32 == 0xefbeadde", scan_start));
     char *function_expr = String8_ToCStr(arena, String8_PushF(arena, "function @0x%llx", function_addr));
     char *peek_argv[] = {"memmy", "--pid", pid_text, "--expr", peek_expr};
-    char *poke_argv[] = {"memmy", "--pid", pid_text, "--expr", poke_expr};
     char *pscan_argv[] = {"memmy", "--pid", pid_text, "--expr", pscan_expr};
     char *scan_argv[] = {"memmy", "--pid", pid_text, "--expr", scan_expr};
     char *function_argv[] = {"memmy", "--pid", pid_text, "--expr", function_expr};
 
     AssertEq(MemmyCli_Argv_RunToString(arena, (I32)ArrayCount(peek_argv), peek_argv, &out, &error), Memmy_Status_Ok);
-    AssertEq(MemmyCli_Argv_RunToString(arena, (I32)ArrayCount(poke_argv), poke_argv, &out, &error), Memmy_Status_Ok);
-    AssertEq(poke_value, 0x55667788);
     AssertEq(MemmyCli_Argv_RunToString(arena, (I32)ArrayCount(pscan_argv), pscan_argv, &out, &error), Memmy_Status_Ok);
     AssertEq(MemmyCli_Argv_RunToString(arena, (I32)ArrayCount(scan_argv), scan_argv, &out, &error), Memmy_Status_Ok);
 #if OS_MACOS

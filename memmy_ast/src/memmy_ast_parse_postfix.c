@@ -111,17 +111,7 @@ static MemmyAst_Status MemmyAst_Parser_ParseTypedMemory(MemmyAst_Parser *parser,
     MemmyAst_NodeKind kind = MemmyAst_NodeKind_TypedRead;
     MemmyAst_Token op = as;
     String8 value_text = {0};
-    if (parser->token.kind == MemmyAst_TokenKind_Equal)
-    {
-        kind = MemmyAst_NodeKind_TypedWrite;
-        op = parser->token;
-        status = MemmyAst_Parser_Next(parser);
-        if (status == MemmyAst_Status_Ok)
-        {
-            status = MemmyAst_Parser_CaptureValueText(parser, &value_text);
-        }
-    }
-    else if (parser->token.kind == MemmyAst_TokenKind_EqualEqual)
+    if (parser->token.kind == MemmyAst_TokenKind_EqualEqual)
     {
         kind = MemmyAst_NodeKind_ValueScan;
         op = parser->token;

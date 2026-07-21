@@ -38,8 +38,8 @@ Test(Test_MemmyCliDisasmX64FormatsModuleRangeScan)
                     "<client.dll> disasm x64 { mov reg, [rip+disp32]; xor rax, rax }"};
 
     AssertEq(MemmyCli_Argv_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
-    AssertStrEq(out, String8_Lit("ADDRESS\n"
-                                 "0x0000000000001010\n"));
+    AssertStrEq(out, String8_Lit("[0] address 0x0000000000001010\n"
+                                 "list<address> count 1\n"));
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -67,9 +67,9 @@ Test(Test_MemmyCliDisasmX64FormatsWholeProcessScan)
                     "[0..] disasm x64 { mov reg, [rip+disp32]; xor rax, rax }"};
 
     AssertEq(MemmyCli_Argv_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
-    AssertStrEq(out, String8_Lit("ADDRESS\n"
-                                 "0x0000000000001010\n"
-                                 "0x0000000000001040\n"));
+    AssertStrEq(out, String8_Lit("[0] address 0x0000000000001010\n"
+                                 "[1] address 0x0000000000001040\n"
+                                 "list<address> count 2\n"));
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);

@@ -27,7 +27,6 @@ enum
     MemmyAst_NodeKind_ProcessRange,
     MemmyAst_NodeKind_Deref,
     MemmyAst_NodeKind_TypedRead,
-    MemmyAst_NodeKind_TypedWrite,
     MemmyAst_NodeKind_PatternScan,
     MemmyAst_NodeKind_ValueScan,
     MemmyAst_NodeKind_Index,

@@ -4,43 +4,13 @@
 #include "memmy.h"
 #include "memmy_ast.h"
 
-typedef U32 MemmyEval_ValueKind;
-enum
-{
-    MemmyEval_ValueKind_Nil,
-    MemmyEval_ValueKind_Const,
-    MemmyEval_ValueKind_Address,
-    MemmyEval_ValueKind_Range,
-    MemmyEval_ValueKind_AddressList,
-    MemmyEval_ValueKind_RangeList,
-    MemmyEval_ValueKind_TypedValue,
-};
-
 typedef struct MemmyEval_Env MemmyEval_Env;
-
-typedef struct MemmyEval_Value MemmyEval_Value;
-struct MemmyEval_Value
-{
-    MemmyEval_ValueKind kind;
-    I64 constant;
-    Memmy_Addr address;
-    Memmy_Range range;
-    Memmy_Addr *addresses;
-    U64 address_count;
-    Memmy_Range *ranges;
-    U64 range_count;
-    Memmy_EncodedValue typed_value;
-    Memmy_EncodedValue old_typed_value;
-};
 
 typedef U32 MemmyEval_ResultKind;
 enum
 {
     MemmyEval_ResultKind_Null,
     MemmyEval_ResultKind_Value,
-    MemmyEval_ResultKind_Read,
-    MemmyEval_ResultKind_Write,
-    MemmyEval_ResultKind_AddressList,
     MemmyEval_ResultKind_Process,
     MemmyEval_ResultKind_Module,
     MemmyEval_ResultKind_Region,
@@ -55,17 +25,14 @@ typedef struct MemmyEval_VariableResult MemmyEval_VariableResult;
 struct MemmyEval_VariableResult
 {
     String8 name;
-    MemmyEval_Value value;
+    Memmy_Value value;
 };
 
 typedef struct MemmyEval_Result MemmyEval_Result;
 struct MemmyEval_Result
 {
     MemmyEval_ResultKind kind;
-    MemmyEval_Value value;
-    Memmy_Addr address;
-    Memmy_EncodedValue old_value;
-    Memmy_EncodedValue new_value;
+    Memmy_Value value;
     Memmy_ProcessInfo process;
     Memmy_Module module;
     Memmy_Region region;
@@ -91,11 +58,11 @@ B32 MemmyEval_Env_GetDefaultProcess(MemmyEval_Env const *env, U32 *out_pid, Memm
 // Sink result pointers and enumeration metadata are valid only for the callback duration.
 Memmy_Status MemmyEval_Statement_Eval(Arena *out_arena, MemmyEval_Env *env, MemmyAst_Statement const *statement,
                                       MemmyEval_ResultSink const *sink, Memmy_Error *error);
-Memmy_Status MemmyEval_Expr_Eval(Arena *out_arena, MemmyEval_Env *env, MemmyAst_Node const *expr, MemmyEval_Value *out,
+Memmy_Status MemmyEval_Expr_Eval(Arena *out_arena, MemmyEval_Env *env, MemmyAst_Node const *expr, Memmy_Value *out,
                                  Memmy_Error *error);
-Memmy_Status MemmyEval_Env_Set(MemmyEval_Env *env, String8 name, MemmyEval_Value value);
+Memmy_Status MemmyEval_Env_Set(MemmyEval_Env *env, String8 name, Memmy_Value value);
 // Find deep-copies the binding value into out_arena and clears out on failure.
-Memmy_Status MemmyEval_Env_Find(Arena *out_arena, MemmyEval_Env const *env, String8 name, MemmyEval_Value *out);
+Memmy_Status MemmyEval_Env_Find(Arena *out_arena, MemmyEval_Env const *env, String8 name, Memmy_Value *out);
 Memmy_Status MemmyEval_Env_Unset(MemmyEval_Env *env, String8 name);
 void MemmyEval_Env_Clear(MemmyEval_Env *env);
 

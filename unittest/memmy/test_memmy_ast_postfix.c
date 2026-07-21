@@ -41,30 +41,13 @@ Test(Test_MemmyAstParsesPocketReferenceReads)
     Arena_Destroy(arena);
 }
 
-Test(Test_MemmyAstParsesPocketReferenceWrites)
+Test(Test_MemmyAstRejectsPocketReferenceWrites)
 {
     Arena *arena = Arena_CreateDefault();
 
-    MemmyAst_Node *absolute_write = 0;
-    Test_ParseAstExpr(arena, "@0x1234 as u32 = 0x42", &absolute_write);
-    AssertEq(absolute_write->kind, MemmyAst_NodeKind_TypedWrite);
-    AssertEq(absolute_write->lhs->kind, MemmyAst_NodeKind_Address);
-    AssertStrEq(absolute_write->type_name, String8_Lit("u32"));
-    AssertStrEq(absolute_write->value_text, String8_Lit("0x42"));
-
-    MemmyAst_Node *string_write = 0;
-    Test_ParseAstExpr(arena, "<client.dll>+0x1234-> as wstr = \"hello, world\"", &string_write);
-    AssertEq(string_write->kind, MemmyAst_NodeKind_TypedWrite);
-    AssertEq(string_write->lhs->kind, MemmyAst_NodeKind_Deref);
-    AssertStrEq(string_write->type_name, String8_Lit("wstr"));
-    AssertStrEq(string_write->value_text, String8_Lit("\"hello, world\""));
-
-    MemmyAst_Node *float_write = 0;
-    Test_ParseAstExpr(arena, "$player->$hp_offset as f32 = 100.0", &float_write);
-    AssertEq(float_write->kind, MemmyAst_NodeKind_TypedWrite);
-    AssertEq(float_write->lhs->kind, MemmyAst_NodeKind_Deref);
-    AssertStrEq(float_write->type_name, String8_Lit("f32"));
-    AssertStrEq(float_write->value_text, String8_Lit("100.0"));
+    Test_RejectAstExpr("@0x1234 as u32 = 0x42");
+    Test_RejectAstExpr("<client.dll>+0x1234-> as wstr = \"hello, world\"");
+    Test_RejectAstExpr("$player->$hp_offset as f32 = 100.0");
 
     Arena_Destroy(arena);
 }
@@ -334,7 +317,7 @@ Test(Test_MemmyAstRejectsInvalidValuePipes)
 
 TestSuite suite_memmy_ast_postfix = TestSuite_Make(
     "Memmy AST Postfix", TestCase_Make(Test_MemmyAstParsesParenthesizedTypedReadsInArithmetic),
-    TestCase_Make(Test_MemmyAstParsesPocketReferenceReads), TestCase_Make(Test_MemmyAstParsesPocketReferenceWrites),
+    TestCase_Make(Test_MemmyAstParsesPocketReferenceReads), TestCase_Make(Test_MemmyAstRejectsPocketReferenceWrites),
     TestCase_Make(Test_MemmyAstParsesPocketReferenceAddressLists),
     TestCase_Make(Test_MemmyAstParsesPocketReferenceIndexingAddressLists),
     TestCase_Make(Test_MemmyAstRejectsInvalidReferenceScans), TestCase_Make(Test_MemmyAstParsesListTransforms),

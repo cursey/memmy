@@ -64,7 +64,7 @@ Test(Test_MemmyEvalVarsUnsetAndClearCommands)
     AssertEq(capture.count, 1);
     AssertEq(capture.results[0].kind, MemmyEval_ResultKind_Unset);
     AssertStrEq(capture.results[0].name, String8_Lit("foo"));
-    MemmyEval_Value value = {0};
+    Memmy_Value value = {0};
     AssertEq(MemmyEval_Env_Find(env, String8_Lit("foo"), &value), Memmy_Status_NotFound);
     AssertEq(MemmyEval_Env_Find(env, String8_Lit("bar"), &value), Memmy_Status_Ok);
 

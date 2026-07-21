@@ -13,7 +13,7 @@ struct MemmyEval_Binding
 {
     HashLink hash;
     String8 name;
-    MemmyEval_Value value;
+    Memmy_Value value;
 };
 struct MemmyEval_Env
 {
@@ -36,18 +36,6 @@ struct MemmyEval_ScanResultNode
 {
     ListLink link;
     Memmy_Addr address;
-};
-typedef struct MemmyEval_AddressNode MemmyEval_AddressNode;
-struct MemmyEval_AddressNode
-{
-    ListLink link;
-    Memmy_Addr address;
-};
-typedef struct MemmyEval_RangeNode MemmyEval_RangeNode;
-struct MemmyEval_RangeNode
-{
-    ListLink link;
-    Memmy_Range range;
 };
 typedef struct MemmyEval_ScanCollector MemmyEval_ScanCollector;
 struct MemmyEval_ScanCollector
@@ -92,49 +80,42 @@ struct MemmyEval_Exec
     Arena *process_arena;
     Memmy_Process *process;
     B32 has_current_item;
-    MemmyEval_Value current_item;
+    Memmy_Value current_item;
 };
 
 void MemmyEval_Error_Set(Memmy_Error *error, Memmy_Status status, String8 context, String8 message);
 void MemmyEval_Exec_Close(MemmyEval_Exec *exec);
 Memmy_Status MemmyEval_Exec_OpenProcess(MemmyEval_Exec *exec, U32 pid, Memmy_Process **out, Memmy_Error *error);
-Memmy_Status MemmyEval_Process_Require(MemmyEval_Exec *exec, MemmyEval_Value *value, String8 context,
-                                       Memmy_Process **out, Memmy_Error *error);
-Memmy_Status MemmyEval_ValueResult_Emit(MemmyEval_ResultSink const *sink, MemmyEval_Value value);
+Memmy_Status MemmyEval_Process_Require(MemmyEval_Exec *exec, String8 context, Memmy_Process **out, Memmy_Error *error);
+Memmy_Status MemmyEval_ValueResult_Emit(MemmyEval_ResultSink const *sink, Memmy_Value value);
 Memmy_Status MemmyEval_Command_Eval(MemmyEval_Exec *exec, MemmyAst_Statement const *statement,
                                     MemmyEval_ResultSink const *sink, Memmy_Error *error);
-Memmy_Status MemmyEval_Expr_EvalWithContext(MemmyEval_Exec *exec, MemmyAst_Node const *expr, MemmyEval_Value *out,
+Memmy_Status MemmyEval_Expr_EvalWithContext(MemmyEval_Exec *exec, MemmyAst_Node const *expr, Memmy_Value *out,
                                             Memmy_Error *error);
 Memmy_Status MemmyEval_Statement_EvalWithContext(MemmyEval_Exec *exec, MemmyAst_Statement const *statement,
                                                  MemmyEval_ResultSink const *sink, Memmy_Error *error);
-Memmy_Status MemmyEval_Value_AsConst(MemmyEval_Value *value, I64 *out, Memmy_Error *error);
-B32 MemmyEval_Value_IsIntegerTyped(MemmyEval_Value *value);
-Memmy_Status MemmyEval_Value_AsAddress(MemmyEval_Value *value, Memmy_Addr *out, Memmy_Error *error);
-Memmy_Status MemmyEval_Address_AddConst(Memmy_Addr address, I64 constant, Memmy_Addr *out, Memmy_Error *error);
-Memmy_Status MemmyEval_Value_ApplyBinary(MemmyAst_ConstOp op, MemmyEval_Value lhs, MemmyEval_Value rhs,
-                                         MemmyEval_Value *out, Memmy_Error *error);
-Memmy_Status MemmyEval_List_Transform(MemmyEval_Exec *exec, MemmyAst_Node const *expr, MemmyEval_Value *out,
+Memmy_Status MemmyEval_Value_AsI64(Memmy_Value const *value, I64 *out, Memmy_Error *error);
+Memmy_Status MemmyEval_Value_AsAddress(Memmy_Value const *value, Memmy_Addr *out, Memmy_Error *error);
+Memmy_Status MemmyEval_Value_ApplyBinary(MemmyAst_ConstOp op, Memmy_Value lhs, Memmy_Value rhs, Memmy_Value *out,
+                                         Memmy_Error *error);
+Memmy_Status MemmyEval_List_Transform(MemmyEval_Exec *exec, MemmyAst_Node const *expr, Memmy_Value *out,
                                       Memmy_Error *error);
-Memmy_Status MemmyEval_Value_Pipe(MemmyEval_Exec *exec, MemmyAst_Node const *expr, MemmyEval_Value *out,
+Memmy_Status MemmyEval_Value_Pipe(MemmyEval_Exec *exec, MemmyAst_Node const *expr, Memmy_Value *out,
                                   Memmy_Error *error);
-Memmy_Status MemmyEval_Target_Eval(MemmyEval_Exec *exec, MemmyAst_Node const *target, MemmyEval_Value *out,
+Memmy_Status MemmyEval_Target_Eval(MemmyEval_Exec *exec, MemmyAst_Node const *target, Memmy_Value *out,
                                    Memmy_Error *error);
-Memmy_Status MemmyEval_Type_Parse(String8 type_name, Memmy_Type *out, Memmy_Error *error);
-I64 MemmyEval_Integer_FromBytes(Memmy_EncodedValue value);
 Memmy_Status MemmyEval_Value_Read(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Type type,
-                                  Memmy_EncodedValue *out, Memmy_Error *error);
-Memmy_Status MemmyEval_Value_Parse(MemmyEval_Exec *exec, Memmy_Process *process, Memmy_Type type, String8 text,
-                                   Memmy_EncodedValue *out, Memmy_Error *error);
+                                  Memmy_Value *out, Memmy_Error *error);
 Memmy_Status MemmyEval_Pointer_Read(Memmy_Process *process, Memmy_Addr address, Memmy_Addr *out, Memmy_Error *error);
-Memmy_Status MemmyEval_Expr_EvalValue(MemmyEval_Exec *exec, MemmyAst_Node const *expr, MemmyEval_Value *out,
+Memmy_Status MemmyEval_Expr_EvalValue(MemmyEval_Exec *exec, MemmyAst_Node const *expr, Memmy_Value *out,
                                       Memmy_Error *error);
-Memmy_Status MemmyEval_Expr_EvalMemory(MemmyEval_Exec *exec, MemmyAst_Node const *expr, MemmyEval_Value *out,
+Memmy_Status MemmyEval_Expr_EvalMemory(MemmyEval_Exec *exec, MemmyAst_Node const *expr, Memmy_Value *out,
                                        Memmy_Error *error);
-Memmy_Status MemmyEval_Expr_EvalProcess(MemmyEval_Exec *exec, MemmyAst_Node const *expr, MemmyEval_Value *out,
+Memmy_Status MemmyEval_Expr_EvalProcess(MemmyEval_Exec *exec, MemmyAst_Node const *expr, Memmy_Value *out,
                                         Memmy_Error *error);
-Memmy_Status MemmyEval_Expr_EvalScan(MemmyEval_Exec *exec, MemmyAst_Node const *expr, MemmyEval_Value *out,
+Memmy_Status MemmyEval_Expr_EvalScan(MemmyEval_Exec *exec, MemmyAst_Node const *expr, Memmy_Value *out,
                                      Memmy_Error *error);
 Memmy_Status MemmyEval_DisasmX64_Scan(Arena *arena, Memmy_Process *process, Memmy_ScanOptions const *options,
                                       MemmyAst_DisasmPattern pattern, Memmy_ScanSink sink, Memmy_Error *error);
 
-#endif
+#endif // MEMMY_EVAL_INTERNAL_H

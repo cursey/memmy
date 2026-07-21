@@ -26,7 +26,7 @@ static void Test_EvalParseStatement(Arena *arena, char *text, MemmyAst_Statement
     AssertEq(MemmyAst_Statement_Parse(arena, String8_FromCStr(text), out, &diagnostic), MemmyAst_Status_Ok);
 }
 
-static void Test_EvalExprText(MemmyEval_Env *env, Arena *arena, char *text, MemmyEval_Value *out)
+static void Test_EvalExprText(MemmyEval_Env *env, Arena *arena, char *text, Memmy_Value *out)
 {
     MemmyAst_Node *expr = 0;
     Test_EvalParseExpr(arena, text, &expr);
@@ -45,7 +45,7 @@ struct Test_EvalResultCapture
 {
     MemmyEval_Result result;
     MemmyEval_Result results[16];
-    MemmyEval_Value value;
+    Memmy_Value value;
     U64 count;
 };
 
@@ -62,7 +62,7 @@ static Memmy_Status Test_EvalResultCapture_Push(void *user_data, MemmyEval_Resul
     return Memmy_Status_Ok;
 }
 
-static void Test_EvalStatementResult(MemmyEval_Env *env, Arena *arena, char *text, MemmyEval_Value *out)
+static void Test_EvalStatementResult(MemmyEval_Env *env, Arena *arena, char *text, Memmy_Value *out)
 {
     MemmyAst_Statement statement = {0};
     Test_EvalParseStatement(arena, text, &statement);

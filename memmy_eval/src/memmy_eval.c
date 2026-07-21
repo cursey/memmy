@@ -21,7 +21,7 @@ Memmy_Status MemmyEval_Statement_Eval(Arena *out_arena, MemmyEval_Env *env, Memm
     return status;
 }
 
-Memmy_Status MemmyEval_Expr_Eval(Arena *out_arena, MemmyEval_Env *env, MemmyAst_Node const *expr, MemmyEval_Value *out,
+Memmy_Status MemmyEval_Expr_Eval(Arena *out_arena, MemmyEval_Env *env, MemmyAst_Node const *expr, Memmy_Value *out,
                                  Memmy_Error *error)
 {
     Scratch scratch = out_arena != 0 && env != 0 ? Scratch_Begin((Arena *[]){out_arena, env->arena}, 2) : (Scratch){0};
@@ -46,7 +46,7 @@ Memmy_Status MemmyEval_Statement_EvalWithContext(MemmyEval_Exec *exec, MemmyAst_
         return Memmy_Status_InvalidArgument;
     }
 
-    MemmyEval_Value value = {0};
+    Memmy_Value value = {0};
     Memmy_Status status = Memmy_Status_Ok;
     if (statement->kind == MemmyAst_NodeKind_Assignment)
     {
@@ -79,13 +79,13 @@ Memmy_Status MemmyEval_Statement_EvalWithContext(MemmyEval_Exec *exec, MemmyAst_
     return status;
 }
 
-Memmy_Status MemmyEval_Expr_EvalWithContext(MemmyEval_Exec *exec, MemmyAst_Node const *expr, MemmyEval_Value *out,
+Memmy_Status MemmyEval_Expr_EvalWithContext(MemmyEval_Exec *exec, MemmyAst_Node const *expr, Memmy_Value *out,
                                             Memmy_Error *error)
 {
     MemmyEval_Env *env = exec != 0 ? exec->env : 0;
     if (out != 0)
     {
-        *out = (MemmyEval_Value){0};
+        *out = (Memmy_Value){0};
     }
     if (env == 0 || exec->out_arena == 0 || expr == 0 || out == 0)
     {
@@ -113,7 +113,6 @@ Memmy_Status MemmyEval_Expr_EvalWithContext(MemmyEval_Exec *exec, MemmyAst_Node 
         return MemmyEval_Expr_EvalProcess(exec, expr, out, error);
     case MemmyAst_NodeKind_Deref:
     case MemmyAst_NodeKind_TypedRead:
-    case MemmyAst_NodeKind_TypedWrite:
         return MemmyEval_Expr_EvalMemory(exec, expr, out, error);
     case MemmyAst_NodeKind_PatternScan:
     case MemmyAst_NodeKind_ValueScan:

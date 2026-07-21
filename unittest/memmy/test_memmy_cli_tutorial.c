@@ -101,7 +101,7 @@ Test(Test_MemmyCliTutorialRejectsJsonlWithoutBreakingFraming)
     AssertStrEq(out, String8_Lit("{\"type\":\"error\",\"status\":\"invalid_argument\",\"message\":\"tutorial is not "
                                  "available with --jsonl\",\"context\":\"tutorial\",\"input\":\"/tutorial\","
                                  "\"byte_offset\":0,\"byte_count\":0,\"os_code\":0}\n"
-                                 "{\"type\":\"value\",\"kind\":\"const\",\"value_kind\":\"const\",\"value\":42}\n"
+                                 "{\"type\":\"value\",\"value_type\":\"i64\",\"value\":42}\n"
                                  "{\"type\":\"error\",\"status\":\"invalid_argument\",\"message\":\"tutorial is not "
                                  "available with --jsonl\",\"context\":\"tutorial\",\"input\":\"/tutorial stop\","
                                  "\"byte_offset\":0,\"byte_count\":0,\"os_code\":0}\n"));
@@ -153,7 +153,7 @@ Test(Test_MemmyCliTutorialSemanticTranscriptAndRecovery)
     AssertTrue(String8_Find(out, String8_Lit("Tutorial 4/9"), 0) != STRING8_NPOS);
 
     AssertEq(Test_MemmyCliTutorial_Run(arena, &session, String8_Lit("/vars"), &out, &error), Memmy_Status_Ok);
-    AssertTrue(String8_Find(out, String8_Lit("forty_two const\n\nStep complete"), 0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("forty_two i64\n\nStep complete"), 0) != STRING8_NPOS);
     AssertTrue(String8_Find(out, String8_Lit("Tutorial 5/9"), 0) != STRING8_NPOS);
     Memmy_Addr fixture = Test_MemmyCliTutorial_FixtureAddress(out);
     AssertTrue(fixture != 0);
@@ -181,7 +181,7 @@ Test(Test_MemmyCliTutorialSemanticTranscriptAndRecovery)
                                        String8_PushF(arena, "@0x%llx as u32", (unsigned long long)(fixture + 8)), &out,
                                        &error),
              Memmy_Status_Ok);
-    AssertTrue(String8_Find(out, String8_Lit("0x12345678"), 0) != STRING8_NPOS);
+    AssertTrue(String8_Find(out, String8_Lit("u32 305419896"), 0) != STRING8_NPOS);
     AssertTrue(String8_Find(out, String8_Lit("\n\nStep complete"), 0) != STRING8_NPOS);
     AssertTrue(String8_Find(out, String8_Lit("Tutorial 7/9"), 0) != STRING8_NPOS);
 

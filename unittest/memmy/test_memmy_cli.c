@@ -98,7 +98,7 @@ Test(Test_MemmyCliInputStringEvaluatesWithOptions)
     AssertEq(MemmyCli_Input_RunString(arena, (I32)ArrayCount(argv), argv, String8_Lit("<client.dll>+0x20 as u8\n"),
                                       &out, &error),
              Memmy_Status_Ok);
-    AssertStrEq(out, String8_Lit("0x0000000000001020: u8 42  0x2a\n"));
+    AssertStrEq(out, String8_Lit("u8 42\n"));
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -122,7 +122,7 @@ Test(Test_MemmyCliFileInputEvaluatesReplString)
     String8 out = {0};
     Memmy_Error error = {0};
     AssertEq(MemmyCli_Argv_RunToString(arena, (I32)ArrayCount(argv), argv, &out, &error), Memmy_Status_Ok);
-    AssertStrEq(out, String8_Lit("[0x0000000000001000..0x0000000000003000)\n"));
+    AssertStrEq(out, String8_Lit("range [0x0000000000001000..0x0000000000003000)\n"));
     Scratch_End(scratch);
 
     AssertTrue(Os_FileDelete(path));

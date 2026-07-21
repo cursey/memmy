@@ -9,7 +9,7 @@ static void Test_EvalDisasm_ParseExpr(Arena *arena, char *text, MemmyAst_Node **
     AssertTrue(*out != 0);
 }
 
-static void Test_EvalDisasm_ExprText(MemmyEval_Env *env, Arena *arena, char *text, MemmyEval_Value *out)
+static void Test_EvalDisasm_ExprText(MemmyEval_Env *env, Arena *arena, char *text, Memmy_Value *out)
 {
     MemmyAst_Node *expr = 0;
     Test_EvalDisasm_ParseExpr(arena, text, &expr);
@@ -52,12 +52,12 @@ Test(Test_MemmyEvalDisasmX64MatchesInstructionSequence)
     U8 code[] = {0x8b, 0x05, 0x78, 0x56, 0x34, 0x12, 0x48, 0x31, 0xc0};
     Test_EvalDisasm_WriteBytes(&backend, 0x1010, code, ArrayCount(code));
 
-    MemmyEval_Value matches = {0};
+    Memmy_Value matches = {0};
     Test_EvalDisasm_ExprText(env, arena, "[@0x1000..+0x40] disasm x64 { mov reg, [rip+disp32]; xor rax, rax }",
                              &matches);
-    AssertEq(matches.kind, MemmyEval_ValueKind_AddressList);
-    AssertEq(matches.address_count, 1);
-    AssertEq(matches.addresses[0], 0x1010);
+    AssertTrue(Memmy_Type_IsList(matches.type));
+    AssertEq(matches.list.count, 1);
+    AssertEq(matches.list.addresses[0], 0x1010);
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -73,11 +73,11 @@ Test(Test_MemmyEvalDisasmX64WildcardRegisterMatches)
     U8 code[] = {0x8b, 0x0d, 0x78, 0x56, 0x34, 0x12};
     Test_EvalDisasm_WriteBytes(&backend, 0x1020, code, ArrayCount(code));
 
-    MemmyEval_Value matches = {0};
+    Memmy_Value matches = {0};
     Test_EvalDisasm_ExprText(env, arena, "[@0x1000..+0x40] disasm x64 { mov reg, [rip+disp32] }", &matches);
-    AssertEq(matches.kind, MemmyEval_ValueKind_AddressList);
-    AssertEq(matches.address_count, 1);
-    AssertEq(matches.addresses[0], 0x1020);
+    AssertTrue(Memmy_Type_IsList(matches.type));
+    AssertEq(matches.list.count, 1);
+    AssertEq(matches.list.addresses[0], 0x1020);
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -93,10 +93,10 @@ Test(Test_MemmyEvalDisasmX64ExactRegisterMismatchFails)
     U8 code[] = {0x8b, 0x0d, 0x78, 0x56, 0x34, 0x12};
     Test_EvalDisasm_WriteBytes(&backend, 0x1020, code, ArrayCount(code));
 
-    MemmyEval_Value matches = {0};
+    Memmy_Value matches = {0};
     Test_EvalDisasm_ExprText(env, arena, "[@0x1000..+0x40] disasm x64 { mov rax, [rip+disp32] }", &matches);
-    AssertEq(matches.kind, MemmyEval_ValueKind_AddressList);
-    AssertEq(matches.address_count, 0);
+    AssertTrue(Memmy_Type_IsList(matches.type));
+    AssertEq(matches.list.count, 0);
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -112,11 +112,11 @@ Test(Test_MemmyEvalDisasmX64NonConsecutiveInstructionFails)
     U8 code[] = {0x8b, 0x05, 0x78, 0x56, 0x34, 0x12, 0x90, 0x48, 0x31, 0xc0};
     Test_EvalDisasm_WriteBytes(&backend, 0x1010, code, ArrayCount(code));
 
-    MemmyEval_Value matches = {0};
+    Memmy_Value matches = {0};
     Test_EvalDisasm_ExprText(env, arena, "[@0x1000..+0x40] disasm x64 { mov reg, [rip+disp32]; xor rax, rax }",
                              &matches);
-    AssertEq(matches.kind, MemmyEval_ValueKind_AddressList);
-    AssertEq(matches.address_count, 0);
+    AssertTrue(Memmy_Type_IsList(matches.type));
+    AssertEq(matches.list.count, 0);
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
@@ -130,7 +130,7 @@ Test(Test_MemmyEvalDisasmX64RejectsUnknownMnemonicAndRegister)
     Test_EvalDisasm_Setup(arena, &backend, &env);
 
     MemmyAst_Node *expr = 0;
-    MemmyEval_Value value = {0};
+    Memmy_Value value = {0};
     Memmy_Error error = {0};
 
     Test_EvalDisasm_ParseExpr(arena, "[@0x1000..+0x40] disasm x64 { nope reg }", &expr);
