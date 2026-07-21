@@ -775,10 +775,12 @@ Memmy_Status MemmyEval_List_Transform(MemmyEval_Exec *exec, MemmyAst_Node const 
     {
         exec->has_current_item = 1;
         exec->current_item = MemmyEval_ListItem(input, i);
+        U64 out_pos = Arena_Pos(exec->out_arena);
         Memmy_Value item = {0};
         status = MemmyEval_Expr_EvalWithContext(exec, expr->rhs, &item, error);
         if (status != Memmy_Status_Ok || Memmy_Type_IsNull(item.type))
         {
+            Arena_PopTo(exec->out_arena, out_pos);
             status = Memmy_Status_Ok;
             continue;
         }
@@ -787,18 +789,25 @@ Memmy_Status MemmyEval_List_Transform(MemmyEval_Exec *exec, MemmyAst_Node const 
         if (Memmy_Type_IsList(item_type) || Memmy_Type_IsNull(item_type))
         {
             status = Memmy_Status_InvalidArgument;
-            break;
         }
-        if (!Memmy_Type_Eq(output_type, item_type))
+        else if (!Memmy_Type_Eq(output_type, item_type))
         {
             status = Memmy_Status_InvalidArgument;
-            break;
         }
-        for (U64 j = 0; j < count; j++)
+        for (U64 j = 0; status == Memmy_Status_Ok && j < count; j++)
         {
             MemmyEval_ItemNode *node = Arena_PushStruct(exec->transient_arena, MemmyEval_ItemNode);
-            node->value = Memmy_Type_IsList(item.type) ? MemmyEval_ListItem(item, j) : item;
-            List_PushBack(&items, &node->link);
+            Memmy_Value retained = Memmy_Type_IsList(item.type) ? MemmyEval_ListItem(item, j) : item;
+            status = Memmy_Value_Copy(exec->transient_arena, &retained, &node->value, error);
+            if (status == Memmy_Status_Ok)
+            {
+                List_PushBack(&items, &node->link);
+            }
+        }
+        Arena_PopTo(exec->out_arena, out_pos);
+        if (status != Memmy_Status_Ok)
+        {
+            break;
         }
     }
     exec->has_current_item = old_has_item;
@@ -896,8 +905,18 @@ Memmy_Status MemmyEval_Expr_EvalValue(MemmyEval_Exec *exec, MemmyAst_Node const 
     }
     if (expr->kind == MemmyAst_NodeKind_StringLiteral)
     {
-        *out = (Memmy_Value){.type = Memmy_Type_Str, .string = String8_Copy(exec->out_arena, expr->string)};
-        return Memmy_Status_Ok;
+        Memmy_Value literal = {.type = Memmy_Type_Str, .string = expr->string};
+        Memmy_EncodedValue encoded = {0};
+        U64 transient_pos = Arena_Pos(exec->transient_arena);
+        Memmy_Status status = Memmy_Value_Encode(exec->transient_arena, &literal, &encoded, 0);
+        Arena_PopTo(exec->transient_arena, transient_pos);
+        if (status != Memmy_Status_Ok)
+        {
+            MemmyEval_Error_Set(error, Memmy_Status_InvalidEncoding, String8_Lit("string"),
+                                String8_Lit("string literal is not valid utf-8"));
+            return Memmy_Status_InvalidEncoding;
+        }
+        return Memmy_Value_Copy(exec->out_arena, &literal, out, error);
     }
     if (expr->kind == MemmyAst_NodeKind_Variable)
     {

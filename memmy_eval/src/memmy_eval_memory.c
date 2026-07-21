@@ -23,6 +23,39 @@ static Memmy_Status MemmyEval_ReadExact(Memmy_Process *process, Memmy_Addr addre
     return Memmy_Status_Ok;
 }
 
+static Memmy_Status MemmyEval_ByteReader_Read(MemmyEval_ByteReader *reader, U8 *out, Memmy_Error *error)
+{
+    if (reader->pos == reader->count)
+    {
+        if (reader->terminal_status != Memmy_Status_Ok)
+        {
+            return reader->terminal_status;
+        }
+
+        U64 bytes_read = 0;
+        Memmy_Status status = Memmy_Process_Read(reader->process, reader->address + reader->offset, reader->buffer,
+                                                 sizeof(reader->buffer), &bytes_read, error);
+        if (status != Memmy_Status_Ok && bytes_read == 0)
+        {
+            return status;
+        }
+        if (status != Memmy_Status_Ok || bytes_read != sizeof(reader->buffer))
+        {
+            reader->terminal_status = status != Memmy_Status_Ok ? status : Memmy_Status_PartialRead;
+        }
+        reader->offset += bytes_read;
+        reader->pos = 0;
+        reader->count = bytes_read;
+        if (reader->count == 0)
+        {
+            return reader->terminal_status;
+        }
+    }
+
+    *out = reader->buffer[reader->pos++];
+    return Memmy_Status_Ok;
+}
+
 static Memmy_Status MemmyEval_String_Read(Arena *arena, Memmy_Process *process, Memmy_Addr address, Memmy_Type type,
                                           Memmy_Value *out, Memmy_Error *error)
 {
@@ -31,12 +64,19 @@ static Memmy_Status MemmyEval_String_Read(Arena *arena, Memmy_Process *process, 
         type.string.encoding == Memmy_StringEncoding_Utf8 ? MEMMY_EVAL_STRING_READ_MAX : MEMMY_EVAL_STRING_READ_MAX * 2;
     U8 *bytes = Arena_PushArrayNoZero(arena, U8, max_size + unit_size);
     U64 len = 0;
+    MemmyEval_ByteReader reader = {
+        .process = process,
+        .address = address,
+    };
     while (len < max_size)
     {
-        Memmy_Status status = MemmyEval_ReadExact(process, address + len, bytes + len, unit_size, error);
-        if (status != Memmy_Status_Ok)
+        for (U64 i = 0; i < unit_size; i++)
         {
-            return status;
+            Memmy_Status status = MemmyEval_ByteReader_Read(&reader, &bytes[len + i], error);
+            if (status != Memmy_Status_Ok)
+            {
+                return status;
+            }
         }
         len += unit_size;
         B32 terminated = 1;

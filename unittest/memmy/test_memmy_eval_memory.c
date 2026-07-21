@@ -57,6 +57,48 @@ Test(Test_MemmyEvalTypedReadsDecodeWithoutProvenance)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyEvalStringReadsUseBufferedProcessReads)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    MemmyEval_Env *env = 0;
+    Test_EvalEnvWithProcess(arena, &backend, &env);
+
+    Memory_Set(backend.memory, 'a', 200);
+    backend.memory[200] = 0;
+    backend.read_call_count = 0;
+    Memmy_Value text = {0};
+    Test_EvalExprText(env, arena, "@0x1000 as str", &text);
+    AssertEq(text.string.len, 200);
+    AssertEq(text.string.data[0], 'a');
+    AssertEq(text.string.data[199], 'a');
+    AssertEq(backend.read_call_count, 1);
+
+    for (U64 i = 0; i < 100; i++)
+    {
+        backend.memory[i * 2] = 'w';
+        backend.memory[i * 2 + 1] = 0;
+    }
+    backend.memory[200] = 0;
+    backend.memory[201] = 0;
+    backend.read_call_count = 0;
+    Test_EvalExprText(env, arena, "@0x1000 as wstr", &text);
+    AssertEq(text.string.len, 100);
+    AssertEq(text.string.data[0], 'w');
+    AssertEq(text.string.data[99], 'w');
+    AssertEq(backend.read_call_count, 1);
+
+    Memory_Copy(backend.memory + 0xf0, "end", 3);
+    backend.memory[0xf3] = 0;
+    backend.read_call_count = 0;
+    Test_EvalExprText(env, arena, "@0x10f0 as str", &text);
+    AssertStrEq(text.string, String8_Lit("end"));
+    AssertEq(backend.read_call_count, 1);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyEvalTypedWriteSyntaxIsRejected)
 {
     Arena *arena = Arena_CreateDefault();
@@ -98,5 +140,6 @@ Test(Test_MemmyEvalParenthesizedTypedReadsInAddressArithmetic)
 TestSuite suite_memmy_eval_memory =
     TestSuite_Make("Memmy Eval Memory", TestCase_Make(Test_MemmyEvalReadsAndScansEmitOrdinaryValues),
                    TestCase_Make(Test_MemmyEvalTypedReadsDecodeWithoutProvenance),
+                   TestCase_Make(Test_MemmyEvalStringReadsUseBufferedProcessReads),
                    TestCase_Make(Test_MemmyEvalTypedWriteSyntaxIsRejected),
                    TestCase_Make(Test_MemmyEvalParenthesizedTypedReadsInAddressArithmetic), );

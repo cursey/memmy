@@ -179,6 +179,13 @@ Test(Test_MemmyValueConversionsAndRejectedFamilies)
     AssertEq(Memmy_Value_Convert(arena, &converted, Memmy_Type_I16, &converted, 0), Memmy_Status_Ok);
     AssertEq(converted.signed_integer, 42);
 
+    Memmy_Value rounding_boundary = {
+        .type = Memmy_Type_U64,
+        .unsigned_integer = (1ull << 63) + (1ull << 39) + 1,
+    };
+    AssertEq(Memmy_Value_Convert(arena, &rounding_boundary, Memmy_Type_F32, &converted, 0), Memmy_Status_Ok);
+    AssertEq(converted.floating_bits, 0x5f000001u);
+
     F64 nan = NAN;
     U64 nan_bits = 0;
     Memory_Copy(&nan_bits, &nan, sizeof(nan_bits));
@@ -215,7 +222,13 @@ Test(Test_MemmyPatternParseBytesWildcardsAndRejection)
         Memmy_Status_Ok);
     AssertTrue(pattern.bytes[1].wildcard);
     AssertEq(Memmy_Pattern_Parse(arena, String8_Lit("48 ?? 89"), 0, &pattern, &error), Memmy_Status_ParseError);
+    AssertStrEq(error.context, String8_Lit("pattern"));
     AssertEq(Memmy_Pattern_Parse(arena, String8_Lit("gg"), 0, &pattern, &error), Memmy_Status_ParseError);
+    AssertStrEq(error.context, String8_Lit("pattern"));
+    AssertEq(Memmy_Pattern_Parse(arena, (String8){0}, 0, &pattern, &error), Memmy_Status_ParseError);
+    AssertStrEq(error.context, String8_Lit("pattern"));
+    AssertEq(Memmy_Pattern_Parse(0, String8_Lit("48"), 0, &pattern, &error), Memmy_Status_InvalidArgument);
+    AssertStrEq(error.context, String8_Lit("pattern"));
     Arena_Destroy(arena);
 }
 

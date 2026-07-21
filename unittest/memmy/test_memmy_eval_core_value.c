@@ -192,6 +192,24 @@ Test(Test_MemmyEvalOrdinaryLiteralDefaultsAndConversions)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyEvalRejectsMalformedUtf8StringLiterals)
+{
+    Arena *arena = Arena_CreateDefault();
+    MemmyEval_Env *env = MemmyEval_Env_Create(arena);
+    U8 source[] = {'"', 0xc0, 0x80, '"'};
+    MemmyAst_Node *expr = 0;
+    MemmyAst_Diagnostic diagnostic = {0};
+    AssertEq(MemmyAst_Expr_Parse(arena, String8_Make(source, sizeof(source)), &expr, &diagnostic), MemmyAst_Status_Ok);
+
+    Memmy_Value value = {0};
+    Memmy_Error error = {0};
+    AssertEq(MemmyEval_Expr_Eval(env, expr, &value, &error), Memmy_Status_InvalidEncoding);
+    AssertTrue(Memmy_Type_IsNull(value.type));
+    AssertStrEq(error.context, String8_Lit("string"));
+    AssertEq(error.input.len, 0);
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyEvalIntegerPromotionsAndUsualConversions)
 {
     Arena *arena = Arena_CreateDefault();
@@ -338,6 +356,7 @@ TestSuite suite_memmy_eval_core_value = TestSuite_Make(
     TestCase_Make(Test_MemmyEvalWrongTypeInIntegerExpressionFails), TestCase_Make(Test_MemmyEvalAddressOverflowFails),
     TestCase_Make(Test_MemmyEvalAddressDifferenceBoundaries), TestCase_Make(Test_MemmyEvalResultsUseCallerOutputArena),
     TestCase_Make(Test_MemmyEvalOrdinaryLiteralDefaultsAndConversions),
+    TestCase_Make(Test_MemmyEvalRejectsMalformedUtf8StringLiterals),
     TestCase_Make(Test_MemmyEvalIntegerPromotionsAndUsualConversions),
     TestCase_Make(Test_MemmyEvalIntegerOverflowWrapAndDivisionRules),
     TestCase_Make(Test_MemmyEvalAddressConstructionRejectsNegativeAndAcceptsU64),

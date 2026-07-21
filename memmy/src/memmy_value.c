@@ -52,6 +52,27 @@ static void Memmy_Value_ErrorInput(Memmy_Error *error, Memmy_Status status, Stri
     }
 }
 
+static void Memmy_Pattern_Error(Memmy_Error *error, Memmy_Status status, String8 message)
+{
+    Memmy_Error_Set(error, status, String8_Lit("pattern"), message);
+}
+
+static void Memmy_Pattern_ErrorInput(Memmy_Error *error, Memmy_Status status, String8 message, String8 input,
+                                     U64 offset, U64 count)
+{
+    if (error != 0)
+    {
+        *error = (Memmy_Error){
+            .status = status,
+            .message = message,
+            .input = input,
+            .byte_offset = offset,
+            .byte_count = count,
+            .context = String8_Lit("pattern"),
+        };
+    }
+}
+
 static B32 Memmy_Type_IntegerWidthIsValid(U32 bit_count)
 {
     return bit_count == 8 || bit_count == 16 || bit_count == 32 || bit_count == 64;
@@ -629,6 +650,24 @@ static U64 Memmy_Value_FloatBitsFromF64(F64 number, U32 bit_count)
     return bits;
 }
 
+static U64 Memmy_Value_IntegerFloatBits(Memmy_Value const *value, U32 bit_count)
+{
+    U64 bits = 0;
+    if (bit_count == 32)
+    {
+        F32 number = value->type.integer.is_signed ? (F32)value->signed_integer : (F32)value->unsigned_integer;
+        U32 bits32 = 0;
+        Memory_Copy(&bits32, &number, sizeof(bits32));
+        bits = bits32;
+    }
+    else
+    {
+        F64 number = value->type.integer.is_signed ? (F64)value->signed_integer : (F64)value->unsigned_integer;
+        Memory_Copy(&bits, &number, sizeof(bits));
+    }
+    return bits;
+}
+
 Memmy_Status Memmy_Value_Convert(Arena *arena, Memmy_Value const *value, Memmy_Type destination_type, Memmy_Value *out,
                                  Memmy_Error *error)
 {
@@ -676,6 +715,16 @@ Memmy_Status Memmy_Value_Convert(Arena *arena, Memmy_Value const *value, Memmy_T
     else if ((Memmy_Type_IsInteger(value->type) || Memmy_Type_IsFloat(value->type)) &&
              (Memmy_Type_IsInteger(destination_type) || Memmy_Type_IsFloat(destination_type)))
     {
+        if (Memmy_Type_IsInteger(value->type) && Memmy_Type_IsFloat(destination_type))
+        {
+            result.floating_bits = Memmy_Value_IntegerFloatBits(value, destination_type.floating.bit_count);
+            *out = result;
+            if (error != 0)
+            {
+                *error = (Memmy_Error){0};
+            }
+            return Memmy_Status_Ok;
+        }
         F64 number = 0;
         if (Memmy_Type_IsFloat(value->type))
         {
@@ -882,7 +931,7 @@ Memmy_Status Memmy_Pattern_Parse(Arena *arena, String8 text, Memmy_PatternParseF
     }
     if (arena == 0 || out == 0)
     {
-        Memmy_Value_Error(error, Memmy_Status_InvalidArgument, String8_Lit("missing arena or output pattern"));
+        Memmy_Pattern_Error(error, Memmy_Status_InvalidArgument, String8_Lit("missing arena or output pattern"));
         return Memmy_Status_InvalidArgument;
     }
     U64 count = 0;
@@ -905,7 +954,7 @@ Memmy_Status Memmy_Pattern_Parse(Arena *arena, String8 text, Memmy_PatternParseF
     }
     if (count == 0)
     {
-        Memmy_Value_ErrorInput(error, Memmy_Status_ParseError, String8_Lit("expected pattern"), text, 0, 0);
+        Memmy_Pattern_ErrorInput(error, Memmy_Status_ParseError, String8_Lit("expected pattern"), text, 0, 0);
         return Memmy_Status_ParseError;
     }
     Memmy_PatternByte *bytes = Arena_PushArray(arena, Memmy_PatternByte, count);
@@ -931,8 +980,8 @@ Memmy_Status Memmy_Pattern_Parse(Arena *arena, String8 text, Memmy_PatternParseF
         {
             if ((flags & Memmy_PatternParseFlag_AllowWildcards) == 0)
             {
-                Memmy_Value_ErrorInput(error, Memmy_Status_ParseError, String8_Lit("wildcards are not allowed"), text,
-                                       start, token.len);
+                Memmy_Pattern_ErrorInput(error, Memmy_Status_ParseError, String8_Lit("wildcards are not allowed"), text,
+                                         start, token.len);
                 return Memmy_Status_ParseError;
             }
             bytes[index++].wildcard = 1;
@@ -943,8 +992,8 @@ Memmy_Status Memmy_Pattern_Parse(Arena *arena, String8 text, Memmy_PatternParseF
             U32 lo = token.len == 2 ? Memmy_HexDigit_Value(token.data[1]) : U32_MAX;
             if (hi >= 16 || lo >= 16)
             {
-                Memmy_Value_ErrorInput(error, Memmy_Status_ParseError, String8_Lit("invalid byte token"), text, start,
-                                       token.len);
+                Memmy_Pattern_ErrorInput(error, Memmy_Status_ParseError, String8_Lit("invalid byte token"), text, start,
+                                         token.len);
                 return Memmy_Status_ParseError;
             }
             bytes[index++].value = (U8)((hi << 4) | lo);

@@ -377,6 +377,41 @@ Test(Test_MemmyEvalTransformsPreserveResolvedTypesWhenEmptyOrFiltered)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyEvalTransformsReclaimFilteredItemAllocations)
+{
+    Arena *env_arena = Arena_CreateDefault();
+    Arena *parse_arena = Arena_CreateDefault();
+    Arena *out_arena = Arena_CreateDefault();
+    Test_MemmyBackend backend = {0};
+    MemmyEval_Env *env = 0;
+    Test_EvalEnvWithProcess(env_arena, &backend, &env);
+    Test_MemmyBackend_AddUnreadableRange(&backend, 0x1000, 0x1100);
+
+    Memmy_Addr addresses[128];
+    for (U64 i = 0; i < ArrayCount(addresses); i++)
+    {
+        addresses[i] = 0x1000;
+    }
+    Memmy_Value input = Test_ListValue(env_arena, Memmy_Type_Address, ArrayCount(addresses));
+    input.list.addresses = addresses;
+    AssertEq(MemmyEval_Env_Set(env, String8_Lit("addresses"), input), Memmy_Status_Ok);
+
+    MemmyAst_Node *expr = 0;
+    Test_EvalParseExpr(parse_arena, "$addresses => $ as str", &expr);
+    U64 out_pos = Arena_Pos(out_arena);
+    Memmy_Value value = {0};
+    AssertEq((MemmyEval_Expr_Eval)(out_arena, env, expr, &value, 0), Memmy_Status_Ok);
+    AssertTrue(Memmy_Type_IsList(value.type));
+    AssertTrue(Memmy_Type_Eq(*value.type.list.element_type, Memmy_Type_Str));
+    AssertEq(value.list.count, 0);
+    AssertTrue(Arena_Pos(out_arena) - out_pos < Kilobytes(16));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(out_arena);
+    Arena_Destroy(parse_arena);
+    Arena_Destroy(env_arena);
+}
+
 Test(Test_MemmyEvalTransformsFlattenAndRestoreNestedFlowBindings)
 {
     Arena *arena = Arena_CreateDefault();
@@ -427,4 +462,5 @@ TestSuite suite_memmy_eval_scan_transform = TestSuite_Make(
     TestCase_Make(Test_MemmyEvalNilShortCircuitsTransform),
     TestCase_Make(Test_MemmyEvalIndexesAndTransformsEveryListFamily),
     TestCase_Make(Test_MemmyEvalTransformsPreserveResolvedTypesWhenEmptyOrFiltered),
+    TestCase_Make(Test_MemmyEvalTransformsReclaimFilteredItemAllocations),
     TestCase_Make(Test_MemmyEvalTransformsFlattenAndRestoreNestedFlowBindings), );
