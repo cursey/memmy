@@ -27,6 +27,23 @@ Test(Test_SubU64Checked)
     AssertEq(out, 123);
 }
 
+Test(Test_MulU64Checked)
+{
+    U64 out = 0;
+    AssertTrue(MulU64Checked(6, 7, &out));
+    AssertEq(out, 42);
+
+    AssertTrue(MulU64Checked(U64_MAX, 1, &out));
+    AssertEq(out, U64_MAX);
+
+    AssertTrue(MulU64Checked(0, U64_MAX, &out));
+    AssertEq(out, 0);
+
+    out = 123;
+    AssertTrue(!MulU64Checked(U64_MAX, 2, &out));
+    AssertEq(out, 123);
+}
+
 Test(Test_AddI64ToU64Checked)
 {
     U64 out = 0;
@@ -143,6 +160,6 @@ Test(Test_ModI64Checked)
 }
 
 TestSuite suite_checked = TestSuite_Make(
-    "Checked", TestCase_Make(Test_AddU64Checked), TestCase_Make(Test_SubU64Checked),
+    "Checked", TestCase_Make(Test_AddU64Checked), TestCase_Make(Test_SubU64Checked), TestCase_Make(Test_MulU64Checked),
     TestCase_Make(Test_AddI64ToU64Checked), TestCase_Make(Test_AddI64Checked), TestCase_Make(Test_SubI64Checked),
     TestCase_Make(Test_MulI64Checked), TestCase_Make(Test_DivI64Checked), TestCase_Make(Test_ModI64Checked), );

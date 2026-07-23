@@ -17,9 +17,9 @@ void *Os_MemReserve(U64 size)
     return VirtualAlloc(0, size, MEM_RESERVE, PAGE_NOACCESS);
 }
 
-void Os_MemCommit(void *ptr, U64 size)
+B32 Os_MemCommit(void *ptr, U64 size)
 {
-    VirtualAlloc(ptr, size, MEM_COMMIT, PAGE_READWRITE);
+    return VirtualAlloc(ptr, size, MEM_COMMIT, PAGE_READWRITE) != 0;
 }
 
 void Os_MemDecommit(void *ptr, U64 size)

@@ -105,11 +105,12 @@ static Memmy_Status MemmyEval_ModuleResolver_Push(void *user_data, Memmy_Module 
                             String8_Lit("module target is ambiguous"));
         return Memmy_Status_Ambiguous;
     }
-    resolver->match = *module;
+    resolver->base = module->base;
+    resolver->size = module->size;
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status MemmyEval_Module_Resolve(MemmyEval_Exec *exec, MemmyAst_Node const *target, Memmy_Module *out,
+static Memmy_Status MemmyEval_Module_Resolve(MemmyEval_Exec *exec, MemmyAst_Node const *target, Memmy_Range *out,
                                              Memmy_Process **out_process, Memmy_Error *error)
 {
     MemmyEval_Env *env = exec->env;
@@ -142,7 +143,11 @@ static Memmy_Status MemmyEval_Module_Resolve(MemmyEval_Exec *exec, MemmyAst_Node
         return Memmy_Status_NotFound;
     }
 
-    *out = resolver.match;
+    status = Memmy_Range_FromStartLength(resolver.base, resolver.size, out, error);
+    if (status != Memmy_Status_Ok)
+    {
+        return status;
+    }
     if (out_process != 0)
     {
         *out_process = process;
@@ -155,15 +160,8 @@ Memmy_Status MemmyEval_Target_Eval(MemmyEval_Exec *exec, MemmyAst_Node const *ta
 {
     if (target->target_module.len != 0)
     {
-        Memmy_Module module = {0};
-        Memmy_Status status = MemmyEval_Module_Resolve(exec, target, &module, 0, error);
-        if (status != Memmy_Status_Ok)
-        {
-            return status;
-        }
-
         Memmy_Range range = {0};
-        status = Memmy_Range_FromStartLength(module.base, module.size, &range, error);
+        Memmy_Status status = MemmyEval_Module_Resolve(exec, target, &range, 0, error);
         if (status != Memmy_Status_Ok)
         {
             return status;

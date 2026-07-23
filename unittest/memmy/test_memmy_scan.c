@@ -219,6 +219,42 @@ Test(Test_MemmyScanSinkReceivesMatchesInAddressOrder)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyScanReusesOneTransientBufferAcrossRegions)
+{
+    Arena *arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    test_backend.region_count = 0;
+    Test_MemmyBackend_AddRegion(&test_backend, 4242, 0x1010, 0x10, Memmy_RegionAccess_Read,
+                                Memmy_RegionState_Committed);
+    Test_MemmyBackend_AddRegion(&test_backend, 4242, 0x1030, 0x10, Memmy_RegionAccess_Read,
+                                Memmy_RegionState_Committed);
+    Test_MemmyBackend_AddRegion(&test_backend, 4242, 0x1050, 0x10, Memmy_RegionAccess_Read,
+                                Memmy_RegionState_Committed);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+    Memmy_Process *process = 0;
+    Test_OpenProcess(arena, &process);
+    Memmy_Pattern pattern = {0};
+    Test_ParsePattern(arena, "ff", &pattern);
+    Memmy_ScanOptions options = {.range = {.start = 0x1000, .end = 0x1070}, .chunk_size = 8};
+    Test_ScanResultList results = {0};
+    Memmy_Error error = {0};
+    U64 arena_pos = Arena_Pos(arena);
+
+    AssertEq(Memmy_Process_ScanPattern(arena, process, &options, pattern, Test_ScanSink(&results, arena), &error),
+             Memmy_Status_Ok);
+    AssertEq(results.list.count, 0);
+    AssertTrue(test_backend.read_call_count > 3);
+    AssertTrue(test_backend.first_read_buffer != 0);
+    AssertEq(test_backend.read_buffer_changed, 0);
+    AssertEq(Arena_Pos(arena), arena_pos);
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(arena);
+}
+
 Test(Test_MemmyScanPropagatesSinkError)
 {
     Arena *arena = Arena_CreateDefault();
@@ -740,7 +776,9 @@ Test(Test_MemmyValueScanFindsValueAcrossAdjacentReadableRegions)
 }
 TestSuite suite_memmy_scan = TestSuite_Make(
     "Memmy Scan", TestCase_Make(Test_MemmyScanFindsBeginningMiddleAndEnd),
-    TestCase_Make(Test_MemmyScanSinkReceivesMatchesInAddressOrder), TestCase_Make(Test_MemmyScanPropagatesSinkError),
+    TestCase_Make(Test_MemmyScanSinkReceivesMatchesInAddressOrder),
+    TestCase_Make(Test_MemmyScanReusesOneTransientBufferAcrossRegions),
+    TestCase_Make(Test_MemmyScanPropagatesSinkError),
     TestCase_Make(Test_MemmyScanDoesNotReadOutsideRequestedRangeAndAllowsZeroLength),
     TestCase_Make(Test_MemmyScanFindsChunkBoundaryMatchesAndHonorsLimit),
     TestCase_Make(Test_MemmyScanUsesRegionIntersectionWhenAvailable),

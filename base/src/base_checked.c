@@ -26,6 +26,17 @@ B32 SubU64Checked(U64 a, U64 b, U64 *out)
     return 1;
 }
 
+B32 MulU64Checked(U64 a, U64 b, U64 *out)
+{
+    if (a != 0 && b > U64_MAX / a)
+    {
+        return 0;
+    }
+
+    *out = a * b;
+    return 1;
+}
+
 B32 AddI64ToU64Checked(U64 a, I64 b, U64 *out)
 {
     if (b >= 0)

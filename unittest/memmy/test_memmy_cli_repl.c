@@ -111,6 +111,54 @@ Test(Test_MemmyCliReplSessionKeepsAssignmentsAcrossLines)
     Arena_Destroy(arena);
 }
 
+Test(Test_MemmyCliReplSessionSurvivesClearedLineArena)
+{
+    Arena *session_arena = Arena_CreateDefault();
+    Arena *line_arena = Arena_CreateDefault();
+    Test_MemmyBackend test_backend = {0};
+    Test_MemmyBackend_Init(&test_backend);
+    Test_MemmyBackend_AddModule(&test_backend, 4242, String8_Lit("client.dll"), String8_Lit("C:\\test\\client.dll"),
+                                0x1000, 0x1000);
+
+    Memmy_Context ctx = {.backend = Test_MemmyBackend_AsBackend(&test_backend)};
+    Memmy_Context_Set(&ctx);
+    MemmyCli_ReplSession session = MemmyCli_ReplSession_Begin(session_arena);
+    String8 out = {0};
+    Memmy_Error error = {0};
+    B32 should_exit = 0;
+
+    Arena_Clear(line_arena);
+    AssertEq(
+        MemmyCli_ReplSession_RunLine(line_arena, &session, String8_Lit("/attach 4242"), &out, &should_exit, &error),
+        Memmy_Status_Ok);
+    Arena_Clear(line_arena);
+    AssertStrEq(MemmyCli_ReplSession_Prompt(line_arena, &session), String8_Lit("[test-process:4242]> "));
+
+    Arena_Clear(line_arena);
+    AssertEq(MemmyCli_ReplSession_RunLine(line_arena, &session, String8_Lit("$addr = <client.dll>+0x20"), &out,
+                                          &should_exit, &error),
+             Memmy_Status_Ok);
+    Arena_Clear(line_arena);
+    AssertEq(MemmyCli_ReplSession_RunLine(line_arena, &session, String8_Lit("$addr"), &out, &should_exit, &error),
+             Memmy_Status_Ok);
+    AssertStrEq(out, String8_Lit("address 0x0000000000001020\n"));
+
+    Arena_Clear(line_arena);
+    AssertEq(MemmyCli_ReplSession_RunLine(line_arena, &session, String8_Lit("/tutorial"), &out, &should_exit, &error),
+             Memmy_Status_Ok);
+    AssertTrue(String8_Find(out, String8_Lit("Welcome to the interactive Memmy tutorial"), 0) != STRING8_NPOS);
+    Arena_Clear(line_arena);
+    AssertEq(
+        MemmyCli_ReplSession_RunLine(line_arena, &session, String8_Lit("/tutorial hint"), &out, &should_exit, &error),
+        Memmy_Status_Ok);
+    AssertTrue(String8_Find(out, String8_Lit("Hint:"), 0) != STRING8_NPOS);
+    AssertStrEq(MemmyCli_ReplSession_Prompt(line_arena, &session), String8_Lit("[test-process:4242]> "));
+
+    Memmy_Context_Set(0);
+    Arena_Destroy(line_arena);
+    Arena_Destroy(session_arena);
+}
+
 Test(Test_MemmyCliReplCalculatesModuleRelativeOffsets)
 {
     Arena *arena = Arena_CreateDefault();
@@ -337,6 +385,7 @@ TestSuite suite_memmy_cli_repl =
                    TestCase_Make(Test_MemmyCliReplStringEvaluatesLinesAsAscii),
                    TestCase_Make(Test_MemmyCliReplStringFormatsErrorsAndContinues),
                    TestCase_Make(Test_MemmyCliReplSessionKeepsAssignmentsAcrossLines),
+                   TestCase_Make(Test_MemmyCliReplSessionSurvivesClearedLineArena),
                    TestCase_Make(Test_MemmyCliReplCalculatesModuleRelativeOffsets),
                    TestCase_Make(Test_MemmyCliReplSessionUsesAttachedProcessForModuleTarget),
                    TestCase_Make(Test_MemmyCliReplSessionUsesAttachedProcessRange),

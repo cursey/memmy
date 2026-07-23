@@ -27,7 +27,8 @@ typedef struct MemmyEval_ModuleResolver MemmyEval_ModuleResolver;
 struct MemmyEval_ModuleResolver
 {
     String8 name;
-    Memmy_Module match;
+    Memmy_Addr base;
+    U64 size;
     U64 match_count;
     Memmy_Error *error;
 };

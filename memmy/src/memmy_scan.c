@@ -143,7 +143,7 @@ static Memmy_Status Memmy_Scan_EmitMatch(Memmy_ScanSink sink, Memmy_Addr address
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status Memmy_Process_ScanRange(Arena *arena, Memmy_Process *process, Memmy_Range range,
+static Memmy_Status Memmy_Process_ScanRange(U8 *buffer, Memmy_Process *process, Memmy_Range range,
                                             Memmy_ScanOptions const *options, Memmy_ScanNeedle needle,
                                             Memmy_ScanSink sink, U64 *match_count, B32 *any_read, B32 *out_stop,
                                             Memmy_Addr *last_match, B32 *has_last_match, Memmy_Error *error)
@@ -157,7 +157,6 @@ static Memmy_Status Memmy_Process_ScanRange(Arena *arena, Memmy_Process *process
         step = 1;
     }
 
-    U8 *buffer = Arena_PushArrayNoZero(arena, U8, chunk_size);
     Memmy_Addr pos = range.start;
     while (pos < range.end && !*out_stop)
     {
@@ -235,7 +234,7 @@ static Memmy_Status Memmy_Process_ScanRange(Arena *arena, Memmy_Process *process
 typedef struct Memmy_ScanRangeTraversal Memmy_ScanRangeTraversal;
 struct Memmy_ScanRangeTraversal
 {
-    Arena *arena;
+    U8 *buffer;
     Memmy_Process *process;
     Memmy_ScanOptions const *options;
     Memmy_ScanNeedle needle;
@@ -256,7 +255,7 @@ static Memmy_Status Memmy_ScanRangeTraversal_Scan(void *user_data, Memmy_Range r
         return Memmy_Status_Ok;
     }
 
-    return Memmy_Process_ScanRange(traversal->arena, traversal->process, range, traversal->options, traversal->needle,
+    return Memmy_Process_ScanRange(traversal->buffer, traversal->process, range, traversal->options, traversal->needle,
                                    traversal->sink, &traversal->match_count, &traversal->any_read, &traversal->stop,
                                    &traversal->last_match, &traversal->has_last_match, traversal->error);
 }
@@ -286,8 +285,12 @@ static Memmy_Status Memmy_Process_ScanNeedle(Arena *arena, Memmy_Process *proces
         return Memmy_Status_InvalidArgument;
     }
 
+    U64 chunk_size = options->chunk_size != 0 ? options->chunk_size : MEMMY_DEFAULT_SCAN_CHUNK_SIZE;
+    chunk_size = Max(chunk_size, needle.max_size);
+    Scratch scratch = Scratch_Begin(&arena, 1);
+    U8 *buffer = Arena_PushArrayNoZero(scratch.arena, U8, chunk_size);
     Memmy_ScanRangeTraversal traversal = {
-        .arena = arena,
+        .buffer = buffer,
         .process = process,
         .options = options,
         .needle = needle,
@@ -302,13 +305,16 @@ static Memmy_Status Memmy_Process_ScanNeedle(Arena *arena, Memmy_Process *proces
                                                                   Memmy_RegionAccess_Read, range_sink, error);
     if (status != Memmy_Status_Ok)
     {
+        Scratch_End(scratch);
         return status;
     }
     if (!traversal.any_read)
     {
         Memmy_Error_Set(error, Memmy_Status_Unreadable, String8_Lit("scan"), String8_Lit("scan range is unreadable"));
+        Scratch_End(scratch);
         return Memmy_Status_Unreadable;
     }
+    Scratch_End(scratch);
     return Memmy_Status_Ok;
 }
 

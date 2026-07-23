@@ -29,9 +29,9 @@ void *Os_MemReserve(U64 size)
     return (p == MAP_FAILED) ? 0 : p;
 }
 
-void Os_MemCommit(void *ptr, U64 size)
+B32 Os_MemCommit(void *ptr, U64 size)
 {
-    mprotect(ptr, size, PROT_READ | PROT_WRITE);
+    return mprotect(ptr, size, PROT_READ | PROT_WRITE) == 0;
 }
 
 void Os_MemDecommit(void *ptr, U64 size)

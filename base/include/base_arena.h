@@ -25,13 +25,14 @@ void Arena_Destroy(Arena *a);
 
 void *Arena_Push(Arena *a, U64 size, U64 align);
 void *Arena_PushZero(Arena *a, U64 size, U64 align);
+void *Arena_PushArraySized(Arena *a, U64 element_size, U64 count, U64 align, B32 zero_memory);
 void Arena_PopTo(Arena *a, U64 pos);
 void Arena_Clear(Arena *a);
 U64 Arena_Pos(Arena *a);
 
 #define Arena_PushStruct(a, T) (T *)Arena_PushZero((a), sizeof(T), _Alignof(T))
-#define Arena_PushArray(a, T, n) (T *)Arena_PushZero((a), sizeof(T) * (n), _Alignof(T))
-#define Arena_PushArrayNoZero(a, T, n) (T *)Arena_Push((a), sizeof(T) * (n), _Alignof(T))
+#define Arena_PushArray(a, T, n) (T *)Arena_PushArraySized((a), sizeof(T), (n), _Alignof(T), 1)
+#define Arena_PushArrayNoZero(a, T, n) (T *)Arena_PushArraySized((a), sizeof(T), (n), _Alignof(T), 0)
 
 // ---------------------------------------------------------------------------
 // Scratch arenas
@@ -46,5 +47,8 @@ struct Scratch
 
 Scratch Scratch_Begin(Arena **conflicts, U64 conflict_count);
 void Scratch_End(Scratch s);
+// Releases this thread's scratch arenas. Call before the thread exits; no scratch scope may be active.
+// Repeated calls are safe.
+void Scratch_ReleaseThread(void);
 
 #endif // BASE_ARENA_H

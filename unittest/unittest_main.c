@@ -94,14 +94,18 @@ int main(int argc, char **argv)
     if (argc == 2 && strcmp(argv[1], "--list-cases") == 0)
     {
         Test_ListAll(suites, ArrayCount(suites));
+        Scratch_ReleaseThread();
         return 0;
     }
 
     if (argc == 3 && strcmp(argv[1], "--case") == 0)
     {
-        return Test_RunCase(suites, ArrayCount(suites), argv[2]) ? 0 : 1;
+        B32 passed = Test_RunCase(suites, ArrayCount(suites), argv[2]);
+        Scratch_ReleaseThread();
+        return passed ? 0 : 1;
     }
 
     Test_RunAll(suites, ArrayCount(suites));
+    Scratch_ReleaseThread();
     return (test__total_fail > 0) ? 1 : 0;
 }

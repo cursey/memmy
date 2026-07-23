@@ -23,20 +23,23 @@ static Memmy_Status MemmyCli_Main_WriteStdout(void *user_data, String8 text)
     return Memmy_Status_Ok;
 }
 
-static Memmy_Status MemmyCli_Main_RunRepl(Arena *arena)
+static Memmy_Status MemmyCli_Main_RunRepl(void)
 {
     char line[4096];
     Memmy_Status result = Memmy_Status_Ok;
-    MemmyCli_ReplSession session = MemmyCli_ReplSession_Begin(arena);
+    Arena *session_arena = Arena_CreateDefault();
+    Arena *line_arena = Arena_CreateDefault();
+    MemmyCli_ReplSession session = MemmyCli_ReplSession_Begin(session_arena);
     B32 separate_next_prompt = 0;
     for (;;)
     {
+        Arena_Clear(line_arena);
         if (separate_next_prompt)
         {
             Os_WriteStdout(String8_Lit("\n"));
             separate_next_prompt = 0;
         }
-        String8 prompt = MemmyCli_ReplSession_Prompt(arena, &session);
+        String8 prompt = MemmyCli_ReplSession_Prompt(line_arena, &session);
         Os_WriteStdout(prompt);
         fflush(stdout);
         if (fgets(line, sizeof(line), stdin) == 0)
@@ -48,7 +51,7 @@ static Memmy_Status MemmyCli_Main_RunRepl(Arena *arena)
         String8 output = {0};
         B32 should_exit = 0;
         Memmy_Status status =
-            MemmyCli_ReplSession_RunLine(arena, &session, String8_FromCStr(line), &output, &should_exit, &error);
+            MemmyCli_ReplSession_RunLine(line_arena, &session, String8_FromCStr(line), &output, &should_exit, &error);
         if (output.len > 0)
         {
             Os_WriteStdout(output);
@@ -56,7 +59,7 @@ static Memmy_Status MemmyCli_Main_RunRepl(Arena *arena)
         }
         if (status != Memmy_Status_Ok)
         {
-            MemmyCli_Main_WriteError(arena, status, &error);
+            MemmyCli_Main_WriteError(line_arena, status, &error);
             separate_next_prompt = 1;
         }
         if (result == Memmy_Status_Ok && status != Memmy_Status_Ok)
@@ -69,6 +72,8 @@ static Memmy_Status MemmyCli_Main_RunRepl(Arena *arena)
             break;
         }
     }
+    Arena_Destroy(line_arena);
+    Arena_Destroy(session_arena);
     return result;
 }
 
@@ -92,10 +97,11 @@ int main(int argc, char **argv)
         }
         else
         {
-            status = MemmyCli_Main_RunRepl(arena);
+            status = MemmyCli_Main_RunRepl();
         }
         Memmy_Context_Set(0);
         Arena_Destroy(arena);
+        Scratch_ReleaseThread();
         return MemmyCli_ExitCode_FromStatus(status);
     }
 
@@ -140,5 +146,6 @@ int main(int argc, char **argv)
 
     Memmy_Context_Set(0);
     Arena_Destroy(arena);
+    Scratch_ReleaseThread();
     return MemmyCli_ExitCode_FromStatus(status);
 }

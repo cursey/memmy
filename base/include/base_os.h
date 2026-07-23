@@ -10,7 +10,7 @@
 // ---------------------------------------------------------------------------
 
 void *Os_MemReserve(U64 size);
-void Os_MemCommit(void *ptr, U64 size);
+B32 Os_MemCommit(void *ptr, U64 size);
 void Os_MemDecommit(void *ptr, U64 size);
 void Os_MemRelease(void *ptr, U64 size);
 

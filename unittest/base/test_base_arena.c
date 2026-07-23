@@ -26,6 +26,48 @@ Test(Test_ArenaPushBasic)
     Arena_Destroy(a);
 }
 
+Test(Test_ArenaSmallReserve)
+{
+    Arena *a = Arena_Create(Kilobytes(4));
+    AssertEq(a->cap, Kilobytes(4));
+    AssertEq(a->commit, Kilobytes(4));
+
+    U64 available = a->cap - Arena_Pos(a);
+    U8 *bytes = Arena_PushArrayNoZero(a, U8, available);
+    bytes[available - 1] = 0xa5;
+    AssertEq(bytes[available - 1], 0xa5);
+    AssertEq(Arena_Pos(a), a->cap);
+    Arena_Destroy(a);
+}
+
+Test(Test_ArenaFinalPartialCommit)
+{
+    U64 reserve_size = ARENA_COMMIT_CHUNK + 123;
+    Arena *a = Arena_Create(reserve_size);
+    AssertEq(a->commit, ARENA_COMMIT_CHUNK);
+
+    U64 available = a->cap - Arena_Pos(a);
+    U8 *bytes = Arena_PushArrayNoZero(a, U8, available);
+    bytes[available - 1] = 0x5a;
+    AssertEq(bytes[available - 1], 0x5a);
+    AssertEq(a->commit, reserve_size);
+    AssertEq(Arena_Pos(a), reserve_size);
+    Arena_Destroy(a);
+}
+
+Test(Test_ArenaPushCountedArray)
+{
+    Arena *a = Arena_Create(Kilobytes(4));
+    U64 *values = Arena_PushArray(a, U64, 4);
+    for (U64 i = 0; i < 4; i++)
+    {
+        AssertEq(values[i], 0);
+        values[i] = i + 1;
+    }
+    AssertEq(values[3], 4);
+    Arena_Destroy(a);
+}
+
 Test(Test_ArenaPushAlignment)
 {
     Arena *a = Arena_CreateDefault();
@@ -132,8 +174,29 @@ Test(Test_ScratchRestoresPos)
     Scratch_End(s2);
 }
 
+Test(Test_ScratchReleaseThreadIsRepeatableAndReinitializes)
+{
+    Scratch scratch = Scratch_Begin(0, 0);
+    U64 *value = Arena_PushStruct(scratch.arena, U64);
+    *value = 42;
+    Scratch_End(scratch);
+
+    Scratch_ReleaseThread();
+    Scratch_ReleaseThread();
+
+    scratch = Scratch_Begin(0, 0);
+    value = Arena_PushStruct(scratch.arena, U64);
+    AssertEq(*value, 0);
+    *value = 77;
+    AssertEq(*value, 77);
+    Scratch_End(scratch);
+}
+
 TestSuite suite_arena = TestSuite_Make(
     "Arena", TestCase_Make(Test_ArenaCreateDestroy), TestCase_Make(Test_ArenaPushBasic),
-    TestCase_Make(Test_ArenaPushAlignment), TestCase_Make(Test_ArenaPushZero), TestCase_Make(Test_ArenaPopTo),
-    TestCase_Make(Test_ArenaClear), TestCase_Make(Test_ArenaLargeAlloc), TestCase_Make(Test_ScratchBasic),
-    TestCase_Make(Test_ScratchNoConflict), TestCase_Make(Test_ScratchNested), TestCase_Make(Test_ScratchRestoresPos), );
+    TestCase_Make(Test_ArenaSmallReserve), TestCase_Make(Test_ArenaFinalPartialCommit),
+    TestCase_Make(Test_ArenaPushCountedArray), TestCase_Make(Test_ArenaPushAlignment),
+    TestCase_Make(Test_ArenaPushZero), TestCase_Make(Test_ArenaPopTo), TestCase_Make(Test_ArenaClear),
+    TestCase_Make(Test_ArenaLargeAlloc), TestCase_Make(Test_ScratchBasic), TestCase_Make(Test_ScratchNoConflict),
+    TestCase_Make(Test_ScratchNested), TestCase_Make(Test_ScratchRestoresPos),
+    TestCase_Make(Test_ScratchReleaseThreadIsRepeatableAndReinitializes), );
